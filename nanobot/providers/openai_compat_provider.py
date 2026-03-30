@@ -317,19 +317,47 @@ class OpenAICompatProvider(LLMProvider):
 
         usage_map = cls._maybe_mapping(usage_obj)
         if usage_map is not None:
-            return {
+            result = {
                 "prompt_tokens": int(usage_map.get("prompt_tokens") or 0),
                 "completion_tokens": int(usage_map.get("completion_tokens") or 0),
                 "total_tokens": int(usage_map.get("total_tokens") or 0),
             }
-
-        if usage_obj:
-            return {
+        elif usage_obj:
+            result = {
                 "prompt_tokens": getattr(usage_obj, "prompt_tokens", 0) or 0,
                 "completion_tokens": getattr(usage_obj, "completion_tokens", 0) or 0,
                 "total_tokens": getattr(usage_obj, "total_tokens", 0) or 0,
             }
-        return {}
+        else:
+            return {}
+
+        # Extract cached_tokens from various provider formats.
+        # Priority: prompt_tokens_details > top-level cached_tokens > prompt_cache_hit_tokens
+        cached = 0
+        # 1. OpenAI / Zhipu / MiniMax / Qwen / SiliconFlow / 豆包 / Mistral / xAI:
+        #    nested prompt_tokens_details.cached_tokens
+        details = (usage_map or {}).get("prompt_tokens_details") if usage_map else None
+        if not cls._maybe_mapping(details):
+            details = getattr(usage_obj, "prompt_tokens_details", None) if usage_obj else None
+        details_map = cls._maybe_mapping(details)
+        if details_map is not None:
+            cached = int(details_map.get("cached_tokens") or 0)
+        elif details is not None:
+            cached = int(getattr(details, "cached_tokens", 0) or 0)
+        # 2. StepFun / Moonshot: top-level usage.cached_tokens
+        if not cached and usage_map is not None:
+            cached = int(usage_map.get("cached_tokens") or 0)
+        if not cached and usage_obj and not usage_map:
+            cached = int(getattr(usage_obj, "cached_tokens", 0) or 0)
+        # 3. DeepSeek / SiliconFlow extra: top-level prompt_cache_hit_tokens
+        if not cached and usage_map is not None:
+            cached = int(usage_map.get("prompt_cache_hit_tokens") or 0)
+        if not cached and usage_obj and not usage_map:
+            cached = int(getattr(usage_obj, "prompt_cache_hit_tokens", 0) or 0)
+        if cached:
+            result["cached_tokens"] = cached
+
+        return result
 
     def _parse(self, response: Any) -> LLMResponse:
         if isinstance(response, str):
