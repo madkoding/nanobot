@@ -36,7 +36,8 @@ from nanobot.utils.helpers import image_placeholder_text, truncate_text
 from nanobot.utils.runtime import EMPTY_FINAL_RESPONSE_MESSAGE
 
 if TYPE_CHECKING:
-    from nanobot.config.schema import ChannelsConfig, ExecToolConfig, WebToolsConfig
+if TYPE_CHECKING:
+    from nanobot.config.schema import ChannelsConfig, ExecToolConfig, InputLimitsConfig, WebToolsConfig
     from nanobot.cron.service import CronService
 
 
@@ -173,6 +174,7 @@ class AgentLoop:
         provider_retry_mode: str = "standard",
         web_config: WebToolsConfig | None = None,
         exec_config: ExecToolConfig | None = None,
+        input_limits: InputLimitsConfig | None = None,
         cron_service: CronService | None = None,
         restrict_to_workspace: bool = False,
         session_manager: SessionManager | None = None,
@@ -180,8 +182,11 @@ class AgentLoop:
         channels_config: ChannelsConfig | None = None,
         timezone: str | None = None,
         hooks: list[AgentHook] | None = None,
+        supports_vision: bool | None = None,
+        supports_audio: bool | None = None,
+        supports_video: bool | None = None,
     ):
-        from nanobot.config.schema import ExecToolConfig, WebToolsConfig
+        from nanobot.config.schema import ExecToolConfig, InputLimitsConfig, WebToolsConfig
 
         defaults = AgentDefaults()
         self.bus = bus
@@ -206,13 +211,17 @@ class AgentLoop:
         self.provider_retry_mode = provider_retry_mode
         self.web_config = web_config or WebToolsConfig()
         self.exec_config = exec_config or ExecToolConfig()
+        self.input_limits = input_limits or InputLimitsConfig()
         self.cron_service = cron_service
         self.restrict_to_workspace = restrict_to_workspace
         self._start_time = time.time()
         self._last_usage: dict[str, int] = {}
         self._extra_hooks: list[AgentHook] = hooks or []
 
-        self.context = ContextBuilder(workspace, timezone=timezone)
+        self.context = ContextBuilder(workspace, timezone=timezone, input_limits=self.input_limits)
+        self._supports_vision = supports_vision
+        self._supports_audio = supports_audio
+        self._supports_video = supports_video
         self.sessions = session_manager or SessionManager(workspace)
         self.tools = ToolRegistry()
         self.runner = AgentRunner(provider)
@@ -532,6 +541,9 @@ class AgentLoop:
                 history=history,
                 current_message=msg.content, channel=channel, chat_id=chat_id,
                 current_role=current_role,
+                supports_vision=self._supports_vision,
+                supports_audio=self._supports_audio,
+                supports_video=self._supports_video,
             )
             final_content, _, all_msgs = await self._run_agent_loop(
                 messages, session=session, channel=channel, chat_id=chat_id,
@@ -571,6 +583,9 @@ class AgentLoop:
             current_message=msg.content,
             media=msg.media if msg.media else None,
             channel=msg.channel, chat_id=msg.chat_id,
+            supports_vision=self._supports_vision,
+            supports_audio=self._supports_audio,
+            supports_video=self._supports_video,
         )
 
         async def _bus_progress(content: str, *, tool_hint: bool = False) -> None:
