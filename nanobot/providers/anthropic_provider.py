@@ -51,6 +51,8 @@ class AnthropicProvider(LLMProvider):
             client_kw["base_url"] = api_base
         if extra_headers:
             client_kw["default_headers"] = extra_headers
+        # Keep retries centralized in LLMProvider._run_with_retry to avoid retry amplification.
+        client_kw["max_retries"] = 0
         self._client = AsyncAnthropic(**client_kw)
 
     @staticmethod
@@ -58,8 +60,19 @@ class AnthropicProvider(LLMProvider):
         if headers is None:
             return None
 
+        def _header_value(name: str) -> Any:
+            if hasattr(headers, "get"):
+                value = headers.get(name) or headers.get(name.title())
+                if value is not None:
+                    return value
+            if isinstance(headers, dict):
+                for key, value in headers.items():
+                    if isinstance(key, str) and key.lower() == name.lower():
+                        return value
+            return None
+
         try:
-            retry_ms = headers.get("retry-after-ms")
+            retry_ms = _header_value("retry-after-ms")
             if retry_ms is not None:
                 value = float(retry_ms) / 1000.0
                 if value > 0:
@@ -67,7 +80,7 @@ class AnthropicProvider(LLMProvider):
         except (TypeError, ValueError):
             pass
 
-        retry_after = headers.get("retry-after")
+        retry_after = _header_value("retry-after")
         try:
             if retry_after is not None:
                 value = float(retry_after)
@@ -89,6 +102,10 @@ class AnthropicProvider(LLMProvider):
     def _error_response(cls, e: Exception) -> LLMResponse:
         response = getattr(e, "response", None)
         headers = getattr(response, "headers", None)
+        msg = f"Error calling LLM: {e}"
+        retry_after = cls._parse_retry_after_headers(headers)
+        if retry_after is None:
+            retry_after = LLMProvider._extract_retry_after(msg)
 
         status_code = getattr(e, "status_code", None)
         if status_code is None and response is not None:
@@ -112,11 +129,12 @@ class AnthropicProvider(LLMProvider):
             error_kind = "connection"
 
         return LLMResponse(
-            content=f"Error calling LLM: {e}",
+            content=msg,
             finish_reason="error",
+            retry_after=retry_after,
             error_status_code=int(status_code) if status_code is not None else None,
             error_kind=error_kind,
-            error_retry_after_s=cls._parse_retry_after_headers(headers),
+            error_retry_after_s=retry_after,
             error_should_retry=should_retry,
         )
 
@@ -469,6 +487,10 @@ class AnthropicProvider(LLMProvider):
     # ------------------------------------------------------------------
     # Public API
     # ------------------------------------------------------------------
+
+    @classmethod
+    def _handle_error(cls, e: Exception) -> LLMResponse:
+        return cls._error_response(e)
 
     async def chat(
         self,

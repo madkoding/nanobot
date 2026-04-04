@@ -137,6 +137,7 @@ class OpenAICompatProvider(LLMProvider):
             api_key=api_key or "no-key",
             base_url=effective_base,
             default_headers=default_headers,
+            max_retries=0,
         )
 
     def _setup_env(self, api_key: str, api_base: str | None) -> None:
@@ -387,9 +388,13 @@ class OpenAICompatProvider(LLMProvider):
                 content = self._extract_text_content(
                     response_map.get("content") or response_map.get("output_text")
                 )
+                reasoning_content = self._extract_text_content(
+                    response_map.get("reasoning_content")
+                )
                 if content is not None:
                     return LLMResponse(
                         content=content,
+                        reasoning_content=reasoning_content,
                         finish_reason=str(response_map.get("finish_reason") or "stop"),
                         usage=self._extract_usage(response_map),
                     )
@@ -484,6 +489,7 @@ class OpenAICompatProvider(LLMProvider):
     @classmethod
     def _parse_chunks(cls, chunks: list[Any]) -> LLMResponse:
         content_parts: list[str] = []
+        reasoning_parts: list[str] = []
         tc_bufs: dict[int, dict[str, Any]] = {}
         finish_reason = "stop"
         usage: dict[str, int] = {}
@@ -537,6 +543,9 @@ class OpenAICompatProvider(LLMProvider):
                 text = cls._extract_text_content(delta.get("content"))
                 if text:
                     content_parts.append(text)
+                text = cls._extract_text_content(delta.get("reasoning_content"))
+                if text:
+                    reasoning_parts.append(text)
                 for idx, tc in enumerate(delta.get("tool_calls") or []):
                     _accum_tc(tc, idx)
                 usage = cls._extract_usage(chunk_map) or usage
@@ -551,6 +560,10 @@ class OpenAICompatProvider(LLMProvider):
             delta = choice.delta
             if delta and delta.content:
                 content_parts.append(delta.content)
+            if delta:
+                reasoning = getattr(delta, "reasoning_content", None)
+                if reasoning:
+                    reasoning_parts.append(reasoning)
             for tc in (delta.tool_calls or []) if delta else []:
                 _accum_tc(tc, getattr(tc, "index", 0))
 
@@ -569,6 +582,7 @@ class OpenAICompatProvider(LLMProvider):
             ],
             finish_reason=finish_reason,
             usage=usage,
+            reasoning_content="".join(reasoning_parts) or None,
         )
 
     @staticmethod
@@ -645,9 +659,14 @@ class OpenAICompatProvider(LLMProvider):
         )
         body_text = body if isinstance(body, str) else str(body) if body is not None else ""
         msg = f"Error: {body_text.strip()[:500]}" if body_text.strip() else f"Error calling LLM: {e}"
+        response = getattr(e, "response", None)
+        retry_after = LLMProvider._extract_retry_after_from_headers(getattr(response, "headers", None))
+        if retry_after is None:
+            retry_after = LLMProvider._extract_retry_after(msg)
         return LLMResponse(
             content=msg,
             finish_reason="error",
+            retry_after=retry_after,
             **OpenAICompatProvider._extract_error_metadata(e),
         )
 
@@ -706,6 +725,9 @@ class OpenAICompatProvider(LLMProvider):
                     break
                 chunks.append(chunk)
                 if on_content_delta and chunk.choices:
+                    text = getattr(chunk.choices[0].delta, "reasoning_content", None)
+                    if text:
+                        await on_content_delta(text)
                     text = getattr(chunk.choices[0].delta, "content", None)
                     if text:
                         await on_content_delta(text)
