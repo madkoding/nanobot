@@ -316,8 +316,8 @@ class TestToolHintInlineStreaming:
         ch._client.im.v1.message.create.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_tool_hint_stripped_on_next_delta(self):
-        """When new delta arrives, the previously appended tool hint is removed."""
+    async def test_tool_hint_preserved_on_next_delta(self):
+        """When new delta arrives, the tool hint is kept as permanent content and delta appends after it."""
         ch = _make_channel()
         suffix = "\n\n---\n🔧 web_fetch(\"url\")"
         ch._stream_bufs["oc_chat1"] = _FeishuStreamBuf(
@@ -330,7 +330,9 @@ class TestToolHintInlineStreaming:
         await ch.send_delta("oc_chat1", " continued")
 
         buf = ch._stream_bufs["oc_chat1"]
-        assert buf.text == "Partial answer continued"
+        assert "Partial answer" in buf.text
+        assert "🔧 web_fetch" in buf.text
+        assert buf.text.endswith(" continued")
         assert buf.tool_hint_len == 0
 
     @pytest.mark.asyncio
@@ -377,8 +379,8 @@ class TestToolHintInlineStreaming:
         assert buf.text.endswith("🔧 $ git status")
 
     @pytest.mark.asyncio
-    async def test_tool_hint_stripped_on_resuming_flush(self):
-        """When _resuming flushes the buffer, tool hint suffix is cleaned."""
+    async def test_tool_hint_preserved_on_resuming_flush(self):
+        """When _resuming flushes the buffer, tool hint is kept as permanent content."""
         ch = _make_channel()
         suffix = "\n\n---\n🔧 $ cd /project"
         ch._stream_bufs["oc_chat1"] = _FeishuStreamBuf(
@@ -391,12 +393,13 @@ class TestToolHintInlineStreaming:
         await ch.send_delta("oc_chat1", "", metadata={"_stream_end": True, "_resuming": True})
 
         buf = ch._stream_bufs["oc_chat1"]
-        assert buf.text == "Partial answer"
+        assert "Partial answer" in buf.text
+        assert "🔧 $ cd /project" in buf.text
         assert buf.tool_hint_len == 0
 
     @pytest.mark.asyncio
-    async def test_tool_hint_stripped_on_final_stream_end(self):
-        """When final _stream_end closes the card, tool hint suffix is cleaned from text."""
+    async def test_tool_hint_preserved_on_final_stream_end(self):
+        """When final _stream_end closes the card, tool hint is kept in the final text."""
         ch = _make_channel()
         suffix = "\n\n---\n🔧 web_fetch(\"url\")"
         ch._stream_bufs["oc_chat1"] = _FeishuStreamBuf(
@@ -411,7 +414,7 @@ class TestToolHintInlineStreaming:
 
         assert "oc_chat1" not in ch._stream_bufs
         update_call = ch._client.cardkit.v1.card_element.content.call_args[0][0]
-        assert "🔧" not in update_call.body.content
+        assert "🔧" in update_call.body.content
 
 
 class TestSendMessageReturnsId:
