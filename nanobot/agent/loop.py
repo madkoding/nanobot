@@ -632,7 +632,7 @@ class AgentLoop:
             metadata=meta,
         )
 
-    _MEDIA_PLACEHOLDER_TYPES = {"image_url", "input_audio", "video_url"}
+    _MEDIA_PLACEHOLDER_TYPES = LLMProvider._STRIP_MEDIA_TYPES
 
     def _sanitize_persisted_blocks(
         self,

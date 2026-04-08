@@ -2,6 +2,7 @@
 
 import base64
 import mimetypes
+import os
 import platform
 from pathlib import Path
 from typing import Any
@@ -16,6 +17,7 @@ from nanobot.utils.helpers import (
     current_time_str,
     detect_audio_mime,
     detect_image_mime,
+    video_mime_compat,
 )
 from nanobot.utils.prompt_templates import render_template
 
@@ -32,6 +34,18 @@ class ContextBuilder:
         self.memory = MemoryStore(workspace)
         self.skills = SkillsLoader(workspace)
         self.input_limits = input_limits or InputLimitsConfig()
+
+    @staticmethod
+    def _file_size_ok(p: Path, max_bytes: int) -> bool | None:
+        """Check file size via stat without reading into memory.
+
+        Returns True if size is within limit, False if oversized,
+        None if file cannot be stat'd (caller should try read_bytes instead).
+        """
+        try:
+            return os.stat(p).st_size <= max_bytes
+        except OSError:
+            return None
 
     def build_system_prompt(self, skill_names: list[str] | None = None) -> str:
         """Build the system prompt from identity, bootstrap files, memory, and skills."""
@@ -171,7 +185,8 @@ class ContextBuilder:
             text: The user text message.
             media: List of file paths to media files.
             supports_vision: True=model supports images, False=use placeholder,
-                             None=unconfigured (send images as before).
+                             None=unconfigured (send images as before, let
+                             provider/retry handle degradation).
             supports_audio: True=model supports native audio, False/None=skip
                             (channel layer already transcribed).
             supports_video: True=model supports native video, False/None=use
@@ -210,14 +225,21 @@ class ContextBuilder:
         # Process images
         for path in image_media:
             p = Path(path)
+
+            # When explicitly marked as non-vision, downgrade to text placeholder
+            if supports_vision is False:
+                blocks.append({"type": "text", "text": f"[image: {p}]"})
+                continue
+
+            size_ok = self._file_size_ok(p, limits.max_input_image_bytes)
+            if size_ok is False:
+                size_mb = limits.max_input_image_bytes // (1024 * 1024)
+                notes.append(f"[Skipped image: file too large ({p.name}, limit {size_mb} MB)]")
+                continue
             try:
                 raw = p.read_bytes()
             except OSError:
                 notes.append(f"[Skipped image: unable to read ({p.name or path})]")
-                continue
-            if len(raw) > limits.max_input_image_bytes:
-                size_mb = limits.max_input_image_bytes // (1024 * 1024)
-                notes.append(f"[Skipped image: file too large ({p.name}, limit {size_mb} MB)]")
                 continue
             img_mime = detect_image_mime(raw[:32]) or mimetypes.guess_type(path)[0]
             if not img_mime or not img_mime.startswith("image/"):
@@ -232,10 +254,24 @@ class ContextBuilder:
             p = Path(path)
             guessed_mime = mimetypes.guess_type(path)[0] or ""
             is_audio = guessed_mime.startswith("audio/")
+            is_video = guessed_mime.startswith("video/")
+
+            # Pre-check file size via stat to avoid reading oversized files into memory.
+            # Determine the relevant byte limit based on detected media type.
+            _size_limit = 0
+            if is_audio or is_video:
+                _size_limit = limits.max_input_audio_bytes if is_audio else limits.max_input_video_bytes
+            _stat_size_ok = self._file_size_ok(p, _size_limit) if _size_limit else None
+            if _stat_size_ok is False:
+                size_mb = _size_limit // (1024 * 1024)
+                label = "audio" if is_audio else "video"
+                notes.append(f"[Skipped {label}: file too large ({p.name}, limit {size_mb} MB)]")
+                continue
 
             try:
                 raw = p.read_bytes()
             except OSError:
+                notes.append(f"[Skipped file: unable to read ({p.name or path})]")
                 continue
 
             # Audio detection: by magic bytes or by filename
@@ -264,10 +300,9 @@ class ContextBuilder:
                     blocks.append({"type": "text", "text": f"[audio: {p}]"})
                 continue
 
-            # Video detection: by filename extension
-            is_video = guessed_mime.startswith("video/")
+            # Video detection (already classified above)
             if is_video:
-                if supports_video is True:
+                if supports_video is True and video_mime_compat(guessed_mime):
                     video_count += 1
                     if video_count > limits.max_input_videos:
                         if video_count == limits.max_input_videos + 1:

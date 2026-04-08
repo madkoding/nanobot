@@ -338,11 +338,10 @@ class TestInputLimitsAudioVideo:
         assert audio_blocks[0]["input_audio"]["format"] == "mp3"
 
     def test_missing_file_gracefully_skipped(self, ctx, tmp_path):
-        """Missing file should be gracefully skipped."""
+        """Missing file should be skipped with a visible note."""
         result = ctx._build_user_content("hello", [str(tmp_path / "ghost.wav")], supports_audio=True)
-        # Missing file is silently skipped (non-image path uses continue on OSError)
         assert isinstance(result, str)
-        assert result == "hello"
+        assert "[Skipped file: unable to read" in result
 
 
 # ── _strip_media_content ──────────────────────────────────────────────
@@ -495,3 +494,175 @@ class TestCodexAudioConversion:
         audio_items = [i for i in result["content"] if i.get("type") == "input_audio"]
         assert len(audio_items) == 1
         assert audio_items[0]["input_audio"]["data"] == "abc123"
+
+    def test_video_url_converted_to_text_placeholder(self):
+        from nanobot.providers.openai_codex_provider import _convert_user_message
+        content = [
+            {"type": "video_url", "video_url": {"url": "data:video/mp4;base64,abc"},
+             "_meta": {"path": "/video.mp4"}},
+            {"type": "text", "text": "watch"},
+        ]
+        result = _convert_user_message(content)
+        text_items = [i for i in result["content"] if i.get("type") == "input_text"]
+        assert any("[video:" in i.get("text", "") for i in text_items)
+
+
+# ── New tests for review fixes ──────────────────────────────────────────
+
+class TestSupportsVisionFalse:
+    """Tests for supports_vision=False (image downgrade to placeholder)."""
+
+    @pytest.fixture
+    def ctx(self, tmp_path):
+        return ContextBuilder(tmp_path, timezone="UTC")
+
+    def _make_png(self, size: int = 64) -> bytes:
+        import struct, zlib
+        header = b"\x89PNG\r\n\x1a\n"
+        ihdr_data = struct.pack(">IIBBBBB", 1, 1, 8, 2, 0, 0, 0)
+        ihdr_crc = zlib.crc32(b"IHDR" + ihdr_data) & 0xFFFFFFFF
+        ihdr = struct.pack(">I", 13) + b"IHDR" + ihdr_data + struct.pack(">I", ihdr_crc)
+        raw = b"\x00\x00\x00\x00"
+        idat_crc = zlib.crc32(b"IDAT" + raw) & 0xFFFFFFFF
+        idat = struct.pack(">I", len(raw)) + b"IDAT" + raw + struct.pack(">I", idat_crc)
+        iend_crc = zlib.crc32(b"IEND") & 0xFFFFFFFF
+        iend = struct.pack(">I", 0) + b"IEND" + struct.pack(">I", iend_crc)
+        return header + ihdr + idat + iend
+
+    def test_vision_false_downgrades_to_placeholder(self, ctx, tmp_path):
+        img_path = tmp_path / "test.png"
+        img_path.write_bytes(self._make_png())
+        result = ctx._build_user_content("look", [str(img_path)], supports_vision=False)
+        assert isinstance(result, list)
+        assert not any(b.get("type") == "image_url" for b in result)
+        assert any("[image:" in (b.get("text") or "") for b in result)
+
+    def test_vision_false_no_file_read(self, ctx, tmp_path):
+        """With supports_vision=False, file should not be read (no crash on missing)."""
+        missing = tmp_path / "nonexistent.png"
+        result = ctx._build_user_content("look", [str(missing)], supports_vision=False)
+        assert isinstance(result, list)
+        assert any("[image:" in (b.get("text") or "") for b in result)
+
+
+class TestAudioVideoCountLimits:
+    """Tests for max_input_audios / max_input_videos count enforcement."""
+
+    @pytest.fixture
+    def ctx(self, tmp_path):
+        return ContextBuilder(tmp_path, timezone="UTC",
+                              input_limits=InputLimitsConfig(
+                                  max_input_audios=1,
+                                  max_input_videos=1,
+                                  max_input_audio_bytes=10 * 1024 * 1024,
+                                  max_input_video_bytes=20 * 1024 * 1024,
+                              ))
+
+    def _make_wav(self) -> bytes:
+        data = b"\x00\x00"
+        fmt_chunk = (
+            b"\x01\x00" + (1).to_bytes(2, "little") + (44100).to_bytes(4, "little")
+            + (88200).to_bytes(4, "little") + (2).to_bytes(2, "little")
+            + (16).to_bytes(2, "little")
+        )
+        return (
+            b"RIFF" + (36 + len(data)).to_bytes(4, "little") + b"WAVE"
+            + b"fmt " + (16).to_bytes(4, "little") + fmt_chunk
+            + b"data" + len(data).to_bytes(4, "little") + data
+        )
+
+    def _make_mp4(self) -> bytes:
+        ftyp_data = b"isom" + b"\x00" * 12
+        return (8 + len(ftyp_data)).to_bytes(4, "big") + b"ftyp" + ftyp_data
+
+    def test_audio_count_limit_enforced(self, ctx, tmp_path):
+        """Only first audio should be accepted; second should be skipped."""
+        wav1 = tmp_path / "a1.wav"
+        wav1.write_bytes(self._make_wav())
+        wav2 = tmp_path / "a2.wav"
+        wav2.write_bytes(self._make_wav())
+        result = ctx._build_user_content("listen", [str(wav1), str(wav2)], supports_audio=True)
+        # Should have note about skip + one audio block
+        if isinstance(result, list):
+            audio_blocks = [b for b in result if b.get("type") == "input_audio"]
+            assert len(audio_blocks) == 1
+            text_blocks = [b for b in result if b.get("type") == "text"]
+            notes_text = " ".join(b.get("text", "") for b in text_blocks)
+            assert "Skipped audio" in notes_text
+        else:
+            # All skipped, result is string
+            assert "Skipped audio" in result
+
+    def test_video_count_limit_enforced(self, ctx, tmp_path):
+        """Only first video should be accepted; second should be skipped."""
+        mp4_1 = tmp_path / "v1.mp4"
+        mp4_1.write_bytes(self._make_mp4())
+        mp4_2 = tmp_path / "v2.mp4"
+        mp4_2.write_bytes(self._make_mp4())
+        result = ctx._build_user_content("watch", [str(mp4_1), str(mp4_2)], supports_video=True)
+        if isinstance(result, list):
+            video_blocks = [b for b in result if b.get("type") == "video_url"]
+            assert len(video_blocks) == 1
+            text_blocks = [b for b in result if b.get("type") == "text"]
+            notes_text = " ".join(b.get("text", "") for b in text_blocks)
+            assert "Skipped video" in notes_text
+        else:
+            assert "Skipped video" in result
+
+
+class TestVideoMimeCompat:
+    """Tests for video_mime_compat function."""
+
+    def test_compatible_mp4(self):
+        from nanobot.utils.helpers import video_mime_compat
+        assert video_mime_compat("video/mp4") is True
+
+    def test_compatible_webm(self):
+        from nanobot.utils.helpers import video_mime_compat
+        assert video_mime_compat("video/webm") is True
+
+    def test_compatible_quicktime(self):
+        from nanobot.utils.helpers import video_mime_compat
+        assert video_mime_compat("video/quicktime") is True
+
+    def test_incompatible_avi(self):
+        from nanobot.utils.helpers import video_mime_compat
+        assert video_mime_compat("video/x-msvideo") is False
+
+    def test_none(self):
+        from nanobot.utils.helpers import video_mime_compat
+        assert video_mime_compat(None) is False
+
+
+class TestSupportsAudioCaseInsensitive:
+    """Case insensitivity for supports_audio / supports_video."""
+
+    def test_audio_case_insensitive(self):
+        d = AgentDefaults(audio_models=["GPT-4o"])
+        assert d.supports_audio("openai/gpt-4o-audio") is True
+
+    def test_video_case_insensitive(self):
+        d = AgentDefaults(video_models=["GLM-5V"])
+        assert d.supports_video("zhipu/glm-5v-turbo") is True
+
+
+class TestNonImageOSErrorNote:
+    """Non-image media OSError should produce a visible note."""
+
+    @pytest.fixture
+    def ctx(self, tmp_path):
+        return ContextBuilder(tmp_path, timezone="UTC")
+
+    def test_missing_audio_produces_note(self, ctx, tmp_path):
+        result = ctx._build_user_content(
+            "hello", [str(tmp_path / "missing.wav")], supports_audio=True
+        )
+        assert isinstance(result, str)
+        assert "[Skipped file: unable to read" in result
+
+    def test_missing_video_produces_note(self, ctx, tmp_path):
+        result = ctx._build_user_content(
+            "hello", [str(tmp_path / "missing.mp4")], supports_video=True
+        )
+        assert isinstance(result, str)
+        assert "[Skipped file: unable to read" in result

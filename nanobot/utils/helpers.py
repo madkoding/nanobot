@@ -93,6 +93,20 @@ def audio_format_for_api(mime: str) -> str:
     return _AUDIO_FORMAT_MAP.get(mime, mime.split("/")[-1])
 
 
+# Video formats commonly supported by LLM APIs (data URI inline)
+_VIDEO_MIME_COMPAT = {
+    "video/mp4", "video/quicktime", "video/x-m4v",
+    "video/webm", "video/x-matroska",
+}
+
+
+def video_mime_compat(mime: str | None) -> bool:
+    """Check if the video MIME is in the commonly-supported set."""
+    if not mime:
+        return False
+    return mime in _VIDEO_MIME_COMPAT
+
+
 def build_image_content_blocks(raw: bytes, mime: str, path: str, label: str) -> list[dict[str, Any]]:
     """Build native image blocks plus a short text label."""
     b64 = base64.b64encode(raw).decode()

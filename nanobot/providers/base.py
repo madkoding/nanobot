@@ -369,7 +369,7 @@ class LLMProvider(ABC):
 
     @staticmethod
     def _strip_media_content(messages: list[dict[str, Any]]) -> list[dict[str, Any]] | None:
-        """Replace image_url and input_audio blocks with text placeholders.
+        """Replace image_url, input_audio, and video_url blocks with text placeholders.
 
         Returns None if no media blocks were found (no changes needed).
         """
