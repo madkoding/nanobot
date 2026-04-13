@@ -946,6 +946,7 @@ IMAP_PASSWORD=your-password-here
 | `moonshot` | LLM (Moonshot/Kimi) | [platform.moonshot.cn](https://platform.moonshot.cn) |
 | `zhipu` | LLM (Zhipu GLM) | [open.bigmodel.cn](https://open.bigmodel.cn) |
 | `mimo` | LLM (MiMo) | [platform.xiaomimimo.com](https://platform.xiaomimimo.com) |
+| `longcat` | LLM (LongCat) | [longcat.chat](https://longcat.chat/platform/docs/zh/) |
 | `ollama` | LLM (local, Ollama) | — |
 | `mistral` | LLM | [docs.mistral.ai](https://docs.mistral.ai/) |
 | `stepfun` | LLM (Step Fun/阶跃星辰) | [platform.stepfun.com](https://platform.stepfun.com) |
@@ -1028,6 +1029,34 @@ nanobot agent -c ~/.nanobot-telegram/config.json -w /tmp/nanobot-telegram-test -
 ```
 
 > Docker users: use `docker run -it` for interactive OAuth login.
+
+</details>
+
+<details>
+<summary><b>LongCat (OpenAI-compatible)</b></summary>
+
+LongCat is available through nanobot's built-in OpenAI-compatible provider flow.
+The default API base already points to `https://api.longcat.chat/openai`, so you
+usually only need to set `apiKey`.
+
+```json
+{
+  "providers": {
+    "longcat": {
+      "apiKey": "${LONGCAT_API_KEY}"
+    }
+  },
+  "agents": {
+    "defaults": {
+      "provider": "longcat",
+      "model": "LongCat-Flash-Chat"
+    }
+  }
+}
+```
+
+Official model names include `LongCat-Flash-Chat`, `LongCat-Flash-Thinking`,
+`LongCat-Flash-Thinking-2601`, and `LongCat-Flash-Lite`.
 
 </details>
 
