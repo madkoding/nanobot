@@ -297,6 +297,31 @@ def test_config_auto_detects_longcat_from_model_keyword():
     assert config.get_provider_name() == "longcat"
 
 
+def test_make_provider_uses_longcat_default_api_base():
+    config = Config.model_validate(
+        {
+            "agents": {
+                "defaults": {
+                    "provider": "longcat",
+                    "model": "LongCat-Flash-Chat",
+                }
+            },
+            "providers": {
+                "longcat": {
+                    "apiKey": "test-key",
+                }
+            },
+        }
+    )
+
+    with patch("nanobot.providers.openai_compat_provider.AsyncOpenAI") as mock_async_openai:
+        _make_provider(config)
+
+    kwargs = mock_async_openai.call_args.kwargs
+    assert kwargs["api_key"] == "test-key"
+    assert kwargs["base_url"] == "https://api.longcat.chat/openai"
+
+
 def test_config_auto_detects_ollama_from_local_api_base():
     config = Config.model_validate(
         {
