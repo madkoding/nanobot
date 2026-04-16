@@ -1,7 +1,7 @@
 """Configuration schema using Pydantic."""
 
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import AliasChoices, BaseModel, ConfigDict, Field
 from pydantic.alias_generators import to_camel
@@ -166,14 +166,15 @@ class HeartbeatConfig(Base):
     keep_recent_messages: int = 8
 
 
-class KosmosConfig(Base):
-    """KosmosServer configuration for agent plugins."""
+class AgentConfig(Base):
+    """Agent plugin configuration.
+
+    This is a generic configuration for agent plugins.
+    Each plugin can define its own config schema and use this as a reference.
+    """
 
     enabled: bool = False
-    host: str = "127.0.0.1"
-    port: int = 18794
-    ws_port: int = 18795
-    db_path: str = "~/.nanobot/kosmos.db"
+    plugins: dict[str, Any] = Field(default_factory=dict)  # plugin-name -> plugin config
 
 
 class ApiConfig(Base):
@@ -260,7 +261,7 @@ class Config(BaseSettings):
     api: ApiConfig = Field(default_factory=ApiConfig)
     gateway: GatewayConfig = Field(default_factory=GatewayConfig)
     tools: ToolsConfig = Field(default_factory=ToolsConfig)
-    kosmos: KosmosConfig = Field(default_factory=KosmosConfig)
+    plugins: AgentConfig = Field(default_factory=AgentConfig)
 
     @property
     def workspace_path(self) -> Path:
