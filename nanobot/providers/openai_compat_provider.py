@@ -593,9 +593,6 @@ class OpenAICompatProvider(LLMProvider):
         self._extra_query = extra_query or {}
         self._proxy = proxy or None
 
-        if api_key and spec and spec.env_key:
-            self._setup_env(api_key, api_base)
-
         effective_base = api_base or (spec.default_api_base if spec else None) or None
         self._effective_base = effective_base
         self._default_headers = {"x-session-affinity": uuid.uuid4().hex}
@@ -684,20 +681,6 @@ class OpenAICompatProvider(LLMProvider):
 
             self._build_client()
             return self._client
-
-    def _setup_env(self, api_key: str, api_base: str | None) -> None:
-        """Set environment variables based on provider spec."""
-        spec = self._spec
-        if not spec or not spec.env_key:
-            return
-        if spec.is_gateway:
-            os.environ[spec.env_key] = api_key
-        else:
-            os.environ.setdefault(spec.env_key, api_key)
-        effective_base = api_base or spec.default_api_base
-        for env_name, env_val in spec.env_extras:
-            resolved = env_val.replace("{api_key}", api_key).replace("{api_base}", effective_base)
-            os.environ.setdefault(env_name, resolved)
 
     @classmethod
     def _apply_cache_control(
