@@ -20,7 +20,9 @@ def validate(
 ) -> dict[str, Any]:
     checks, missing = required_checks("email", values)
     if truthy(values.get("consentGranted")):
-        checks.append(check("consent", "Mailbox consent", "pass", "Consent is enabled for this mailbox."))
+        checks.append(
+            check("consent", "Mailbox consent", "pass", "Consent is enabled for this mailbox.")
+        )
     else:
         checks.append(
             check(
@@ -80,9 +82,7 @@ def validate(
 
     identity = {
         "account": string_value(
-            values.get("fromAddress")
-            or values.get("imapUsername")
-            or values.get("smtpUsername")
+            values.get("fromAddress") or values.get("imapUsername") or values.get("smtpUsername")
         )
     }
     return status_from_checks("email", checks, missing, identity=identity)

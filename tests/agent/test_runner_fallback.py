@@ -96,23 +96,23 @@ def test_fallback_models_default_empty() -> None:
 def test_fallback_models_accept_preset_refs_and_inline_configs() -> None:
     from nanobot.config.schema import Config, InlineFallbackConfig
 
-    config = Config.model_validate({
-        "agents": {
-            "defaults": {
-                "fallbackModels": [
-                    "deep",
-                    {
-                        "provider": "openai",
-                        "model": "gpt-4.1",
-                        "maxTokens": 4096,
-                    },
-                ]
-            }
-        },
-        "modelPresets": {
-            "deep": {"provider": "anthropic", "model": "claude-opus-4-7"}
-        },
-    })
+    config = Config.model_validate(
+        {
+            "agents": {
+                "defaults": {
+                    "fallbackModels": [
+                        "deep",
+                        {
+                            "provider": "openai",
+                            "model": "gpt-4.1",
+                            "maxTokens": 4096,
+                        },
+                    ]
+                }
+            },
+            "modelPresets": {"deep": {"provider": "anthropic", "model": "claude-opus-4-7"}},
+        }
+    )
 
     assert config.agents.defaults.fallback_models[0] == "deep"
     assert config.agents.defaults.fallback_models[1] == InlineFallbackConfig(
@@ -126,10 +126,12 @@ def test_fallback_model_preset_ref_must_exist() -> None:
     from nanobot.config.schema import Config
 
     with pytest.raises(ValueError, match="fallback_models.*not found"):
-        Config.model_validate({
-            "agents": {"defaults": {"fallbackModels": ["missing"]}},
-            "modelPresets": {},
-        })
+        Config.model_validate(
+            {
+                "agents": {"defaults": {"fallbackModels": ["missing"]}},
+                "modelPresets": {},
+            }
+        )
 
 
 def test_provider_signature_tracks_fallback_presets_and_provider_config() -> None:
@@ -182,30 +184,32 @@ def test_provider_snapshot_uses_smallest_fallback_context_window() -> None:
     from nanobot.config.schema import Config
     from nanobot.providers.factory import build_provider_snapshot
 
-    config = Config.model_validate({
-        "agents": {
-            "defaults": {
-                "modelPreset": "fast",
-                "fallbackModels": ["deep"],
-            }
-        },
-        "modelPresets": {
-            "fast": {
-                "model": "openai/gpt-4.1",
-                "provider": "openai",
-                "contextWindowTokens": 128000,
+    config = Config.model_validate(
+        {
+            "agents": {
+                "defaults": {
+                    "modelPreset": "fast",
+                    "fallbackModels": ["deep"],
+                }
             },
-            "deep": {
-                "model": "deepseek/deepseek-chat",
-                "provider": "deepseek",
-                "contextWindowTokens": 64000,
+            "modelPresets": {
+                "fast": {
+                    "model": "openai/gpt-4.1",
+                    "provider": "openai",
+                    "contextWindowTokens": 128000,
+                },
+                "deep": {
+                    "model": "deepseek/deepseek-chat",
+                    "provider": "deepseek",
+                    "contextWindowTokens": 64000,
+                },
             },
-        },
-        "providers": {
-            "openai": {"apiKey": "primary-key"},
-            "deepseek": {"apiKey": "fallback-key"},
-        },
-    })
+            "providers": {
+                "openai": {"apiKey": "primary-key"},
+                "deepseek": {"apiKey": "fallback-key"},
+            },
+        }
+    )
 
     with patch("nanobot.providers.openai_compat_provider.AsyncOpenAI"):
         snapshot = build_provider_snapshot(config)
@@ -217,27 +221,27 @@ def test_inline_fallback_reasoning_effort_does_not_inherit_primary() -> None:
     from nanobot.config.schema import Config
     from nanobot.providers.factory import provider_signature
 
-    config = Config.model_validate({
-        "agents": {
-            "defaults": {
-                "modelPreset": "fast",
-                "fallbackModels": [
-                    {"provider": "openai", "model": "gpt-4.1"}
-                ],
-            }
-        },
-        "modelPresets": {
-            "fast": {
-                "model": "anthropic/claude-opus-4-5",
-                "provider": "anthropic",
-                "reasoningEffort": "high",
-            }
-        },
-        "providers": {
-            "anthropic": {"apiKey": "primary-key"},
-            "openai": {"apiKey": "fallback-key"},
-        },
-    })
+    config = Config.model_validate(
+        {
+            "agents": {
+                "defaults": {
+                    "modelPreset": "fast",
+                    "fallbackModels": [{"provider": "openai", "model": "gpt-4.1"}],
+                }
+            },
+            "modelPresets": {
+                "fast": {
+                    "model": "anthropic/claude-opus-4-5",
+                    "provider": "anthropic",
+                    "reasoningEffort": "high",
+                }
+            },
+            "providers": {
+                "anthropic": {"apiKey": "primary-key"},
+                "openai": {"apiKey": "fallback-key"},
+            },
+        }
+    )
 
     signature = provider_signature(config)
     fallback_signatures = signature[-1]
@@ -860,6 +864,7 @@ class TestCircuitBreaker:
 class TestGenerationForwarded:
     def test(self) -> None:
         from nanobot.providers.base import GenerationSettings
+
         primary = _FakeProvider("primary")
         primary.generation = GenerationSettings(temperature=0.5, max_tokens=1024)
         fb = FallbackProvider(

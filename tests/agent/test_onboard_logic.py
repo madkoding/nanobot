@@ -223,6 +223,7 @@ class TestGetFieldTypeInfo:
 
     def test_handles_none_annotation(self):
         """Field with None annotation defaults to str."""
+
         class Model(BaseModel):
             field: Any = None
 
@@ -592,7 +593,9 @@ class TestRunOnboardExitBehavior:
 
         monkeypatch.setattr(onboard_wizard, "_show_main_menu_header", lambda: None)
         monkeypatch.setattr(onboard_wizard, "_select_with_back", fake_select_with_back)
-        monkeypatch.setattr(onboard_wizard, "_configure_general_settings", fake_configure_general_settings)
+        monkeypatch.setattr(
+            onboard_wizard, "_configure_general_settings", fake_configure_general_settings
+        )
 
         result = run_onboard(initial_config=initial_config)
 
@@ -925,7 +928,10 @@ class TestMainMenuUpdate:
 
     def test_choice_viewport_keeps_long_menus_within_terminal_height(self):
         """Long provider menus should render as a bounded scrolling slice."""
-        assert onboard_wizard._choice_viewport(selected_index=0, total=20, visible_count=5) == (0, 5)
+        assert onboard_wizard._choice_viewport(selected_index=0, total=20, visible_count=5) == (
+            0,
+            5,
+        )
         assert onboard_wizard._choice_viewport(selected_index=10, total=20, visible_count=5) == (
             8,
             13,
@@ -960,9 +966,11 @@ class TestMainMenuUpdate:
         """run_onboard should route [Q] to Quick Start."""
         initial_config = Config()
 
-        responses = iter([
-            "[Q] Quick Start",
-        ])
+        responses = iter(
+            [
+                "[Q] Quick Start",
+            ]
+        )
 
         def fake_select_with_back(*_args, **_kwargs):
             return next(responses)
@@ -983,11 +991,13 @@ class TestMainMenuUpdate:
     def test_main_menu_default_resets_after_returning_from_advanced(self, monkeypatch):
         """Returning from Advanced should not leave its item visually selected."""
         initial_config = Config()
-        responses = iter([
-            "[A] Advanced Settings",
-            "<- Back",
-            "[X] Exit",
-        ])
+        responses = iter(
+            [
+                "[A] Advanced Settings",
+                "<- Back",
+                "[X] Exit",
+            ]
+        )
         main_defaults: list[str | None] = []
 
         def fake_select_with_back(prompt, _choices, default=None):
@@ -1077,7 +1087,9 @@ class TestMainMenuUpdate:
         )
         monkeypatch.setattr(onboard_wizard, "_configure_pydantic_model", fail_websocket_config)
         monkeypatch.setattr(onboard_wizard, "_print_summary_panel", lambda *a, **kw: None)
-        monkeypatch.setattr(onboard_wizard, "_pause", lambda message="": pause_messages.append(message))
+        monkeypatch.setattr(
+            onboard_wizard, "_pause", lambda message="": pause_messages.append(message)
+        )
 
         assert onboard_wizard._configure_quick_start(config) is True
 
@@ -1103,7 +1115,9 @@ class TestMainMenuUpdate:
             lambda *a, **kw: onboard_wizard._BACK_PRESSED,
         )
 
-        assert onboard_wizard._configure_quick_start_provider(config) is onboard_wizard._BACK_PRESSED
+        assert (
+            onboard_wizard._configure_quick_start_provider(config) is onboard_wizard._BACK_PRESSED
+        )
         assert "primary" not in config.model_presets
 
     def test_quick_start_provider_back_skips_pause(self, monkeypatch):
@@ -1126,7 +1140,9 @@ class TestMainMenuUpdate:
             "_enable_quick_start_websocket_defaults",
             fail_websocket_defaults,
         )
-        monkeypatch.setattr(onboard_wizard, "_pause", lambda message="": pause_messages.append(message))
+        monkeypatch.setattr(
+            onboard_wizard, "_pause", lambda message="": pause_messages.append(message)
+        )
 
         assert onboard_wizard._configure_quick_start(config) is False
         assert pause_messages == []
@@ -1404,7 +1420,11 @@ class TestMainMenuUpdate:
                 return self.response
 
         monkeypatch.setattr(onboard_wizard, "_show_quick_start_progress", lambda *_args: None)
-        monkeypatch.setattr(onboard_wizard.console, "print", lambda message="", *a, **kw: messages.append(str(message)))
+        monkeypatch.setattr(
+            onboard_wizard.console,
+            "print",
+            lambda message="", *a, **kw: messages.append(str(message)),
+        )
         monkeypatch.setattr(
             onboard_wizard,
             "questionary",
@@ -1554,7 +1574,9 @@ class TestMainMenuUpdate:
         def fail_configure(*_args, **_kwargs):
             raise AssertionError("Default action should run login, not open advanced fields")
 
-        monkeypatch.setattr(onboard_wizard, "_get_channel_names", lambda: {"loginchat": "Login Chat"})
+        monkeypatch.setattr(
+            onboard_wizard, "_get_channel_names", lambda: {"loginchat": "Login Chat"}
+        )
         monkeypatch.setattr(
             onboard_wizard,
             "_get_channel_config_class",
@@ -1602,12 +1624,14 @@ class TestMainMenuUpdate:
         """run_onboard should handle [H] Channel Common through Advanced Settings."""
         initial_config = Config()
 
-        responses = iter([
-            "[A] Advanced Settings",
-            "[H] Channel Common",
-            KeyboardInterrupt(),
-            "[S] Save and Exit",
-        ])
+        responses = iter(
+            [
+                "[A] Advanced Settings",
+                "[H] Channel Common",
+                KeyboardInterrupt(),
+                "[S] Save and Exit",
+            ]
+        )
 
         def fake_select_with_back(*_args, **_kwargs):
             response = next(responses)
@@ -1621,7 +1645,9 @@ class TestMainMenuUpdate:
 
         monkeypatch.setattr(onboard_wizard, "_show_main_menu_header", lambda: None)
         monkeypatch.setattr(onboard_wizard, "_select_with_back", fake_select_with_back)
-        monkeypatch.setattr(onboard_wizard, "_configure_general_settings", fake_configure_general_settings)
+        monkeypatch.setattr(
+            onboard_wizard, "_configure_general_settings", fake_configure_general_settings
+        )
 
         result = run_onboard(initial_config=initial_config)
 
@@ -1632,12 +1658,14 @@ class TestMainMenuUpdate:
         """run_onboard should handle [I] API Server through Advanced Settings."""
         initial_config = Config()
 
-        responses = iter([
-            "[A] Advanced Settings",
-            "[I] API Server",
-            KeyboardInterrupt(),
-            "[S] Save and Exit",
-        ])
+        responses = iter(
+            [
+                "[A] Advanced Settings",
+                "[I] API Server",
+                KeyboardInterrupt(),
+                "[S] Save and Exit",
+            ]
+        )
 
         def fake_select_with_back(*_args, **_kwargs):
             response = next(responses)
@@ -1651,7 +1679,9 @@ class TestMainMenuUpdate:
 
         monkeypatch.setattr(onboard_wizard, "_show_main_menu_header", lambda: None)
         monkeypatch.setattr(onboard_wizard, "_select_with_back", fake_select_with_back)
-        monkeypatch.setattr(onboard_wizard, "_configure_general_settings", fake_configure_general_settings)
+        monkeypatch.setattr(
+            onboard_wizard, "_configure_general_settings", fake_configure_general_settings
+        )
 
         result = run_onboard(initial_config=initial_config)
 
@@ -1663,12 +1693,14 @@ class TestMainMenuUpdate:
         initial_config = Config()
         pause_called = {"n": 0}
 
-        responses = iter([
-            "[A] Advanced Settings",
-            "[V] View Configuration Summary",
-            KeyboardInterrupt(),
-            "[X] Exit",
-        ])
+        responses = iter(
+            [
+                "[A] Advanced Settings",
+                "[V] View Configuration Summary",
+                KeyboardInterrupt(),
+                "[X] Exit",
+            ]
+        )
 
         def fake_select_with_back(*_args, **_kwargs):
             response = next(responses)
@@ -1766,7 +1798,6 @@ class TestConfigurePydanticModelEmptyString:
         """Entering '' for an optional str field should set it to None."""
         from pydantic import BaseModel
 
-
         class M(BaseModel):
             api_key: str | None = None
 
@@ -1787,9 +1818,7 @@ class TestConfigurePydanticModelEmptyString:
         monkeypatch.setattr(onboard_wizard, "_select_with_back", fake_select)
         monkeypatch.setattr(onboard_wizard, "_show_config_panel", lambda *a, **kw: None)
         # Simulate user entering empty string
-        monkeypatch.setattr(
-            onboard_wizard, "_input_with_existing", lambda *a, **kw: ""
-        )
+        monkeypatch.setattr(onboard_wizard, "_input_with_existing", lambda *a, **kw: "")
 
         result = _configure_pydantic_model(model, "Test")
         assert result is not None
@@ -1817,9 +1846,7 @@ class TestConfigurePydanticModelEmptyString:
 
         monkeypatch.setattr(onboard_wizard, "_select_with_back", fake_select)
         monkeypatch.setattr(onboard_wizard, "_show_config_panel", lambda *a, **kw: None)
-        monkeypatch.setattr(
-            onboard_wizard, "_input_with_existing", lambda *a, **kw: ""
-        )
+        monkeypatch.setattr(onboard_wizard, "_input_with_existing", lambda *a, **kw: "")
 
         result = _configure_pydantic_model(model, "Test")
         assert result is not None
@@ -1849,11 +1876,13 @@ class TestModelPresetWizard:
         config = Config()
         _MODEL_PRESET_CACHE.clear()
 
-        responses = iter([
-            "[+] Add new preset",
-            "my-preset",
-            "<- Back",
-        ])
+        responses = iter(
+            [
+                "[+] Add new preset",
+                "my-preset",
+                "<- Back",
+            ]
+        )
 
         class FakePrompt:
             def __init__(self, response):
@@ -1894,12 +1923,14 @@ class TestModelPresetWizard:
         _MODEL_PRESET_CACHE.clear()
         _MODEL_PRESET_CACHE.update({"old - preset", "default"})
 
-        responses = iter([
-            "old - preset - x",
-            "Delete",
-            True,
-            "<- Back",
-        ])
+        responses = iter(
+            [
+                "old - preset - x",
+                "Delete",
+                True,
+                "<- Back",
+            ]
+        )
 
         class FakePrompt:
             def __init__(self, response):
@@ -1978,12 +2009,14 @@ class TestModelPresetWizard:
 
         initial_config = Config()
 
-        responses = iter([
-            "[A] Advanced Settings",
-            "[M] Model Presets",
-            KeyboardInterrupt(),
-            "[S] Save and Exit",
-        ])
+        responses = iter(
+            [
+                "[A] Advanced Settings",
+                "[M] Model Presets",
+                KeyboardInterrupt(),
+                "[S] Save and Exit",
+            ]
+        )
 
         def fake_select_with_back(*_args, **_kwargs):
             response = next(responses)
@@ -1998,7 +2031,9 @@ class TestModelPresetWizard:
             config.model_presets["test"] = ModelPresetConfig(model="gpt-test")
 
         monkeypatch.setattr(onboard_wizard, "_select_with_back", fake_select_with_back)
-        monkeypatch.setattr(onboard_wizard, "_configure_model_presets", fake_configure_model_presets)
+        monkeypatch.setattr(
+            onboard_wizard, "_configure_model_presets", fake_configure_model_presets
+        )
         monkeypatch.setattr(onboard_wizard, "_show_main_menu_header", lambda: None)
         monkeypatch.setattr(onboard_wizard, "_show_section_header", lambda *a, **kw: None)
         monkeypatch.setattr(onboard_wizard, "console", SimpleNamespace(clear=lambda: None))
@@ -2035,11 +2070,18 @@ class TestModelPresetWizard:
             return next(select_responses)
 
         monkeypatch.setattr(
-            onboard_wizard, "questionary",
-            SimpleNamespace(select=fake_questionary_select, press_any_key_to_continue=lambda: FakePrompt(None)),
+            onboard_wizard,
+            "questionary",
+            SimpleNamespace(
+                select=fake_questionary_select, press_any_key_to_continue=lambda: FakePrompt(None)
+            ),
         )
         monkeypatch.setattr(onboard_wizard, "_select_with_back", fake_select_with_back)
-        monkeypatch.setattr(onboard_wizard, "console", SimpleNamespace(clear=lambda: None, print=lambda *a, **kw: None))
+        monkeypatch.setattr(
+            onboard_wizard,
+            "console",
+            SimpleNamespace(clear=lambda: None, print=lambda *a, **kw: None),
+        )
 
         defaults = AgentDefaults()
         _handle_fallback_models_field(defaults, "fallback_models", "Fallback Models", [])
@@ -2078,5 +2120,7 @@ class TestModelPresetWizard:
         )
         from nanobot.config.schema import AgentDefaults
 
-        assert _resolve_field_handler(WebSearchConfig(), "provider") is _handle_search_provider_field
+        assert (
+            _resolve_field_handler(WebSearchConfig(), "provider") is _handle_search_provider_field
+        )
         assert _resolve_field_handler(AgentDefaults(), "provider") is _handle_provider_field

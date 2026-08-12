@@ -14,12 +14,14 @@ def test_kimi_coding_uses_default_user_agent_header() -> None:
 
 def test_provider_config_extra_headers_override_defaults() -> None:
     spec = find_by_name("kimi_coding")
-    provider = ProviderConfig.model_validate({
-        "extraHeaders": {
-            "User-Agent": "custom-client/1.0",
-            "X-Test": "1",
-        },
-    })
+    provider = ProviderConfig.model_validate(
+        {
+            "extraHeaders": {
+                "User-Agent": "custom-client/1.0",
+                "X-Test": "1",
+            },
+        }
+    )
 
     assert _provider_extra_headers(spec, provider) == {
         "User-Agent": "custom-client/1.0",
@@ -28,23 +30,25 @@ def test_provider_config_extra_headers_override_defaults() -> None:
 
 
 def test_provider_signature_tracks_default_extra_headers() -> None:
-    config = Config.model_validate({
-        "providers": {
-            "kimiCoding": {
-                "apiKey": "sk-kimi-test",
+    config = Config.model_validate(
+        {
+            "providers": {
+                "kimiCoding": {
+                    "apiKey": "sk-kimi-test",
+                },
             },
-        },
-        "modelPresets": {
-            "primary": {
-                "provider": "kimi_coding",
-                "model": "kimi-for-coding",
+            "modelPresets": {
+                "primary": {
+                    "provider": "kimi_coding",
+                    "model": "kimi-for-coding",
+                },
             },
-        },
-        "agents": {
-            "defaults": {
-                "modelPreset": "primary",
+            "agents": {
+                "defaults": {
+                    "modelPreset": "primary",
+                },
             },
-        },
-    })
+        }
+    )
 
     assert {"User-Agent": "claude-code/0.1.0"} in provider_signature(config)

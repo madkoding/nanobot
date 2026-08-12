@@ -454,12 +454,7 @@ class WebUIProjectsController:
     def _write_folders(self, project_id: str, folders: list[ProjectFolder]) -> None:
         _write_json(
             self._folders_path(project_id),
-            {
-                "folders": [
-                    {"path": f.path, "created_at_ms": f.created_at_ms}
-                    for f in folders
-                ]
-            },
+            {"folders": [{"path": f.path, "created_at_ms": f.created_at_ms} for f in folders]},
         )
 
     # ---- Board (kanban of worktrees) ----
@@ -481,9 +476,7 @@ class WebUIProjectsController:
         if board.get("repo_path"):
             raise ProjectError("board already configured")
         board["repo_path"] = clean
-        board["columns"] = [
-            {"id": _slugify_id(name), "name": name} for name in _DEFAULT_COLUMNS
-        ]
+        board["columns"] = [{"id": _slugify_id(name), "name": name} for name in _DEFAULT_COLUMNS]
         board["cards"] = []
         self._write_board(project_id, board)
         self._touch_project(project_id)
@@ -801,7 +794,9 @@ class WebUIProjectsController:
         self._write_board(project_id, board)
         self._touch_project(project_id)
 
-    def card_subagent_status(self, project_id: str, card_id: str, subagent_manager: Any) -> dict[str, Any] | None:
+    def card_subagent_status(
+        self, project_id: str, card_id: str, subagent_manager: Any
+    ) -> dict[str, Any] | None:
         """Return the subagent status payload for a card, or None if none."""
         board = self.get_board(project_id)
         target = next((c for c in board.get("cards", []) if c.get("id") == card_id), None)

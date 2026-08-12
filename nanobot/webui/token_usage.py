@@ -232,10 +232,9 @@ def record_token_usage(
         # Track tokens by provider
         if provider and normalized.get("provider_tokens", 0) > 0:
             provider_tokens_by_provider = dict(row.get("provider_tokens_by_provider") or {})
-            provider_tokens_by_provider[provider] = (
-                _clean_int(provider_tokens_by_provider.get(provider))
-                + normalized.get("provider_tokens", 0)
-            )
+            provider_tokens_by_provider[provider] = _clean_int(
+                provider_tokens_by_provider.get(provider)
+            ) + normalized.get("provider_tokens", 0)
             row["provider_tokens_by_provider"] = provider_tokens_by_provider
 
         source_key = _clean_source(source)
@@ -327,8 +326,8 @@ def token_usage_payload(
     for row in all_rows:
         provider_tokens_by_provider = row.get("provider_tokens_by_provider") or {}
         for provider_name, tokens in provider_tokens_by_provider.items():
-            provider_totals[provider_name] = (
-                provider_totals.get(provider_name, 0) + _clean_int(tokens)
+            provider_totals[provider_name] = provider_totals.get(provider_name, 0) + _clean_int(
+                tokens
             )
 
     return {

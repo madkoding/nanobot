@@ -417,9 +417,7 @@ def _xai_hosted_tool_event(event: dict[str, Any]) -> dict[str, Any] | None:
             "phase": "start",
             "call_id": str(call_id),
             "name": "x_search",
-            "arguments": _xai_hosted_tool_arguments(
-                event.get("input", event.get("arguments"))
-            ),
+            "arguments": _xai_hosted_tool_arguments(event.get("input", event.get("arguments"))),
             "result": None,
         }
 
@@ -439,9 +437,7 @@ def _xai_hosted_tool_event(event: dict[str, Any]) -> dict[str, Any] | None:
         "phase": "end",
         "call_id": str(call_id),
         "name": "x_search",
-        "arguments": _xai_hosted_tool_arguments(
-            item.get("input", item.get("arguments"))
-        ),
+        "arguments": _xai_hosted_tool_arguments(item.get("input", item.get("arguments"))),
         # Keep the useful search subtype, but do not persist large hosted results
         # in WebUI activity messages. The model answer already carries citations.
         "result": {"name": tool_name},

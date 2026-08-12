@@ -46,6 +46,7 @@ if TYPE_CHECKING:
 
 class ImageGenerationToolConfig(Base):
     """Image generation tool configuration."""
+
     enabled: bool = False
     provider: str = "openrouter"
     model: str = "openai/gpt-5.4-image-2"
@@ -62,7 +63,9 @@ class ImageGenerationToolConfig(Base):
             min_length=1,
         ),
         reference_images=ArraySchema(
-            StringSchema("Local path of an existing image artifact or user-provided image to use as an edit reference."),
+            StringSchema(
+                "Local path of an existing image artifact or user-provided image to use as an edit reference."
+            ),
             description="Optional local image paths. Use generated artifact paths for iterative edits.",
         ),
         aspect_ratio=StringSchema(
@@ -175,7 +178,9 @@ class ImageGenerationTool(Tool):
     ) -> str:
         client = self._provider_client()
         if client is None:
-            return ToolResult.error(f"Error: unsupported image generation provider '{self.config.provider}'")
+            return ToolResult.error(
+                f"Error: unsupported image generation provider '{self.config.provider}'"
+            )
 
         requested = count or 1
         if requested > self.config.max_images_per_turn:
@@ -290,11 +295,15 @@ async def request_image_generation_reload(
             "message": "Image generation hot reload timed out.",
             "requires_restart": True,
         }
-    return result if isinstance(result, dict) else {
-        "ok": False,
-        "message": "Image generation hot reload returned an unexpected response.",
-        "requires_restart": True,
-    }
+    return (
+        result
+        if isinstance(result, dict)
+        else {
+            "ok": False,
+            "message": "Image generation hot reload returned an unexpected response.",
+            "requires_restart": True,
+        }
+    )
 
 
 async def handle_runtime_control(

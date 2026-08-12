@@ -101,8 +101,12 @@ class TestBuildKwargsExtraBody:
         provider = _make_provider()
         kwargs = provider._build_kwargs(
             messages=_simple_messages(),
-            tools=None, model=None, max_tokens=100,
-            temperature=0.1, reasoning_effort=None, tool_choice=None,
+            tools=None,
+            model=None,
+            max_tokens=100,
+            temperature=0.1,
+            reasoning_effort=None,
+            tool_choice=None,
         )
         assert "extra_body" not in kwargs
 
@@ -110,8 +114,12 @@ class TestBuildKwargsExtraBody:
         provider = _make_provider({"chat_template_kwargs": {"enable_thinking": False}})
         kwargs = provider._build_kwargs(
             messages=_simple_messages(),
-            tools=None, model=None, max_tokens=100,
-            temperature=0.1, reasoning_effort=None, tool_choice=None,
+            tools=None,
+            model=None,
+            max_tokens=100,
+            temperature=0.1,
+            reasoning_effort=None,
+            tool_choice=None,
         )
         assert kwargs["extra_body"] == {
             "chat_template_kwargs": {"enable_thinking": False},
@@ -141,8 +149,12 @@ class TestBuildKwargsExtraBody:
         )
         kwargs = provider._build_kwargs(
             messages=_simple_messages(),
-            tools=None, model=None, max_tokens=100,
-            temperature=0.1, reasoning_effort="high", tool_choice=None,
+            tools=None,
+            model=None,
+            max_tokens=100,
+            temperature=0.1,
+            reasoning_effort="high",
+            tool_choice=None,
         )
         body = kwargs.get("extra_body", {})
         # Config param should be present
@@ -150,17 +162,23 @@ class TestBuildKwargsExtraBody:
 
     def test_nested_extra_body_does_not_clobber_siblings(self) -> None:
         """Nested dict merge should preserve sibling keys."""
-        provider = _make_provider({
-            "chat_template_kwargs": {"enable_thinking": False},
-        })
+        provider = _make_provider(
+            {
+                "chat_template_kwargs": {"enable_thinking": False},
+            }
+        )
         # Simulate internal code having set a sibling key
         # by manually calling _build_kwargs — the internal logic
         # doesn't set chat_template_kwargs, so we test the merge path
         # by having extra_body itself contain nested keys
         kwargs = provider._build_kwargs(
             messages=_simple_messages(),
-            tools=None, model=None, max_tokens=100,
-            temperature=0.1, reasoning_effort=None, tool_choice=None,
+            tools=None,
+            model=None,
+            max_tokens=100,
+            temperature=0.1,
+            reasoning_effort=None,
+            tool_choice=None,
         )
         assert kwargs["extra_body"]["chat_template_kwargs"]["enable_thinking"] is False
 
@@ -170,8 +188,12 @@ class TestBuildKwargsExtraBody:
         provider = _make_provider({"guided_json": schema})
         kwargs = provider._build_kwargs(
             messages=_simple_messages(),
-            tools=None, model=None, max_tokens=100,
-            temperature=0.1, reasoning_effort=None, tool_choice=None,
+            tools=None,
+            model=None,
+            max_tokens=100,
+            temperature=0.1,
+            reasoning_effort=None,
+            tool_choice=None,
         )
         assert kwargs["extra_body"]["guided_json"] == schema
 
@@ -180,8 +202,12 @@ class TestBuildKwargsExtraBody:
         provider = _make_provider({"repetition_penalty": 1.15})
         kwargs = provider._build_kwargs(
             messages=_simple_messages(),
-            tools=None, model=None, max_tokens=100,
-            temperature=0.1, reasoning_effort=None, tool_choice=None,
+            tools=None,
+            model=None,
+            max_tokens=100,
+            temperature=0.1,
+            reasoning_effort=None,
+            tool_choice=None,
         )
         assert kwargs["extra_body"]["repetition_penalty"] == 1.15
 
@@ -202,8 +228,12 @@ class TestBuildResponsesBodyExtraBody:
 
         body = provider._build_responses_body(
             messages=_simple_messages(),
-            tools=None, model=None, max_tokens=100,
-            temperature=0.1, reasoning_effort=None, tool_choice=None,
+            tools=None,
+            model=None,
+            max_tokens=100,
+            temperature=0.1,
+            reasoning_effort=None,
+            tool_choice=None,
         )
 
         assert body["metadata"] == {"source": "test"}
@@ -219,16 +249,21 @@ class TestBuildResponsesBodyExtraBody:
 
         body = provider._build_responses_body(
             messages=_simple_messages(),
-            tools=[{
-                "type": "function",
-                "function": {
-                    "name": "read_file",
-                    "description": "Read a file",
-                    "parameters": {"type": "object"},
-                },
-            }],
-            model=None, max_tokens=100, temperature=0.1,
-            reasoning_effort=None, tool_choice=None,
+            tools=[
+                {
+                    "type": "function",
+                    "function": {
+                        "name": "read_file",
+                        "description": "Read a file",
+                        "parameters": {"type": "object"},
+                    },
+                }
+            ],
+            model=None,
+            max_tokens=100,
+            temperature=0.1,
+            reasoning_effort=None,
+            tool_choice=None,
         )
 
         assert body["tools"] == [
@@ -256,8 +291,12 @@ class TestBuildResponsesBodyExtraBody:
 
         body = provider._build_responses_body(
             messages=_simple_messages(),
-            tools=None, model=None, max_tokens=100,
-            temperature=0.1, reasoning_effort="high", tool_choice=None,
+            tools=None,
+            model=None,
+            max_tokens=100,
+            temperature=0.1,
+            reasoning_effort="high",
+            tool_choice=None,
         )
 
         assert body["include"] == [
@@ -289,7 +328,5 @@ class TestSchemaConfig:
     def test_nested_dict(self) -> None:
         from nanobot.config.schema import ProviderConfig
 
-        config = ProviderConfig(
-            extra_body={"chat_template_kwargs": {"enable_thinking": False}}
-        )
+        config = ProviderConfig(extra_body={"chat_template_kwargs": {"enable_thinking": False}})
         assert config.extra_body["chat_template_kwargs"]["enable_thinking"] is False

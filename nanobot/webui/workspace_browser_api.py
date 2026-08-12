@@ -187,15 +187,17 @@ def workspace_list_files(
 
             try:
                 stat = entry.stat()
-                files.append({
-                    "name": entry.name,
-                    "path": str(entry.relative_to(workspace_root)),
-                    "is_directory": entry.is_dir(),
-                    "size": stat.st_size if entry.is_file() else 0,
-                    "modified_at": stat.st_mtime,
-                    "created_at": stat.st_ctime,
-                    "protected": is_protected_runtime_path(entry, workspace_root),
-                })
+                files.append(
+                    {
+                        "name": entry.name,
+                        "path": str(entry.relative_to(workspace_root)),
+                        "is_directory": entry.is_dir(),
+                        "size": stat.st_size if entry.is_file() else 0,
+                        "modified_at": stat.st_mtime,
+                        "created_at": stat.st_ctime,
+                        "protected": is_protected_runtime_path(entry, workspace_root),
+                    }
+                )
             except (OSError, PermissionError):
                 continue
     except (OSError, PermissionError) as e:
@@ -203,7 +205,9 @@ def workspace_list_files(
 
     return {
         "current_path": str(target_path.relative_to(workspace_root)),
-        "parent_path": str(target_path.parent.relative_to(workspace_root)) if target_path != workspace_root else None,
+        "parent_path": str(target_path.parent.relative_to(workspace_root))
+        if target_path != workspace_root
+        else None,
         "files": files,
     }
 

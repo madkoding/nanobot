@@ -104,6 +104,7 @@ if TYPE_CHECKING:
     )
     from nanobot.cron.service import CronService
 
+
 class TurnState(Enum):
     RESTORE = auto()
     COMPACT = auto()
@@ -354,7 +355,8 @@ class AgentLoop:
         )
         self.provider_retry_mode = provider_retry_mode
         self.tool_hint_max_length = (
-            tool_hint_max_length if tool_hint_max_length is not None
+            tool_hint_max_length
+            if tool_hint_max_length is not None
             else defaults.tool_hint_max_length
         )
         self.tools_config = _tc
@@ -492,9 +494,13 @@ class AgentLoop:
         provider = extra.pop("provider", None) or make_provider(config)
         resolved = config.resolve_preset()
         model = extra.pop("model", None) or resolved.model
-        context_window_tokens = extra.pop("context_window_tokens", None) or resolved.context_window_tokens
+        context_window_tokens = (
+            extra.pop("context_window_tokens", None) or resolved.context_window_tokens
+        )
         provider_snapshot_loader = extra.pop("provider_snapshot_loader", None)
-        preset_snapshot_loader = extra.pop("preset_snapshot_loader", None) or preset_helpers.make_preset_snapshot_loader(
+        preset_snapshot_loader = extra.pop(
+            "preset_snapshot_loader", None
+        ) or preset_helpers.make_preset_snapshot_loader(
             config,
             provider_snapshot_loader,
         )
@@ -769,7 +775,9 @@ class AgentLoop:
         media_paths = [p for p in (msg.media or []) if isinstance(p, str) and p]
         has_text = isinstance(msg.content, str) and msg.content.strip()
         if has_text or media_paths or runtime_context_blocks:
-            extra: dict[str, Any] = ({"media": list(media_paths)} if media_paths else {}) | agent_context.session_extra(msg.metadata)
+            extra: dict[str, Any] = (
+                {"media": list(media_paths)} if media_paths else {}
+            ) | agent_context.session_extra(msg.metadata)
             extra.update(kwargs)
             text = msg.content if isinstance(msg.content, str) else ""
             text_override, automation_extra = automation_history_overrides(msg.metadata)
@@ -798,9 +806,7 @@ class AgentLoop:
             current_message=ctx.msg.content,
             media=ctx.msg.media if ctx.kind is TurnKind.USER and ctx.msg.media else None,
             channel=ctx.delivery.route.channel,
-            chat_id=str(
-                ctx.msg.metadata.get("context_chat_id") or ctx.delivery.route.chat_id
-            ),
+            chat_id=str(ctx.msg.metadata.get("context_chat_id") or ctx.delivery.route.chat_id),
             current_role="user",
             sender_id=ctx.msg.sender_id,
             session_summary=ctx.pending_summary,
@@ -1038,9 +1044,11 @@ class AgentLoop:
             # Block if nothing drained but sub-agents spawned in this dispatch
             # are still running.  Keeps the runner loop alive so subsequent
             # completions are injected in-order rather than dispatched separately.
-            if (not items
-                    and session is not None
-                    and self.subagents.get_running_count_by_session(session.key) > 0):
+            if (
+                not items
+                and session is not None
+                and self.subagents.get_running_count_by_session(session.key) > 0
+            ):
                 try:
                     msg = await asyncio.wait_for(pending_queue.get(), timeout=300)
                 except asyncio.TimeoutError:
@@ -1079,9 +1087,12 @@ class AgentLoop:
         request_token = bind_request_context(request_ctx)
         workspace_token = bind_workspace_scope(effective_scope)
         turn_scope_stack = ExitStack()
+
         # Compute lazily because create_goal may create goal metadata during this run.
         def _goal_continue() -> str | None:
-            _goal_lines = goal_state_runtime_lines(session.metadata if session is not None else None)
+            _goal_lines = goal_state_runtime_lines(
+                session.metadata if session is not None else None
+            )
             if not _goal_lines:
                 return None
             return (
@@ -1095,60 +1106,66 @@ class AgentLoop:
         try:
             for scope in turn_scopes or ():
                 turn_scope_stack.enter_context(scope)
-            hook = build_agent_turn_hook(AgentTurnHookSpec(
-                on_progress=on_progress,
-                on_stream=on_stream,
-                on_stream_end=on_stream_end,
-                channel=channel,
-                chat_id=chat_id,
-                message_id=message_id,
-                metadata=metadata,
-                session_key=active_session_key,
-                workspace=effective_scope.project_path,
-                tool_hint_max_length=self.tool_hint_max_length,
-                on_iteration=lambda iteration: setattr(self, "_current_iteration", iteration),
-                registered_hook_factories=self._hook_factories,
-                turn_hook_factories=list(hook_factories or []),
-                registered_hooks=self._extra_hooks,
-                turn_hooks=list(hooks or []),
-                ephemeral=ephemeral,
-                run_extra_hooks_for_ephemeral=run_extra_hooks_for_ephemeral,
-            ))
-            result = await self.runner.run(AgentRunSpec(
-                initial_messages=initial_messages,
-                tools=effective_tools,
-                runtime=runtime,
-                max_iterations=self.max_iterations,
-                max_tool_result_chars=self.max_tool_result_chars,
-                hook=hook,
-                error_message="Sorry, I encountered an error calling the AI model.",
-                concurrent_tools=True,
-                workspace=effective_scope.project_path,
-                session_key=session.key if session else None,
-                context_block_limit=self.context_block_limit,
-                provider_retry_mode=self.provider_retry_mode,
-                progress_callback=on_progress,
-                stream_progress_deltas=on_stream is not None,
-                retry_wait_callback=on_retry_wait,
-                checkpoint_callback=_checkpoint,
-                injection_callback=_drain_pending,
-                # Sustained goals may legitimately exceed NANOBOT_LLM_TIMEOUT_S; idle stall
-                # is still capped by NANOBOT_STREAM_IDLE_TIMEOUT_S in streaming providers.
-                llm_timeout_s=runner_wall_llm_timeout_s(
-                    self.sessions,
-                    session.key if session is not None else session_key,
-                    metadata=session_metadata,
-                    message_metadata=metadata,
-                ),
-                goal_active_predicate=lambda: sustained_goal_active(session.metadata) if session is not None else False,
-                goal_continue_message=_goal_continue,
-                finalize_on_max_iterations=turn_continuation.should_finalize_on_max_iterations(
-                    pending_queue_available=pending_queue is not None and session is not None,
-                    session_metadata=session_metadata,
-                    message_metadata=metadata,
-                ),
-                on_snip=self._archive_sniped,
-            ))
+            hook = build_agent_turn_hook(
+                AgentTurnHookSpec(
+                    on_progress=on_progress,
+                    on_stream=on_stream,
+                    on_stream_end=on_stream_end,
+                    channel=channel,
+                    chat_id=chat_id,
+                    message_id=message_id,
+                    metadata=metadata,
+                    session_key=active_session_key,
+                    workspace=effective_scope.project_path,
+                    tool_hint_max_length=self.tool_hint_max_length,
+                    on_iteration=lambda iteration: setattr(self, "_current_iteration", iteration),
+                    registered_hook_factories=self._hook_factories,
+                    turn_hook_factories=list(hook_factories or []),
+                    registered_hooks=self._extra_hooks,
+                    turn_hooks=list(hooks or []),
+                    ephemeral=ephemeral,
+                    run_extra_hooks_for_ephemeral=run_extra_hooks_for_ephemeral,
+                )
+            )
+            result = await self.runner.run(
+                AgentRunSpec(
+                    initial_messages=initial_messages,
+                    tools=effective_tools,
+                    runtime=runtime,
+                    max_iterations=self.max_iterations,
+                    max_tool_result_chars=self.max_tool_result_chars,
+                    hook=hook,
+                    error_message="Sorry, I encountered an error calling the AI model.",
+                    concurrent_tools=True,
+                    workspace=effective_scope.project_path,
+                    session_key=session.key if session else None,
+                    context_block_limit=self.context_block_limit,
+                    provider_retry_mode=self.provider_retry_mode,
+                    progress_callback=on_progress,
+                    stream_progress_deltas=on_stream is not None,
+                    retry_wait_callback=on_retry_wait,
+                    checkpoint_callback=_checkpoint,
+                    injection_callback=_drain_pending,
+                    # Sustained goals may legitimately exceed NANOBOT_LLM_TIMEOUT_S; idle stall
+                    # is still capped by NANOBOT_STREAM_IDLE_TIMEOUT_S in streaming providers.
+                    llm_timeout_s=runner_wall_llm_timeout_s(
+                        self.sessions,
+                        session.key if session is not None else session_key,
+                        metadata=session_metadata,
+                        message_metadata=metadata,
+                    ),
+                    goal_active_predicate=lambda: (
+                        sustained_goal_active(session.metadata) if session is not None else False
+                    ),
+                    goal_continue_message=_goal_continue,
+                    finalize_on_max_iterations=turn_continuation.should_finalize_on_max_iterations(
+                        pending_queue_available=pending_queue is not None and session is not None,
+                        session_metadata=session_metadata,
+                        message_metadata=metadata,
+                    ),
+                    on_snip=self._archive_sniped,
+                )
+            )
         finally:
             turn_scope_stack.close()
             reset_workspace_scope(workspace_token)
@@ -1170,7 +1187,13 @@ class AgentLoop:
                 await on_stream_end(resuming=False)
         elif result.stop_reason == "error":
             logger.error("LLM returned error: {}", (result.final_content or "")[:200])
-        return result.final_content, result.tools_used, result.messages, result.stop_reason, result.had_injections
+        return (
+            result.final_content,
+            result.tools_used,
+            result.messages,
+            result.stop_reason,
+            result.had_injections,
+        )
 
     async def run(self) -> None:
         """Run the agent loop, dispatching messages as tasks to stay responsive to /stop."""
@@ -1224,7 +1247,9 @@ class AgentLoop:
                     continue
                 if self.commands.is_priority(raw):
                     await self._dispatch_command_inline(
-                        msg, effective_key, raw,
+                        msg,
+                        effective_key,
+                        raw,
                         self.commands.dispatch_priority,
                     )
                     continue
@@ -1252,7 +1277,9 @@ class AgentLoop:
                     # dispatch them directly (same pattern as priority commands).
                     if self.commands.is_dispatchable_command(raw):
                         await self._dispatch_command_inline(
-                            msg, effective_key, raw,
+                            msg,
+                            effective_key,
+                            raw,
                             self.commands.dispatch,
                         )
                         continue
@@ -1290,10 +1317,11 @@ class AgentLoop:
                 task = asyncio.create_task(self._dispatch(msg))
                 self._active_tasks.setdefault(effective_key, []).append(task)
                 task.add_done_callback(
-                    lambda t, k=effective_key: self._active_tasks.get(k, [])
-                    and self._active_tasks[k].remove(t)
-                    if t in self._active_tasks.get(k, [])
-                    else None
+                    lambda t, k=effective_key: (
+                        self._active_tasks.get(k, []) and self._active_tasks[k].remove(t)
+                        if t in self._active_tasks.get(k, [])
+                        else None
+                    )
                 )
         finally:
             # MCP stdio transports use AnyIO cancel scopes; close them from the task that opened them.
@@ -1397,7 +1425,8 @@ class AgentLoop:
                         if leftover:
                             logger.info(
                                 "Re-published {} leftover message(s) to bus for session {}",
-                                leftover, session_key,
+                                leftover,
+                                session_key,
                             )
                     try:
                         session = self.sessions.get_or_create(session_key)
@@ -1523,7 +1552,9 @@ class AgentLoop:
             return
         try:
             session = self.sessions.get_or_create(session_key) if session_key else None
-            runtime = self.runtime_for_session(session) if session is not None else self.llm_runtime()
+            runtime = (
+                self.runtime_for_session(session) if session is not None else self.llm_runtime()
+            )
         except Exception:
             logger.warning(
                 "File-cap archive: could not resolve runtime for {}; raw-archiving",
@@ -1549,7 +1580,9 @@ class AgentLoop:
             return
         try:
             session = self.sessions.get_or_create(session_key) if session_key else None
-            runtime = self.runtime_for_session(session) if session is not None else self.llm_runtime()
+            runtime = (
+                self.runtime_for_session(session) if session is not None else self.llm_runtime()
+            )
         except Exception:
             logger.warning(
                 "Snip archive: could not resolve runtime for {}; raw-archiving",
@@ -1601,9 +1634,7 @@ class AgentLoop:
         """Process a single inbound message and return the response."""
         kind = TurnKind.SYSTEM if msg.channel == "system" else TurnKind.USER
         if kind is TurnKind.SYSTEM:
-            destination = (
-                msg.chat_id.split(":", 1) if ":" in msg.chat_id else ("cli", msg.chat_id)
-            )
+            destination = msg.chat_id.split(":", 1) if ":" in msg.chat_id else ("cli", msg.chat_id)
             key = session_key or msg.session_key_override or f"{destination[0]}:{destination[1]}"
         else:
             key = session_key or msg.session_key
@@ -1712,8 +1743,7 @@ class AgentLoop:
             next_state = self._TRANSITIONS.get((ctx.state, event))
             if next_state is None:
                 raise RuntimeError(
-                    f"[turn {ctx.turn_id}] No transition from {ctx.state} "
-                    f"on event {event!r}"
+                    f"[turn {ctx.turn_id}] No transition from {ctx.state} on event {event!r}"
                 )
             ctx.state = next_state
 
@@ -1875,9 +1905,7 @@ class AgentLoop:
                 ctx.input_persisted_early = self._persist_user_message_early(
                     ctx.msg, ctx.session, _command=True
                 )
-                ctx.session.add_message(
-                    "assistant", result.content, _command=True
-                )
+                ctx.session.add_message("assistant", result.content, _command=True)
                 self.sessions.save(ctx.session)
                 self._clear_pending_user_turn(ctx.session)
             return "shortcut"
@@ -1890,9 +1918,7 @@ class AgentLoop:
             ctx.runtime = runtime
         if ctx.on_runtime_admitted is not None:
             await ctx.on_runtime_admitted(runtime)
-        replay_max_messages = replay_max_messages_for_context(
-            runtime.context_window_tokens
-        )
+        replay_max_messages = replay_max_messages_for_context(runtime.context_window_tokens)
         if not ctx.ephemeral:
             await self.consolidator.maybe_consolidate_by_tokens(
                 ctx.session,
@@ -2000,7 +2026,9 @@ class AgentLoop:
         )
         ctx.turn_latency_ms = max(0, int((time.time() - latency_started_at) * 1000))
         self._save_turn(
-            ctx.session, ctx.all_messages, ctx.save_skip,
+            ctx.session,
+            ctx.all_messages,
+            ctx.save_skip,
             turn_latency_ms=ctx.turn_latency_ms,
         )
         ctx.delivery.record_latency(ctx.turn_latency_ms)
@@ -2272,7 +2300,7 @@ class AgentLoop:
                         "Error: Task interrupted before this tool finished."
                         if synthesize_missing
                         else "The gateway restarted before this tool call completed. "
-                             "Re-emit only if still necessary."
+                        "Re-emit only if still necessary."
                     ),
                     "timestamp": datetime.now().isoformat(),
                 }
@@ -2531,8 +2559,12 @@ class AgentLoop:
         if not persist_user_message:
             metadata[turn_continuation.SKIP_USER_PERSIST_META] = True
         msg = InboundMessage(
-            channel=channel, sender_id=sender_id, chat_id=chat_id,
-            content=content, media=media or [], metadata=metadata,
+            channel=channel,
+            sender_id=sender_id,
+            chat_id=chat_id,
+            content=content,
+            media=media or [],
+            metadata=metadata,
         )
         # Share the dispatch lock so direct calls serialize with bus turns.
         lock = self._get_session_lock(session_key)

@@ -29,7 +29,9 @@ from nanobot.agent.tools.shell import ExecTool
 
 def _python_command(code: str) -> str:
     if sys.platform == "win32":
-        return f"{subprocess.list2cmdline([sys.executable])} -u -c {subprocess.list2cmdline([code])}"
+        return (
+            f"{subprocess.list2cmdline([sys.executable])} -u -c {subprocess.list2cmdline([code])}"
+        )
     return f"{shlex.quote(sys.executable)} -u -c {shlex.quote(code)}"
 
 
@@ -41,6 +43,7 @@ def _waiting_shell_command(initial: str, *, delayed: str | None = None) -> str:
     not process-tree semantics, so keep the waiter in the managed shell.
     """
     if sys.platform == "win32":
+
         def quote(value: str) -> str:
             return "'" + value.replace("'", "''") + "'"
 
@@ -336,8 +339,7 @@ def test_write_stdin_preserves_completed_session_output_until_polled(tmp_path):
         exec_tool = ExecTool(working_dir=str(tmp_path), timeout=5, session_manager=manager)
         stdin_tool = WriteStdinTool(manager=manager)
         command = _python_command(
-            "import time; print('ready', flush=True); "
-            "time.sleep(0.1); print('done', flush=True)"
+            "import time; print('ready', flush=True); time.sleep(0.1); print('done', flush=True)"
         )
 
         initial = await exec_tool.execute(command=command, yield_time_ms=50)
@@ -461,9 +463,7 @@ def test_exec_sessions_are_scoped_to_request_session_key(tmp_path):
         exec_tool = ExecTool(working_dir=str(tmp_path), timeout=5, session_manager=manager)
         list_tool = ListExecSessionsTool(manager=manager)
         stdin_tool = WriteStdinTool(manager=manager)
-        command = _python_command(
-            "import time; print('ready', flush=True); time.sleep(5)"
-        )
+        command = _python_command("import time; print('ready', flush=True); time.sleep(5)")
 
         token_a = bind_request_context(
             RequestContext(channel="cli", chat_id="a", session_key="cli:a")
@@ -537,8 +537,7 @@ def test_exec_session_manager_shutdown_terminates_child_processes(tmp_path):
     async def run() -> None:
         marker = tmp_path / "orphaned-child.txt"
         child_code = (
-            "import pathlib,time; time.sleep(2); "
-            f"pathlib.Path({str(marker)!r}).write_text('alive')"
+            f"import pathlib,time; time.sleep(2); pathlib.Path({str(marker)!r}).write_text('alive')"
         )
         child_payload = base64.b64encode(child_code.encode()).decode()
         parent_code = (

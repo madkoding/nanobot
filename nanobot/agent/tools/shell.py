@@ -79,8 +79,11 @@ _WORKSPACE_BOUNDARY_NOTE = (
 
 class ExecToolConfig(Base):
     """Shell exec tool configuration."""
+
     enable: bool = True
-    timeout: int = Field(default=60, ge=0)  # Hard timeout (s); 0 = no limit. Not capped by the per-call max.
+    timeout: int = Field(
+        default=60, ge=0
+    )  # Hard timeout (s); 0 = no limit. Not capped by the per-call max.
     path_prepend: str = ""
     path_append: str = ""
     sandbox: str = ""
@@ -142,6 +145,7 @@ class _PreparedCommand:
 )
 class ExecTool(Tool):
     """Tool to execute shell commands."""
+
     _scopes = {"core", "subagent", "validator"}
 
     config_key = "exec"
@@ -185,25 +189,28 @@ class ExecTool(Tool):
         self.timeout = timeout
         self.working_dir = working_dir
         self.sandbox = sandbox
-        self.deny_patterns = (deny_patterns or []) + [
-            r"\brm\s+-[rf]{1,2}\b",          # rm -r, rm -rf, rm -fr
-            r"\bdel\s+/[fq]\b",              # del /f, del /q
-            r"\brmdir\s+/s\b",               # rmdir /s
-            r"(?:^|[;&|]\s*)format(?!=)\b",   # format (as standalone command only)
-            r"\b(mkfs|diskpart)\b",          # disk operations
-            r"\bdd\s+if=",                   # dd
-            r">\s*/dev/sd",                  # write to disk
-            r"\b(shutdown|reboot|poweroff)\b",  # system power
-            r":\(\)\s*\{.*\};\s*:",          # fork bomb
-            # Block writes to nanobot internal state files (#2989).
-            # history.jsonl / .dream_cursor are managed by append_history();
-            # direct writes corrupt the cursor format and crash /dream.
-            r">>?\s*\S*(?:history\.jsonl|\.dream_cursor)",            # > / >> redirect
-            r"\btee\b[^|;&<>]*(?:history\.jsonl|\.dream_cursor)",     # tee / tee -a
-            r"\b(?:cp|mv)\b(?:\s+[^\s|;&<>]+)+\s+\S*(?:history\.jsonl|\.dream_cursor)",  # cp/mv target
-            r"\bdd\b[^|;&<>]*\bof=\S*(?:history\.jsonl|\.dream_cursor)",  # dd of=
-            r"\bsed\s+-i[^|;&<>]*(?:history\.jsonl|\.dream_cursor)",  # sed -i
-        ]
+        self.deny_patterns = (
+            (deny_patterns or [])
+            + [
+                r"\brm\s+-[rf]{1,2}\b",  # rm -r, rm -rf, rm -fr
+                r"\bdel\s+/[fq]\b",  # del /f, del /q
+                r"\brmdir\s+/s\b",  # rmdir /s
+                r"(?:^|[;&|]\s*)format(?!=)\b",  # format (as standalone command only)
+                r"\b(mkfs|diskpart)\b",  # disk operations
+                r"\bdd\s+if=",  # dd
+                r">\s*/dev/sd",  # write to disk
+                r"\b(shutdown|reboot|poweroff)\b",  # system power
+                r":\(\)\s*\{.*\};\s*:",  # fork bomb
+                # Block writes to nanobot internal state files (#2989).
+                # history.jsonl / .dream_cursor are managed by append_history();
+                # direct writes corrupt the cursor format and crash /dream.
+                r">>?\s*\S*(?:history\.jsonl|\.dream_cursor)",  # > / >> redirect
+                r"\btee\b[^|;&<>]*(?:history\.jsonl|\.dream_cursor)",  # tee / tee -a
+                r"\b(?:cp|mv)\b(?:\s+[^\s|;&<>]+)+\s+\S*(?:history\.jsonl|\.dream_cursor)",  # cp/mv target
+                r"\bdd\b[^|;&<>]*\bof=\S*(?:history\.jsonl|\.dream_cursor)",  # dd of=
+                r"\bsed\s+-i[^|;&<>]*(?:history\.jsonl|\.dream_cursor)",  # sed -i
+            ]
+        )
         self.allow_patterns = allow_patterns or []
         self.restrict_to_workspace = restrict_to_workspace
         if allow_local_preview_access is not None:
@@ -222,17 +229,19 @@ class ExecTool(Tool):
     _MAX_OUTPUT = 10_000
 
     # Kernel device files safe as stdio redirect targets (#3599).
-    _BENIGN_DEVICE_PATHS: frozenset[str] = frozenset({
-        "/dev/null",
-        "/dev/zero",
-        "/dev/full",
-        "/dev/random",
-        "/dev/urandom",
-        "/dev/stdin",
-        "/dev/stdout",
-        "/dev/stderr",
-        "/dev/tty",
-    })
+    _BENIGN_DEVICE_PATHS: frozenset[str] = frozenset(
+        {
+            "/dev/null",
+            "/dev/zero",
+            "/dev/full",
+            "/dev/random",
+            "/dev/urandom",
+            "/dev/stdin",
+            "/dev/stdout",
+            "/dev/stderr",
+            "/dev/tty",
+        }
+    )
 
     @property
     def description(self) -> str:
@@ -254,10 +263,15 @@ class ExecTool(Tool):
         return True
 
     async def execute(
-        self, command: str | None = None, cmd: str | None = None,
-        working_dir: str | None = None, workdir: str | None = None,
-        timeout: int | None = None, shell: str | None = None,
-        login: bool | None = None, yield_time_ms: int | None = None,
+        self,
+        command: str | None = None,
+        cmd: str | None = None,
+        working_dir: str | None = None,
+        workdir: str | None = None,
+        timeout: int | None = None,
+        shell: str | None = None,
+        login: bool | None = None,
+        yield_time_ms: int | None = None,
         max_output_chars: int | None = None,
         max_output_tokens: int | None = None,
         **kwargs: Any,
@@ -293,7 +307,9 @@ class ExecTool(Tool):
                 )
             except asyncio.TimeoutError:
                 await self._kill_process(process)
-                return ToolResult.error(f"Error: Command timed out after {prepared.timeout} seconds")
+                return ToolResult.error(
+                    f"Error: Command timed out after {prepared.timeout} seconds"
+                )
             except asyncio.CancelledError:
                 await self._kill_process(process)
                 raise
@@ -390,7 +406,9 @@ class ExecTool(Tool):
             restrict_to_workspace=self.restrict_to_workspace,
             sandbox_restricts_workspace=bool(self.sandbox),
         )
-        workspace_root = str(access.project_path) if access.project_path is not None else self.working_dir
+        workspace_root = (
+            str(access.project_path) if access.project_path is not None else self.working_dir
+        )
         cwd = working_dir or workspace_root or os.getcwd()
 
         # Prevent an LLM-supplied working_dir from escaping the configured
@@ -404,8 +422,7 @@ class ExecTool(Tool):
                 resolved_root = Path(workspace_root).expanduser().resolve()
             except Exception:
                 return ToolResult.error(
-                    "Error: working_dir could not be resolved"
-                    + _WORKSPACE_BOUNDARY_NOTE
+                    "Error: working_dir could not be resolved" + _WORKSPACE_BOUNDARY_NOTE
                 )
             if not is_path_within(requested, resolved_root):
                 return ToolResult.error(
@@ -480,7 +497,9 @@ class ExecTool(Tool):
 
     @staticmethod
     async def _spawn(
-        command: str, cwd: str, env: dict[str, str],
+        command: str,
+        cwd: str,
+        env: dict[str, str],
         shell_program: str | None = None,
         login: bool = False,
         *,
@@ -513,7 +532,11 @@ class ExecTool(Tool):
                 "if ($LASTEXITCODE -ne $null) { exit $LASTEXITCODE }"
             )
             return await asyncio.create_subprocess_exec(
-                program, "-NoProfile", "-NonInteractive", "-Command", command,
+                program,
+                "-NoProfile",
+                "-NonInteractive",
+                "-Command",
+                command,
                 stdin=stdin,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
@@ -572,8 +595,7 @@ class ExecTool(Tool):
                 name = path.name.lower()
                 if name not in win_allowed:
                     return None, ToolResult.error(
-                        f"Error: unsupported shell {shell!r}. "
-                        "Allowed: powershell, pwsh, cmd"
+                        f"Error: unsupported shell {shell!r}. Allowed: powershell, pwsh, cmd"
                     )
                 if not path.is_file():
                     return None, ToolResult.error(f"Error: shell is not found: {shell}")
@@ -582,8 +604,7 @@ class ExecTool(Tool):
                 return None, ToolResult.error("Error: shell must be a shell name or absolute path")
             if shell.lower() not in win_allowed:
                 return None, ToolResult.error(
-                    f"Error: unsupported shell {shell!r}. "
-                    "Allowed: powershell, pwsh, cmd"
+                    f"Error: unsupported shell {shell!r}. Allowed: powershell, pwsh, cmd"
                 )
             if shell.lower() in ("cmd", "cmd.exe"):
                 resolved = os.environ.get("COMSPEC") or shutil.which("cmd") or "cmd"
@@ -594,14 +615,18 @@ class ExecTool(Tool):
         path = Path(shell).expanduser()
         if path.is_absolute():
             if path.name not in allowed:
-                return None, ToolResult.error(f"Error: unsupported shell {shell!r}. Allowed: bash, sh, zsh")
+                return None, ToolResult.error(
+                    f"Error: unsupported shell {shell!r}. Allowed: bash, sh, zsh"
+                )
             if not path.is_file() or not os.access(path, os.X_OK):
                 return None, ToolResult.error(f"Error: shell is not executable: {shell}")
             return str(path), None
         if "/" in shell or "\\" in shell:
             return None, ToolResult.error("Error: shell must be a shell name or absolute path")
         if shell not in allowed:
-            return None, ToolResult.error(f"Error: unsupported shell {shell!r}. Allowed: bash, sh, zsh")
+            return None, ToolResult.error(
+                f"Error: unsupported shell {shell!r}. Allowed: bash, sh, zsh"
+            )
         resolved = shutil.which(shell)
         if not resolved:
             return None, ToolResult.error(f"Error: shell not found: {shell}")
@@ -726,9 +751,13 @@ class ExecTool(Tool):
         # from the hardcoded deny list via configuration. A chained command is
         # only explicitly allowed when every top-level shell segment matches.
         segments = self._split_shell_segments(lower)
-        explicitly_allowed = bool(self.allow_patterns) and bool(segments) and all(
-            any(re.fullmatch(pattern, segment) for pattern in self.allow_patterns)
-            for segment in segments
+        explicitly_allowed = (
+            bool(self.allow_patterns)
+            and bool(segments)
+            and all(
+                any(re.fullmatch(pattern, segment) for pattern in self.allow_patterns)
+                for segment in segments
+            )
         )
         if not explicitly_allowed:
             for pattern in self.deny_patterns:
@@ -736,9 +765,12 @@ class ExecTool(Tool):
                     return ToolResult.error("Error: Command blocked by deny pattern filter")
 
             if self.allow_patterns:
-                return ToolResult.error("Error: Command blocked by allowlist filter (not in allowlist)")
+                return ToolResult.error(
+                    "Error: Command blocked by allowlist filter (not in allowlist)"
+                )
 
         from nanobot.security.network import contains_internal_url
+
         if contains_internal_url(
             cmd,
             allow_loopback=current_scope_allows_loopback(
@@ -746,9 +778,13 @@ class ExecTool(Tool):
             ),
         ):
             # The runner turns this marker into a non-retryable security hint.
-            return ToolResult.error("Error: Command blocked by safety guard (internal/private URL detected)")
+            return ToolResult.error(
+                "Error: Command blocked by safety guard (internal/private URL detected)"
+            )
 
-        should_restrict = self.restrict_to_workspace if restrict_to_workspace is None else restrict_to_workspace
+        should_restrict = (
+            self.restrict_to_workspace if restrict_to_workspace is None else restrict_to_workspace
+        )
         if should_restrict:
             if "..\\" in cmd or "../" in cmd:
                 return ToolResult.error(
@@ -758,9 +794,7 @@ class ExecTool(Tool):
 
             cwd_path = Path(cwd).resolve()
             resolved_workspace = (
-                Path(workspace_root).expanduser().resolve()
-                if workspace_root
-                else None
+                Path(workspace_root).expanduser().resolve() if workspace_root else None
             )
 
             for raw in self._extract_absolute_paths(cmd):
@@ -885,8 +919,12 @@ class ExecTool(Tool):
         # NOTE: `*` is required so `C:\` (nothing after the slash) is still extracted.
         win_paths = re.findall(
             r"(?<![A-Za-z])(?:[A-Za-z]:[^\s\"'|><;]*|\\\\[^\s\"'|><;]+(?:\\[^\s\"'|><;]+)*)",
-            command
+            command,
         )
-        posix_paths = re.findall(r"(?:^|[\s|>='\"])(/[^\s\"'>;|<]+)", command) # POSIX: /absolute only
-        home_paths = re.findall(r"(?:^|[\s>='\"])(~[/+][^\s\"'>;|<]*)", command) # POSIX/Windows home shortcut: ~/ or ~+
+        posix_paths = re.findall(
+            r"(?:^|[\s|>='\"])(/[^\s\"'>;|<]+)", command
+        )  # POSIX: /absolute only
+        home_paths = re.findall(
+            r"(?:^|[\s>='\"])(~[/+][^\s\"'>;|<]*)", command
+        )  # POSIX/Windows home shortcut: ~/ or ~+
         return win_paths + posix_paths + home_paths

@@ -20,13 +20,11 @@ from nanobot.utils.prompt_templates import render_template
 class BoundCronAgent(Protocol):
     tools: Any
 
-    async def submit_cron_turn(self, msg: InboundMessage) -> OutboundMessage | None:
-        ...
+    async def submit_cron_turn(self, msg: InboundMessage) -> OutboundMessage | None: ...
 
 
 class CronRunRecorder(Protocol):
-    def write_run_record(self, run_id: str, record: dict[str, Any]) -> None:
-        ...
+    def write_run_record(self, run_id: str, record: dict[str, Any]) -> None: ...
 
 
 def _cron_prompt_ref(prompt: str) -> dict[str, Any]:
@@ -87,9 +85,7 @@ async def run_bound_cron_job(
         "job_name": job.name,
         "run_id": run_id,
         "prompt_ref": prompt_ref,
-        "persist_content": (
-            f"Scheduled cron job triggered: {job.name}\n\n{job.payload.message}"
-        ),
+        "persist_content": (f"Scheduled cron job triggered: {job.name}\n\n{job.payload.message}"),
     }
     metadata[CRON_DEFER_UNTIL_IDLE_META] = True
     run_record_base: dict[str, Any] = {

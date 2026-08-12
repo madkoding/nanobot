@@ -14,8 +14,10 @@ def mock_prompt_session():
     """Mock the global prompt session."""
     mock_session = MagicMock()
     mock_session.prompt_async = AsyncMock()
-    with patch("nanobot.cli.commands._PROMPT_SESSION", mock_session), \
-         patch("nanobot.cli.commands.patch_stdout"):
+    with (
+        patch("nanobot.cli.commands._PROMPT_SESSION", mock_session),
+        patch("nanobot.cli.commands.patch_stdout"),
+    ):
         yield mock_session
 
 
@@ -46,10 +48,11 @@ def test_init_prompt_session_creates_session():
     # Ensure global is None before test
     commands._PROMPT_SESSION = None
 
-    with patch("nanobot.cli.commands.PromptSession") as mock_session_cls, \
-         patch("nanobot.cli.commands.FileHistory"), \
-         patch("pathlib.Path.home") as mock_home:
-
+    with (
+        patch("nanobot.cli.commands.PromptSession") as mock_session_cls,
+        patch("nanobot.cli.commands.FileHistory"),
+        patch("pathlib.Path.home") as mock_home,
+    ):
         mock_home.return_value = MagicMock()
 
         commands._init_prompt_session()
@@ -173,7 +176,9 @@ def test_print_cli_progress_line_pauses_spinner_before_printing():
     mock_console = MagicMock()
     mock_console.status.return_value = spinner
 
-    with patch.object(commands.console, "print", side_effect=lambda *_args, **_kwargs: order.append("print")):
+    with patch.object(
+        commands.console, "print", side_effect=lambda *_args, **_kwargs: order.append("print")
+    ):
         thinking = stream_mod.ThinkingSpinner(console=mock_console)
         with thinking:
             commands._print_cli_progress_line("tool running", thinking)
@@ -263,11 +268,7 @@ async def test_print_interactive_progress_line_pauses_spinner_before_printing():
 
 
 def test_response_renderable_uses_text_for_explicit_plain_rendering():
-    status = (
-        "🐈 nanobot v0.1.4.post5\n"
-        "🧠 Model: MiniMax-M2.7\n"
-        "📊 Tokens: 20639 in / 29 out"
-    )
+    status = "🐈 nanobot v0.1.4.post5\n🧠 Model: MiniMax-M2.7\n📊 Tokens: 20639 in / 29 out"
 
     renderable = commands._response_renderable(
         status,
@@ -344,9 +345,7 @@ async def test_on_end_resuming_clears_buffer_and_restarts_spinner():
     spinner = MagicMock()
     mock_console = MagicMock()
     mock_console.status.return_value = spinner
-    mock_console.capture.return_value.__enter__ = MagicMock(
-        return_value=MagicMock(get=lambda: "")
-    )
+    mock_console.capture.return_value.__enter__ = MagicMock(return_value=MagicMock(get=lambda: ""))
     mock_console.capture.return_value.__exit__ = MagicMock(return_value=False)
 
     with patch.object(stream_mod, "_make_console", return_value=mock_console):
@@ -363,6 +362,7 @@ async def test_on_end_resuming_clears_buffer_and_restarts_spinner():
 def test_make_console_force_terminal_when_stdout_is_tty():
     """Console should set force_terminal=True when stdout is a TTY (rich output)."""
     import sys
+
     with patch.object(sys.stdout, "isatty", return_value=True):
         console = stream_mod._make_console()
         assert console._force_terminal is True
@@ -373,6 +373,7 @@ def test_make_console_force_terminal_false_when_stdout_is_not_tty():
     ANSI escape codes (cursor visibility, braille spinner frames) don't pollute
     piped output such as `docker exec -i` (#3265)."""
     import sys
+
     with patch.object(sys.stdout, "isatty", return_value=False):
         console = stream_mod._make_console()
         assert console._force_terminal is False
@@ -383,6 +384,7 @@ def test_render_interactive_ansi_force_terminal_follows_isatty():
     prompt_toolkit must also defer to sys.stdout.isatty(), otherwise cursor
     escapes and spinner frames leak into piped output (#3265, #3370)."""
     import sys
+
     captured: dict = {}
 
     def render_fn(c):

@@ -36,8 +36,13 @@ def test_systemd_install_dry_run_renders_user_unit(tmp_path):
     assert ("systemctl", "--user", "restart", "nanobot-gateway.service") in result.commands
     assert result.content is not None
     assert 'WorkingDirectory="/tmp/nanobot workspace"' in result.content
-    assert 'ExecStart=/venv/bin/python -m nanobot gateway --foreground --port 18790 --verbose' in result.content
-    assert '--workspace "/tmp/nanobot workspace" --config /tmp/nanobot/config.json' in result.content
+    assert (
+        "ExecStart=/venv/bin/python -m nanobot gateway --foreground --port 18790 --verbose"
+        in result.content
+    )
+    assert (
+        '--workspace "/tmp/nanobot workspace" --config /tmp/nanobot/config.json' in result.content
+    )
 
 
 def test_systemd_install_writes_unit_and_runs_commands(tmp_path):
@@ -104,7 +109,12 @@ def test_launchd_install_dry_run_renders_plist(tmp_path):
     ]
     assert payload["KeepAlive"] == {"SuccessfulExit": False}
     assert payload["RunAtLoad"] is True
-    assert ("launchctl", "bootstrap", _expected_launchd_domain(), str(result.path)) in result.commands
+    assert (
+        "launchctl",
+        "bootstrap",
+        _expected_launchd_domain(),
+        str(result.path),
+    ) in result.commands
 
 
 def test_launchd_no_enable_start_still_bootstraps(tmp_path):

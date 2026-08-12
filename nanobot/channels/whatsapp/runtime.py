@@ -164,7 +164,9 @@ def _ensure_ffmpeg_in_path() -> None:
         except ImportError:
             return
         try:
-            ffmpeg_path, ffprobe_path = static_ffmpeg_run.get_or_fetch_platform_executables_else_raise()
+            ffmpeg_path, ffprobe_path = (
+                static_ffmpeg_run.get_or_fetch_platform_executables_else_raise()
+            )
         except Exception:  # noqa: BLE001 - offline / locked / partial download, fall through
             return
         bin_dir = str(Path(ffmpeg_path).parent)
@@ -348,9 +350,7 @@ def _media_message(message: Any) -> _MediaInfo | None:
             message=document,
             mimetype=str(_safe_attr(document, "mimetype", "") or "application/octet-stream"),
             filename=str(
-                _safe_attr(document, "fileName", "")
-                or _safe_attr(document, "title", "")
-                or ""
+                _safe_attr(document, "fileName", "") or _safe_attr(document, "title", "") or ""
             ),
         )
 
@@ -377,7 +377,9 @@ class WhatsAppChannel(BaseChannel):
         return WhatsAppConfig().model_dump(by_alias=True)
 
     def __init__(self, config: Any, bus: MessageBus):
-        legacy_bridge_fields = _legacy_bridge_config_fields(config) if isinstance(config, dict) else []
+        legacy_bridge_fields = (
+            _legacy_bridge_config_fields(config) if isinstance(config, dict) else []
+        )
         if isinstance(config, dict):
             config = WhatsAppConfig.model_validate(config)
         super().__init__(config, bus)
@@ -507,6 +509,7 @@ class WhatsAppChannel(BaseChannel):
         dirty count doubles or 5 minutes have passed.
         """
         import time as _time
+
         self._state_dirty_count += 1
         now = _time.monotonic()
         if self._state_last_save_at == 0.0:
@@ -561,9 +564,7 @@ class WhatsAppChannel(BaseChannel):
         if cooldown_until and now >= cooldown_until:
             if state["consecutive_463"] or cooldown_until:
                 self._save_throttle_state(0, 0.0)
-                self.logger.info(
-                    "WhatsApp 463 cooldown expired; sending resumed."
-                )
+                self.logger.info("WhatsApp 463 cooldown expired; sending resumed.")
             return None
         if cooldown_until and now < cooldown_until:
             return cooldown_until - now
@@ -601,14 +602,17 @@ class WhatsAppChannel(BaseChannel):
                 "WhatsApp 463 throttle tripped after {} consecutive errors; "
                 "pausing sends for {}s (~{}h) until {}. "
                 "After that, sends resume automatically on the next success.",
-                consecutive, cooldown_s, cooldown_s // 3600,
+                consecutive,
+                cooldown_s,
+                cooldown_s // 3600,
                 time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(cooldown_until)),
             )
             return float(cooldown_s)
         self._save_throttle_state(consecutive, state["cooldown_until"])
         self.logger.warning(
             "WhatsApp 463 throttled ({}/{} before cooldown).",
-            consecutive, threshold,
+            consecutive,
+            threshold,
         )
         return None
 
@@ -722,9 +726,7 @@ class WhatsAppChannel(BaseChannel):
                 self._on_connected_for_lifecycle = connected_event.set
                 try:
                     try:
-                        await asyncio.wait_for(
-                            connected_event.wait(), timeout=login_timeout_s
-                        )
+                        await asyncio.wait_for(connected_event.wait(), timeout=login_timeout_s)
                     except asyncio.TimeoutError:
                         if self._connected:
                             # Login already happened — the cap doesn't apply.
@@ -758,7 +760,6 @@ class WhatsAppChannel(BaseChannel):
             # so the next start() picks up where we left off.
             self._save_message_state()
 
-
     async def stop(self) -> None:
         self._running = False
         self._connected = False
@@ -791,11 +792,10 @@ class WhatsAppChannel(BaseChannel):
             "WhatsApp outbound allowlist blocked send to {} "
             "(not in allow_send_to: {}). "
             "Add the number to channels.whatsapp.allowSendTo in config.",
-            chat_id, ", ".join(sorted(allow_set)),
+            chat_id,
+            ", ".join(sorted(allow_set)),
         )
-        raise RuntimeError(
-            f"WhatsApp outbound allowlist blocked send to {chat_id}"
-        )
+        raise RuntimeError(f"WhatsApp outbound allowlist blocked send to {chat_id}")
 
     @staticmethod
     def _fail_login_on_connect_task_done(
@@ -830,13 +830,11 @@ class WhatsAppChannel(BaseChannel):
         if remaining is not None:
             hours = remaining / 3600
             self.logger.warning(
-                "WhatsApp 463 cooldown active; skipping send to {} "
-                "(~{}h remaining).",
-                msg.chat_id, f"{hours:.1f}",
+                "WhatsApp 463 cooldown active; skipping send to {} (~{}h remaining).",
+                msg.chat_id,
+                f"{hours:.1f}",
             )
-            raise RuntimeError(
-                f"WhatsApp 463 cooldown active; {remaining:.0f}s remaining"
-            )
+            raise RuntimeError(f"WhatsApp 463 cooldown active; {remaining:.0f}s remaining")
 
         self._check_outbound_allowed(msg.chat_id)
 
@@ -856,9 +854,7 @@ class WhatsAppChannel(BaseChannel):
                 # media senders use. Build it here so the mention prefix above
                 # still lands in the text.
                 api = _load_neonize()
-                msg_obj = api.Message(
-                    extendedTextMessage=api.ExtendedTextMessage(text=content)
-                )
+                msg_obj = api.Message(extendedTextMessage=api.ExtendedTextMessage(text=content))
                 await client.send_message(to, msg_obj)
         except Exception as exc:
             cls_name = type(exc).__name__
@@ -913,7 +909,9 @@ class WhatsAppChannel(BaseChannel):
                 # without waiting for the first sleep interval.
                 try:
                     await client.send_chat_presence(
-                        jid, ChatPresence.CHAT_PRESENCE_COMPOSING, ChatPresenceMedia.CHAT_PRESENCE_MEDIA_TEXT
+                        jid,
+                        ChatPresence.CHAT_PRESENCE_COMPOSING,
+                        ChatPresenceMedia.CHAT_PRESENCE_MEDIA_TEXT,
                     )
                     self.logger.debug("typing started for {}", key)
                 except Exception as exc:  # noqa: BLE001 - presence is best-effort
@@ -925,7 +923,9 @@ class WhatsAppChannel(BaseChannel):
                         return
                     try:
                         await client.send_chat_presence(
-                            jid, ChatPresence.CHAT_PRESENCE_COMPOSING, ChatPresenceMedia.CHAT_PRESENCE_MEDIA_TEXT
+                            jid,
+                            ChatPresence.CHAT_PRESENCE_COMPOSING,
+                            ChatPresenceMedia.CHAT_PRESENCE_MEDIA_TEXT,
                         )
                     except Exception as exc:  # noqa: BLE001 - presence is best-effort
                         self.logger.debug("typing presence failed for {}: {}", key, exc)
@@ -996,7 +996,9 @@ class WhatsAppChannel(BaseChannel):
             return f"{base}:{sender_id}"
         return base
 
-    async def _send_media(self, client: Any, to: Any, media_path: str, *, ptt: bool = False) -> None:
+    async def _send_media(
+        self, client: Any, to: Any, media_path: str, *, ptt: bool = False
+    ) -> None:
         path = str(Path(media_path).expanduser())
         mime, _ = mimetypes.guess_type(path)
         mimetype = mime or "application/octet-stream"
@@ -1089,9 +1091,7 @@ class WhatsAppChannel(BaseChannel):
         async def _on_logged_out(_: Any, event: Any) -> None:
             reason = _safe_attr(event, "Reason", 0)
             on_connect = _safe_attr(event, "OnConnect", False)
-            self.logger.warning(
-                "WhatsApp logged out: reason={} on_connect={}", reason, on_connect
-            )
+            self.logger.warning("WhatsApp logged out: reason={} on_connect={}", reason, on_connect)
             if login_result is not None and not login_result.done():
                 login_result.set_exception(
                     RuntimeError(
@@ -1118,9 +1118,7 @@ class WhatsAppChannel(BaseChannel):
             code = _safe_attr(event, "Code", "")
             self.logger.warning("WhatsApp stream error: code={}", code)
             if login_result is not None and not login_result.done():
-                login_result.set_exception(
-                    RuntimeError(f"WhatsApp stream error: {code}")
-                )
+                login_result.set_exception(RuntimeError(f"WhatsApp stream error: {code}"))
 
         if not handle_messages:
             return
@@ -1318,7 +1316,8 @@ class WhatsAppChannel(BaseChannel):
             if not text and not media_paths:
                 self.logger.debug(
                     "WhatsApp message id={} from {} has no parseable text/media; dropping",
-                    message_id, sender_id,
+                    message_id,
+                    sender_id,
                 )
                 return
 
@@ -1402,7 +1401,9 @@ class WhatsAppChannel(BaseChannel):
             ),
         )
 
-    def _known_contacts_block(self, chat_id: str, current_sender_id: str) -> RuntimeContextBlock | None:
+    def _known_contacts_block(
+        self, chat_id: str, current_sender_id: str
+    ) -> RuntimeContextBlock | None:
         """Return a block listing known contacts in this chat, minus the current sender."""
         chat_map = self._display_names.get(chat_id, {})
         entries = [
@@ -1464,7 +1465,9 @@ class WhatsAppChannel(BaseChannel):
         """Wait until the group queue has been fully processed. (Tests only.)"""
         while True:
             task = self._group_queue_tasks.get(chat_jid)
-            if task is None and (chat_jid not in self._group_queues or self._group_queues[chat_jid].empty()):
+            if task is None and (
+                chat_jid not in self._group_queues or self._group_queues[chat_jid].empty()
+            ):
                 return
             if task is not None and not task.done():
                 await task
@@ -1495,9 +1498,7 @@ class WhatsAppChannel(BaseChannel):
             return False
         for context in _context_infos(message):
             participant = _normalize_jid(
-                _safe_attr(context, "participant")
-                or _safe_attr(context, "Participant")
-                or ""
+                _safe_attr(context, "participant") or _safe_attr(context, "Participant") or ""
             )
             if participant in self._self_jids or _bare_jid(participant) in self._self_jids:
                 return True

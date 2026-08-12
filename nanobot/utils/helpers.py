@@ -44,9 +44,7 @@ def sanitize_surrogates(text: str) -> str:
             break
     else:
         return text
-    return text.encode("utf-16-le", errors="surrogatepass").decode(
-        "utf-16-le", errors="replace"
-    )
+    return text.encode("utf-16-le", errors="surrogatepass").decode("utf-16-le", errors="replace")
 
 
 def sanitize_surrogates_deep(value: Any) -> Any:
@@ -635,9 +633,7 @@ def build_assistant_message(
         msg["tool_calls"] = tool_calls
     if reasoning_content is not None or thinking_blocks:
         msg["reasoning_content"] = (
-            strip_reasoning_tags(reasoning_content)
-            if reasoning_content is not None
-            else ""
+            strip_reasoning_tags(reasoning_content) if reasoning_content is not None else ""
         )
     if thinking_blocks:
         msg["thinking_blocks"] = thinking_blocks

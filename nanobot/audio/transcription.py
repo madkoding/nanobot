@@ -29,18 +29,20 @@ TranscriptionProviderName = str
 
 _DEFAULT_PROVIDER: TranscriptionProviderName = "groq"
 _MAX_AUDIO_BYTES_FALLBACK = 25 * 1024 * 1024
-_AUDIO_MIME_ALLOWED: frozenset[str] = frozenset({
-    "audio/aac",
-    "audio/flac",
-    "audio/m4a",
-    "audio/mp4",
-    "audio/mpeg",
-    "audio/ogg",
-    "audio/wav",
-    "audio/webm",
-    "audio/x-m4a",
-    "audio/x-wav",
-})
+_AUDIO_MIME_ALLOWED: frozenset[str] = frozenset(
+    {
+        "audio/aac",
+        "audio/flac",
+        "audio/m4a",
+        "audio/mp4",
+        "audio/mpeg",
+        "audio/ogg",
+        "audio/wav",
+        "audio/webm",
+        "audio/x-m4a",
+        "audio/x-wav",
+    }
+)
 
 
 @dataclass(frozen=True)
@@ -98,7 +100,9 @@ def _resolve_transcription_api_key(provider: str, provider_cfg: Any) -> str:
 
 
 def _resolve_transcription_api_base(provider: str, provider_cfg: Any) -> str:
-    api_base = resolve_env_refs(getattr(provider_cfg, "api_base", None) or "") if provider_cfg else ""
+    api_base = (
+        resolve_env_refs(getattr(provider_cfg, "api_base", None) or "") if provider_cfg else ""
+    )
     if api_base:
         return api_base
     return _provider_default_api_base(provider) or ""
@@ -122,7 +126,9 @@ def resolve_transcription_config(config: Any) -> EffectiveTranscriptionConfig:
     )
     spec = get_transcription_provider(provider)
     if spec is None:
-        logger.warning("Unknown transcription provider {}; falling back to {}", provider, _DEFAULT_PROVIDER)
+        logger.warning(
+            "Unknown transcription provider {}; falling back to {}", provider, _DEFAULT_PROVIDER
+        )
         provider = _DEFAULT_PROVIDER
         spec = get_transcription_provider(provider)
     default_model = spec.default_model if spec else ""
@@ -131,7 +137,8 @@ def resolve_transcription_config(config: Any) -> EffectiveTranscriptionConfig:
         enabled=bool(getattr(top, "enabled", True)),
         provider=provider,
         model=(getattr(top, "model", None) or default_model).strip(),
-        language=getattr(top, "language", None) or getattr(channels, "transcription_language", None),
+        language=getattr(top, "language", None)
+        or getattr(channels, "transcription_language", None),
         api_key=_resolve_transcription_api_key(provider, provider_cfg),
         api_base=_resolve_transcription_api_base(provider, provider_cfg),
         max_duration_sec=int(getattr(top, "max_duration_sec", 120)),
@@ -152,9 +159,8 @@ async def transcribe_audio_data_url(
         raise TranscriptionIngressError("disabled")
     if not config.configured:
         raise TranscriptionIngressError("not_configured", provider=config.provider)
-    if (
-        isinstance(duration_ms, (int, float))
-        and duration_ms > (config.max_duration_sec * 1000 + 1000)
+    if isinstance(duration_ms, (int, float)) and duration_ms > (
+        config.max_duration_sec * 1000 + 1000
     ):
         raise TranscriptionIngressError("duration")
     if _extract_data_url_mime(data_url) not in _AUDIO_MIME_ALLOWED:

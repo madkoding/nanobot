@@ -37,14 +37,16 @@ def test_init_creates_sdk_client():
 def test_init_base_url_no_trailing_slash():
     """Trailing slashes are normalised before building base_url."""
     provider = AzureOpenAIProvider(
-        api_key="k", api_base="https://res.openai.azure.com",
+        api_key="k",
+        api_base="https://res.openai.azure.com",
     )
     assert str(provider._client.base_url).rstrip("/").endswith("/openai/v1")
 
 
 def test_init_base_url_with_trailing_slash():
     provider = AzureOpenAIProvider(
-        api_key="k", api_base="https://res.openai.azure.com/",
+        api_key="k",
+        api_base="https://res.openai.azure.com/",
     )
     assert str(provider._client.base_url).rstrip("/").endswith("/openai/v1")
 
@@ -86,7 +88,8 @@ def test_init_missing_key_uses_aad_token_provider(monkeypatch):
     _install_fake_azure_identity(monkeypatch, credential_factory)
 
     provider = AzureOpenAIProvider(
-        api_key="", api_base="https://res.openai.azure.com",
+        api_key="",
+        api_base="https://res.openai.azure.com",
     )
 
     assert provider._token_provider is not None
@@ -117,7 +120,8 @@ async def test_aad_token_provider_wires_into_sdk_auth_headers(monkeypatch):
     _install_fake_azure_identity(monkeypatch, credential_factory)
 
     provider = AzureOpenAIProvider(
-        api_key="", api_base="https://res.openai.azure.com",
+        api_key="",
+        api_base="https://res.openai.azure.com",
     )
 
     assert provider._client.api_key == ""
@@ -142,13 +146,16 @@ async def test_aad_token_provider_wires_into_sdk_auth_headers(monkeypatch):
 
 def test_init_explicit_key_does_not_construct_credential(monkeypatch):
     """Explicit api_key wins; DefaultAzureCredential must never be touched."""
-    credential_factory = MagicMock(side_effect=AssertionError(
-        "DefaultAzureCredential must not be constructed when api_key is set"
-    ))
+    credential_factory = MagicMock(
+        side_effect=AssertionError(
+            "DefaultAzureCredential must not be constructed when api_key is set"
+        )
+    )
     _install_fake_azure_identity(monkeypatch, credential_factory)
 
     provider = AzureOpenAIProvider(
-        api_key="real-key", api_base="https://res.openai.azure.com",
+        api_key="real-key",
+        api_base="https://res.openai.azure.com",
     )
 
     assert provider._token_provider is None
@@ -158,7 +165,9 @@ def test_init_explicit_key_does_not_construct_credential(monkeypatch):
 def test_init_missing_key_without_azure_identity_raises(monkeypatch):
     """Clear RuntimeError with install hint when azure-identity is missing."""
     # Force the import inside _AzureTokenProvider to fail.
-    real_import = __builtins__["__import__"] if isinstance(__builtins__, dict) else __builtins__.__import__
+    real_import = (
+        __builtins__["__import__"] if isinstance(__builtins__, dict) else __builtins__.__import__
+    )
 
     def fake_import(name, *args, **kwargs):
         if name == "azure.identity.aio":
@@ -223,9 +232,14 @@ def test_supports_temperature_with_reasoning_effort_none_string():
 
 def test_build_body_basic():
     provider = AzureOpenAIProvider(
-        api_key="k", api_base="https://res.openai.azure.com", default_model="gpt-4o",
+        api_key="k",
+        api_base="https://res.openai.azure.com",
+        default_model="gpt-4o",
     )
-    messages = [{"role": "system", "content": "You are helpful."}, {"role": "user", "content": "Hi"}]
+    messages = [
+        {"role": "system", "content": "You are helpful."},
+        {"role": "user", "content": "Hi"},
+    ]
     body = provider._build_body(messages, None, None, 4096, 0.7, None, None)
 
     assert body["model"] == "gpt-4o"
@@ -235,10 +249,7 @@ def test_build_body_basic():
     assert body["store"] is False
     assert "reasoning" not in body
     # input should contain the converted user message only (system extracted)
-    assert any(
-        item.get("role") == "user"
-        for item in body["input"]
-    )
+    assert any(item.get("role") == "user" for item in body["input"])
 
 
 def test_build_body_max_tokens_minimum():
@@ -252,16 +263,32 @@ def test_build_body_with_tools():
     provider = AzureOpenAIProvider(api_key="k", api_base="https://r.com", default_model="gpt-4o")
     tools = [{"type": "function", "function": {"name": "get_weather", "parameters": {}}}]
     body = provider._build_body(
-        [{"role": "user", "content": "weather?"}], tools, None, 4096, 0.7, None, None,
+        [{"role": "user", "content": "weather?"}],
+        tools,
+        None,
+        4096,
+        0.7,
+        None,
+        None,
     )
-    assert body["tools"] == [{"type": "function", "name": "get_weather", "description": "", "parameters": {}}]
+    assert body["tools"] == [
+        {"type": "function", "name": "get_weather", "description": "", "parameters": {}}
+    ]
     assert body["tool_choice"] == "auto"
 
 
 def test_build_body_with_reasoning():
-    provider = AzureOpenAIProvider(api_key="k", api_base="https://r.com", default_model="gpt-5-chat")
+    provider = AzureOpenAIProvider(
+        api_key="k", api_base="https://r.com", default_model="gpt-5-chat"
+    )
     body = provider._build_body(
-        [{"role": "user", "content": "think"}], None, "gpt-5-chat", 4096, 0.7, "medium", None,
+        [{"role": "user", "content": "think"}],
+        None,
+        "gpt-5-chat",
+        4096,
+        0.7,
+        "medium",
+        None,
     )
     assert body["reasoning"] == {"effort": "medium"}
     assert "reasoning.encrypted_content" in body.get("include", [])
@@ -273,7 +300,13 @@ def test_build_body_reasoning_effort_none_string_omits_reasoning():
     """reasoning_effort='none' must not inject a reasoning body and must allow temperature."""
     provider = AzureOpenAIProvider(api_key="k", api_base="https://r.com", default_model="gpt-4o")
     body = provider._build_body(
-        [{"role": "user", "content": "hi"}], None, "gpt-4o", 4096, 0.7, "none", None,
+        [{"role": "user", "content": "hi"}],
+        None,
+        "gpt-4o",
+        4096,
+        0.7,
+        "none",
+        None,
     )
     assert "reasoning" not in body
     assert body["temperature"] == 0.7
@@ -282,13 +315,15 @@ def test_build_body_reasoning_effort_none_string_omits_reasoning():
 def test_build_body_image_conversion():
     """image_url content blocks should be converted to input_image."""
     provider = AzureOpenAIProvider(api_key="k", api_base="https://r.com", default_model="gpt-4o")
-    messages = [{
-        "role": "user",
-        "content": [
-            {"type": "text", "text": "What's in this image?"},
-            {"type": "image_url", "image_url": {"url": "https://example.com/img.png"}},
-        ],
-    }]
+    messages = [
+        {
+            "role": "user",
+            "content": [
+                {"type": "text", "text": "What's in this image?"},
+                {"type": "image_url", "image_url": {"url": "https://example.com/img.png"}},
+            ],
+        }
+    ]
     body = provider._build_body(messages, None, None, 4096, 0.7, None, None)
     user_item = body["input"][0]
     content_types = [b["type"] for b in user_item["content"]]
@@ -301,10 +336,12 @@ def test_build_body_image_conversion():
 def test_build_body_sanitizes_single_dict_content_block():
     """Single content dicts should be preserved via shared message sanitization."""
     provider = AzureOpenAIProvider(api_key="k", api_base="https://r.com", default_model="gpt-4o")
-    messages = [{
-        "role": "user",
-        "content": {"type": "text", "text": "Hi from dict content"},
-    }]
+    messages = [
+        {
+            "role": "user",
+            "content": {"type": "text", "text": "Hi from dict content"},
+        }
+    ]
 
     body = provider._build_body(messages, None, None, 4096, 0.7, None, None)
 
@@ -317,34 +354,51 @@ def test_build_body_sanitizes_single_dict_content_block():
 
 
 def _make_sdk_response(
-    content="Hello!", tool_calls=None, status="completed",
+    content="Hello!",
+    tool_calls=None,
+    status="completed",
     usage=None,
 ):
     """Build a mock that quacks like an openai Response object."""
     resp = MagicMock()
-    resp.model_dump = MagicMock(return_value={
-        "output": [
-            {"type": "message", "role": "assistant", "content": [{"type": "output_text", "text": content}]},
-            *([{
-                "type": "function_call",
-                "call_id": tc["call_id"], "id": tc["id"],
-                "name": tc["name"], "arguments": tc["arguments"],
-            } for tc in (tool_calls or [])]),
-        ],
-        "status": status,
-        "usage": {
-            "input_tokens": (usage or {}).get("input_tokens", 10),
-            "output_tokens": (usage or {}).get("output_tokens", 5),
-            "total_tokens": (usage or {}).get("total_tokens", 15),
-        },
-    })
+    resp.model_dump = MagicMock(
+        return_value={
+            "output": [
+                {
+                    "type": "message",
+                    "role": "assistant",
+                    "content": [{"type": "output_text", "text": content}],
+                },
+                *(
+                    [
+                        {
+                            "type": "function_call",
+                            "call_id": tc["call_id"],
+                            "id": tc["id"],
+                            "name": tc["name"],
+                            "arguments": tc["arguments"],
+                        }
+                        for tc in (tool_calls or [])
+                    ]
+                ),
+            ],
+            "status": status,
+            "usage": {
+                "input_tokens": (usage or {}).get("input_tokens", 10),
+                "output_tokens": (usage or {}).get("output_tokens", 5),
+                "total_tokens": (usage or {}).get("total_tokens", 15),
+            },
+        }
+    )
     return resp
 
 
 @pytest.mark.asyncio
 async def test_chat_success():
     provider = AzureOpenAIProvider(
-        api_key="test-key", api_base="https://test.openai.azure.com", default_model="gpt-4o",
+        api_key="test-key",
+        api_base="https://test.openai.azure.com",
+        default_model="gpt-4o",
     )
     mock_resp = _make_sdk_response(content="Hello!")
     provider._client.responses = MagicMock()
@@ -361,7 +415,9 @@ async def test_chat_success():
 @pytest.mark.asyncio
 async def test_chat_uses_default_model():
     provider = AzureOpenAIProvider(
-        api_key="k", api_base="https://test.openai.azure.com", default_model="my-deployment",
+        api_key="k",
+        api_base="https://test.openai.azure.com",
+        default_model="my-deployment",
     )
     mock_resp = _make_sdk_response(content="ok")
     provider._client.responses = MagicMock()
@@ -376,7 +432,9 @@ async def test_chat_uses_default_model():
 @pytest.mark.asyncio
 async def test_chat_custom_model():
     provider = AzureOpenAIProvider(
-        api_key="k", api_base="https://test.openai.azure.com", default_model="gpt-4o",
+        api_key="k",
+        api_base="https://test.openai.azure.com",
+        default_model="gpt-4o",
     )
     mock_resp = _make_sdk_response(content="ok")
     provider._client.responses = MagicMock()
@@ -391,14 +449,20 @@ async def test_chat_custom_model():
 @pytest.mark.asyncio
 async def test_chat_with_tool_calls():
     provider = AzureOpenAIProvider(
-        api_key="k", api_base="https://test.openai.azure.com", default_model="gpt-4o",
+        api_key="k",
+        api_base="https://test.openai.azure.com",
+        default_model="gpt-4o",
     )
     mock_resp = _make_sdk_response(
         content=None,
-        tool_calls=[{
-            "call_id": "call_123", "id": "fc_1",
-            "name": "get_weather", "arguments": '{"location": "SF"}',
-        }],
+        tool_calls=[
+            {
+                "call_id": "call_123",
+                "id": "fc_1",
+                "name": "get_weather",
+                "arguments": '{"location": "SF"}',
+            }
+        ],
     )
     provider._client.responses = MagicMock()
     provider._client.responses.create = AsyncMock(return_value=mock_resp)
@@ -416,7 +480,9 @@ async def test_chat_with_tool_calls():
 @pytest.mark.asyncio
 async def test_chat_error_handling():
     provider = AzureOpenAIProvider(
-        api_key="k", api_base="https://test.openai.azure.com", default_model="gpt-4o",
+        api_key="k",
+        api_base="https://test.openai.azure.com",
+        default_model="gpt-4o",
     )
     provider._client.responses = MagicMock()
     provider._client.responses.create = AsyncMock(side_effect=Exception("Connection failed"))
@@ -432,14 +498,17 @@ async def test_chat_error_handling():
 async def test_chat_reasoning_param_format():
     """reasoning_effort should be sent as reasoning={effort: ...} not a flat string."""
     provider = AzureOpenAIProvider(
-        api_key="k", api_base="https://test.openai.azure.com", default_model="gpt-5-chat",
+        api_key="k",
+        api_base="https://test.openai.azure.com",
+        default_model="gpt-5-chat",
     )
     mock_resp = _make_sdk_response(content="thought")
     provider._client.responses = MagicMock()
     provider._client.responses.create = AsyncMock(return_value=mock_resp)
 
     await provider.chat(
-        [{"role": "user", "content": "think"}], reasoning_effort="medium",
+        [{"role": "user", "content": "think"}],
+        reasoning_effort="medium",
     )
 
     call_kwargs = provider._client.responses.create.call_args[1]
@@ -456,7 +525,9 @@ async def test_chat_reasoning_param_format():
 async def test_chat_stream_success():
     """Streaming should call on_content_delta and return combined response."""
     provider = AzureOpenAIProvider(
-        api_key="test-key", api_base="https://test.openai.azure.com", default_model="gpt-4o",
+        api_key="test-key",
+        api_base="https://test.openai.azure.com",
+        default_model="gpt-4o",
     )
 
     # Build mock SDK stream events
@@ -480,7 +551,8 @@ async def test_chat_stream_success():
         deltas.append(text)
 
     result = await provider.chat_stream(
-        [{"role": "user", "content": "Hi"}], on_content_delta=on_delta,
+        [{"role": "user", "content": "Hi"}],
+        on_content_delta=on_delta,
     )
 
     assert result.content == "Hello world"
@@ -492,19 +564,26 @@ async def test_chat_stream_success():
 async def test_chat_stream_with_tool_calls():
     """Streaming tool calls should be accumulated correctly."""
     provider = AzureOpenAIProvider(
-        api_key="k", api_base="https://test.openai.azure.com", default_model="gpt-4o",
+        api_key="k",
+        api_base="https://test.openai.azure.com",
+        default_model="gpt-4o",
     )
 
     item_added = MagicMock(type="function_call", call_id="call_1", id="fc_1", arguments="")
     item_added.name = "get_weather"
     ev_added = MagicMock(type="response.output_item.added", item=item_added)
-    ev_args_delta = MagicMock(type="response.function_call_arguments.delta", call_id="call_1", delta='{"loc')
+    ev_args_delta = MagicMock(
+        type="response.function_call_arguments.delta", call_id="call_1", delta='{"loc'
+    )
     ev_args_done = MagicMock(
         type="response.function_call_arguments.done",
-        call_id="call_1", arguments='{"location":"SF"}',
+        call_id="call_1",
+        arguments='{"location":"SF"}',
     )
     item_done = MagicMock(
-        type="function_call", call_id="call_1", id="fc_1",
+        type="function_call",
+        call_id="call_1",
+        id="fc_1",
         arguments='{"location":"SF"}',
     )
     item_done.name = "get_weather"
@@ -533,7 +612,9 @@ async def test_chat_stream_with_tool_calls():
 async def test_chat_stream_error():
     """Streaming should return error when SDK raises."""
     provider = AzureOpenAIProvider(
-        api_key="k", api_base="https://test.openai.azure.com", default_model="gpt-4o",
+        api_key="k",
+        api_base="https://test.openai.azure.com",
+        default_model="gpt-4o",
     )
     provider._client.responses = MagicMock()
     provider._client.responses.create = AsyncMock(side_effect=Exception("Connection failed"))
@@ -551,6 +632,8 @@ async def test_chat_stream_error():
 
 def test_get_default_model():
     provider = AzureOpenAIProvider(
-        api_key="k", api_base="https://r.com", default_model="my-deploy",
+        api_key="k",
+        api_base="https://r.com",
+        default_model="my-deploy",
     )
     assert provider.get_default_model() == "my-deploy"

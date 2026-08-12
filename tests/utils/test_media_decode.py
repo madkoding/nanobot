@@ -43,9 +43,7 @@ def test_saves_data_url_with_mime_parameters(tmp_path) -> None:
         ("audio/mpga", ".mpga"),
     ],
 )
-def test_saves_common_audio_with_api_friendly_extension(
-    tmp_path, mime: str, suffix: str
-) -> None:
+def test_saves_common_audio_with_api_friendly_extension(tmp_path, mime: str, suffix: str) -> None:
     result = save_base64_data_url(_data_url(b"voice", mime=mime), tmp_path)
     assert result is not None
     assert result.endswith(suffix)

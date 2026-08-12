@@ -143,9 +143,7 @@ def load_channel_package(name: str) -> ChannelPlugin | None:
     if not isinstance(plugin, ChannelPlugin):
         raise TypeError(f"{module_name}.PLUGIN must be a ChannelPlugin")
     if plugin.name != name:
-        raise TypeError(
-            f"{module_name}.PLUGIN declares name '{plugin.name}', expected '{name}'"
-        )
+        raise TypeError(f"{module_name}.PLUGIN declares name '{plugin.name}', expected '{name}'")
 
     package_name = f"nanobot.channels.{name}"
     package_root = files("nanobot.channels").joinpath(name)
@@ -156,8 +154,7 @@ def load_channel_package(name: str) -> ChannelPlugin | None:
         target_module, _ = _target_parts(target, label=label)
         if not target_module.startswith(f"{package_name}."):
             raise TypeError(
-                f"{module_name}.PLUGIN {label} must stay inside {package_name}: "
-                f"{target_module}"
+                f"{module_name}.PLUGIN {label} must stay inside {package_name}: {target_module}"
             )
         target_parts = target_module.removeprefix(f"{package_name}.").split(".")
         target_file = package_root.joinpath(
@@ -173,9 +170,7 @@ def load_channel_package(name: str) -> ChannelPlugin | None:
     if plugin.webui is not None:
         webui_entry = files("nanobot.channels").joinpath(name, *plugin.webui.split("/"))
         if not webui_entry.is_file():
-            raise TypeError(
-                f"{module_name}.PLUGIN webui entry does not exist: {plugin.webui}"
-            )
+            raise TypeError(f"{module_name}.PLUGIN webui entry does not exist: {plugin.webui}")
     return plugin
 
 

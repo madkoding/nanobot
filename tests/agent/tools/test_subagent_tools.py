@@ -31,12 +31,14 @@ async def test_run_inline_returns_result_without_announcement(tmp_path):
         bus=MessageBus(),
         max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
     )
-    manager.runner.run = AsyncMock(return_value=SimpleNamespace(
-        stop_reason="done",
-        final_content="review result",
-        error=None,
-        tool_events=[],
-    ))
+    manager.runner.run = AsyncMock(
+        return_value=SimpleNamespace(
+            stop_reason="done",
+            final_content="review result",
+            error=None,
+            tool_events=[],
+        )
+    )
     manager._announce_result = AsyncMock()
 
     result = await manager.run_inline(
@@ -64,12 +66,14 @@ async def test_run_inline_returns_structured_error(tmp_path):
         bus=MessageBus(),
         max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
     )
-    manager.runner.run = AsyncMock(return_value=SimpleNamespace(
-        stop_reason="error",
-        final_content=None,
-        error="subagent failed",
-        tool_events=[],
-    ))
+    manager.runner.run = AsyncMock(
+        return_value=SimpleNamespace(
+            stop_reason="error",
+            final_content=None,
+            error="subagent failed",
+            tool_events=[],
+        )
+    )
 
     result = await manager.run_inline(
         task="review this",
@@ -196,7 +200,10 @@ async def test_spawn_forwards_temperature_to_run_spec(tmp_path):
         seen["temperature"] = spec.runtime.generation.temperature
         seen["runtime"] = spec.runtime
         return SimpleNamespace(
-            stop_reason="done", final_content="done", error=None, tool_events=[],
+            stop_reason="done",
+            final_content="done",
+            error=None,
+            tool_events=[],
         )
 
     mgr.runner.run = AsyncMock(side_effect=fake_run)
@@ -231,7 +238,10 @@ async def test_spawn_forwards_model_preset_to_run_spec(tmp_path):
     async def fake_run(spec):
         seen["runtime"] = spec.runtime
         return SimpleNamespace(
-            stop_reason="done", final_content="done", error=None, tool_events=[],
+            stop_reason="done",
+            final_content="done",
+            error=None,
+            tool_events=[],
         )
 
     mgr.runner.run = AsyncMock(side_effect=fake_run)
@@ -273,7 +283,10 @@ async def test_spawn_without_model_preset_keeps_parent_runtime(tmp_path):
     async def fake_run(spec):
         seen["runtime"] = spec.runtime
         return SimpleNamespace(
-            stop_reason="done", final_content="done", error=None, tool_events=[],
+            stop_reason="done",
+            final_content="done",
+            error=None,
+            tool_events=[],
         )
 
     mgr.runner.run = AsyncMock(side_effect=fake_run)
@@ -318,12 +331,14 @@ async def test_spawn_tool_rejects_when_at_concurrency_limit(tmp_path):
     from nanobot.agent.tools.context import RequestContext, request_context
 
     tool = SpawnTool(mgr)
-    with request_context(RequestContext(
-        channel="test",
-        chat_id="c1",
-        session_key="test:c1",
-        runtime=_runtime(provider),
-    )):
+    with request_context(
+        RequestContext(
+            channel="test",
+            chat_id="c1",
+            session_key="test:c1",
+            runtime=_runtime(provider),
+        )
+    ):
         # First spawn succeeds
         result = await tool.execute(task="first task")
         assert "started" in result
@@ -360,12 +375,14 @@ async def test_spawn_tool_waits_for_inline_result():
     manager = Manager()
     tool = SpawnTool(manager)
     runtime = _runtime(MagicMock())
-    with request_context(RequestContext(
-        channel="test",
-        chat_id="c1",
-        session_key="test:c1",
-        runtime=runtime,
-    )):
+    with request_context(
+        RequestContext(
+            channel="test",
+            chat_id="c1",
+            session_key="test:c1",
+            runtime=runtime,
+        )
+    ):
         result = await tool.execute(task="review this", wait=True)
 
     assert result == "review result"
@@ -401,12 +418,14 @@ async def test_inline_spawn_counts_toward_concurrency_limit(tmp_path):
 
     manager.runner.run = AsyncMock(side_effect=fake_run)
     tool = SpawnTool(manager)
-    with request_context(RequestContext(
-        channel="test",
-        chat_id="c1",
-        session_key="test:c1",
-        runtime=_runtime(MagicMock()),
-    )):
+    with request_context(
+        RequestContext(
+            channel="test",
+            chat_id="c1",
+            session_key="test:c1",
+            runtime=_runtime(MagicMock()),
+        )
+    ):
         first = asyncio.create_task(tool.execute(task="first", wait=True))
         await asyncio.wait_for(entered.wait(), timeout=1.0)
 
@@ -438,11 +457,13 @@ async def test_cancel_by_session_cancels_inline_subagent(tmp_path):
         await asyncio.Event().wait()
 
     manager.runner.run = AsyncMock(side_effect=fake_run)
-    inline = asyncio.create_task(manager.run_inline(
-        task="wait",
-        session_key="test:c1",
-        runtime=_runtime(MagicMock()),
-    ))
+    inline = asyncio.create_task(
+        manager.run_inline(
+            task="wait",
+            session_key="test:c1",
+            runtime=_runtime(MagicMock()),
+        )
+    )
     await asyncio.wait_for(entered.wait(), timeout=1.0)
 
     assert await manager.cancel_by_session("test:c1") == 1
@@ -614,14 +635,16 @@ async def test_drain_pending_blocks_while_subagents_running(tmp_path):
     assert not drain_task.done(), "drain should block while sub-agents are running"
 
     # Now put a message in the queue (simulating sub-agent completion)
-    await pending_queue.put(InboundMessage(
-        sender_id="subagent",
-        channel="test",
-        chat_id="c1",
-        content="Sub-agent result",
-        media=None,
-        metadata={},
-    ))
+    await pending_queue.put(
+        InboundMessage(
+            sender_id="subagent",
+            channel="test",
+            chat_id="c1",
+            content="Sub-agent result",
+            media=None,
+            metadata={},
+        )
+    )
 
     # Should unblock and return results
     results = await asyncio.wait_for(drain_task, timeout=2.0)

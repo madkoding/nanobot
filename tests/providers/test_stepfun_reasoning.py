@@ -31,13 +31,15 @@ def test_parse_dict_stepfun_reasoning_fallback() -> None:
         provider = OpenAICompatProvider(spec=_STEPFUN_SPEC)
 
     response = {
-        "choices": [{
-            "message": {
-                "content": None,
-                "reasoning": "Let me think... The answer is 42.",
-            },
-            "finish_reason": "stop",
-        }],
+        "choices": [
+            {
+                "message": {
+                    "content": None,
+                    "reasoning": "Let me think... The answer is 42.",
+                },
+                "finish_reason": "stop",
+            }
+        ],
     }
 
     result = provider._parse(response)
@@ -53,14 +55,16 @@ def test_parse_dict_stepfun_reasoning_priority() -> None:
         provider = OpenAICompatProvider(spec=_STEPFUN_SPEC)
 
     response = {
-        "choices": [{
-            "message": {
-                "content": None,
-                "reasoning": "informal thinking",
-                "reasoning_content": "formal reasoning content",
-            },
-            "finish_reason": "stop",
-        }],
+        "choices": [
+            {
+                "message": {
+                    "content": None,
+                    "reasoning": "informal thinking",
+                    "reasoning_content": "formal reasoning content",
+                },
+                "finish_reason": "stop",
+            }
+        ],
     }
 
     result = provider._parse(response)
@@ -104,9 +108,7 @@ def test_parse_sdk_stepfun_reasoning_priority() -> None:
         provider = OpenAICompatProvider(spec=_STEPFUN_SPEC)
 
     msg = _make_sdk_message(
-        content=None,
-        reasoning="thinking process",
-        reasoning_content="formal reasoning"
+        content=None, reasoning="thinking process", reasoning_content="formal reasoning"
     )
     choice = SimpleNamespace(finish_reason="stop", message=msg)
     response = SimpleNamespace(choices=[choice], usage=None)
@@ -124,22 +126,28 @@ def test_parse_chunks_dict_stepfun_reasoning_fallback() -> None:
     """Streaming dict: reasoning field used when reasoning_content is absent."""
     chunks = [
         {
-            "choices": [{
-                "finish_reason": None,
-                "delta": {"content": None, "reasoning": "Thinking step 1... "},
-            }],
+            "choices": [
+                {
+                    "finish_reason": None,
+                    "delta": {"content": None, "reasoning": "Thinking step 1... "},
+                }
+            ],
         },
         {
-            "choices": [{
-                "finish_reason": None,
-                "delta": {"content": None, "reasoning": "step 2."},
-            }],
+            "choices": [
+                {
+                    "finish_reason": None,
+                    "delta": {"content": None, "reasoning": "step 2."},
+                }
+            ],
         },
         {
-            "choices": [{
-                "finish_reason": "stop",
-                "delta": {"content": "final answer"},
-            }],
+            "choices": [
+                {
+                    "finish_reason": "stop",
+                    "delta": {"content": "final answer"},
+                }
+            ],
         },
     ]
 
@@ -158,13 +166,15 @@ def test_parse_dict_normal_model_with_reasoning_content_unaffected() -> None:
         provider = OpenAICompatProvider()
 
     response = {
-        "choices": [{
-            "message": {
-                "content": "The answer is 42.",
-                "reasoning_content": "Let me think step by step...",
-            },
-            "finish_reason": "stop",
-        }],
+        "choices": [
+            {
+                "message": {
+                    "content": "The answer is 42.",
+                    "reasoning_content": "Let me think step by step...",
+                },
+                "finish_reason": "stop",
+            }
+        ],
     }
 
     result = provider._parse(response)
@@ -179,10 +189,12 @@ def test_parse_dict_standard_model_no_reasoning_unaffected() -> None:
         provider = OpenAICompatProvider()
 
     response = {
-        "choices": [{
-            "message": {"content": "Hello!"},
-            "finish_reason": "stop",
-        }],
+        "choices": [
+            {
+                "message": {"content": "Hello!"},
+                "finish_reason": "stop",
+            }
+        ],
     }
 
     result = provider._parse(response)
@@ -195,20 +207,24 @@ def test_parse_chunks_dict_reasoning_precedence() -> None:
     """reasoning_content takes precedence over reasoning in dict chunks."""
     chunks = [
         {
-            "choices": [{
-                "finish_reason": None,
-                "delta": {
-                    "content": None,
-                    "reasoning_content": "formal: ",
-                    "reasoning": "informal: ",
-                },
-            }],
+            "choices": [
+                {
+                    "finish_reason": None,
+                    "delta": {
+                        "content": None,
+                        "reasoning_content": "formal: ",
+                        "reasoning": "informal: ",
+                    },
+                }
+            ],
         },
         {
-            "choices": [{
-                "finish_reason": "stop",
-                "delta": {"content": "result"},
-            }],
+            "choices": [
+                {
+                    "finish_reason": "stop",
+                    "delta": {"content": "result"},
+                }
+            ],
         },
     ]
 
@@ -266,13 +282,15 @@ def test_parse_dict_non_stepfun_no_reasoning_as_content() -> None:
         provider = OpenAICompatProvider()
 
     response = {
-        "choices": [{
-            "message": {
-                "content": None,
-                "reasoning": "internal thought process that should NOT be shown to user",
-            },
-            "finish_reason": "stop",
-        }],
+        "choices": [
+            {
+                "message": {
+                    "content": None,
+                    "reasoning": "internal thought process that should NOT be shown to user",
+                },
+                "finish_reason": "stop",
+            }
+        ],
     }
 
     result = provider._parse(response)

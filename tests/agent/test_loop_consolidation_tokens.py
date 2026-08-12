@@ -11,6 +11,7 @@ from nanobot.session.manager import replay_max_messages_for_context
 
 def _make_loop(tmp_path, *, estimated_tokens: int, context_window_tokens: int) -> AgentLoop:
     from nanobot.providers.base import GenerationSettings
+
     provider = MagicMock()
     provider.get_default_model.return_value = "test-model"
     provider.generation = GenerationSettings(max_tokens=0)
@@ -60,7 +61,9 @@ async def test_prompt_above_threshold_triggers_consolidation(tmp_path, monkeypat
 
 
 @pytest.mark.asyncio
-async def test_prompt_above_threshold_archives_until_next_user_boundary(tmp_path, monkeypatch) -> None:
+async def test_prompt_above_threshold_archives_until_next_user_boundary(
+    tmp_path, monkeypatch
+) -> None:
     loop = _make_loop(tmp_path, estimated_tokens=1000, context_window_tokens=200)
     loop.consolidator.archive = AsyncMock(return_value=True)  # type: ignore[method-assign]
 
@@ -75,7 +78,9 @@ async def test_prompt_above_threshold_archives_until_next_user_boundary(tmp_path
     loop.sessions.save(session)
 
     token_map = {"u1": 120, "a1": 120, "u2": 120, "a2": 120, "u3": 120}
-    monkeypatch.setattr(memory_module, "estimate_message_tokens", lambda message: token_map[message["content"]])
+    monkeypatch.setattr(
+        memory_module, "estimate_message_tokens", lambda message: token_map[message["content"]]
+    )
 
     await loop.consolidator.maybe_consolidate_by_tokens(
         session,
@@ -106,6 +111,7 @@ async def test_consolidation_loops_until_target_met(tmp_path, monkeypatch) -> No
     loop.sessions.save(session)
 
     call_count = [0]
+
     def mock_estimate(_session, *, runtime):
         call_count[0] += 1
         if call_count[0] == 1:
@@ -127,7 +133,9 @@ async def test_consolidation_loops_until_target_met(tmp_path, monkeypatch) -> No
 
 
 @pytest.mark.asyncio
-async def test_consolidation_continues_below_trigger_until_half_target(tmp_path, monkeypatch) -> None:
+async def test_consolidation_continues_below_trigger_until_half_target(
+    tmp_path, monkeypatch
+) -> None:
     """Once triggered, consolidation should continue until it drops below half threshold."""
     loop = _make_loop(tmp_path, estimated_tokens=0, context_window_tokens=200)
     loop.consolidator.archive = AsyncMock(return_value=True)  # type: ignore[method-assign]
@@ -167,7 +175,9 @@ async def test_consolidation_continues_below_trigger_until_half_target(tmp_path,
 
 
 @pytest.mark.asyncio
-async def test_consolidation_persists_summary_for_next_prepare_session(tmp_path, monkeypatch) -> None:
+async def test_consolidation_persists_summary_for_next_prepare_session(
+    tmp_path, monkeypatch
+) -> None:
     loop = _make_loop(tmp_path, estimated_tokens=0, context_window_tokens=200)
     loop.consolidator.archive = AsyncMock(return_value="User discussed project status.")  # type: ignore[method-assign]
 
@@ -245,11 +255,13 @@ async def test_preflight_consolidation_before_llm_call(tmp_path, monkeypatch) ->
         order.append("consolidate")
         archived_session_keys.append(session_key)
         return True
+
     loop.consolidator.archive = track_consolidate  # type: ignore[method-assign]
 
     async def track_llm(*args, **kwargs):
         order.append("llm")
         return LLMResponse(content="ok", tool_calls=[])
+
     loop.provider.chat_with_retry = track_llm
     loop.provider.chat_stream_with_retry = track_llm
     loop._schedule_background = lambda coro: coro.close()  # type: ignore[method-assign]
@@ -264,9 +276,11 @@ async def test_preflight_consolidation_before_llm_call(tmp_path, monkeypatch) ->
     monkeypatch.setattr(memory_module, "estimate_message_tokens", lambda _m: 500)
 
     call_count = [0]
+
     def mock_estimate(_session, *, runtime):
         call_count[0] += 1
         return (1000 if call_count[0] <= 1 else 80, "test")
+
     loop.consolidator.estimate_session_prompt_tokens = mock_estimate  # type: ignore[method-assign]
 
     await loop.process_direct("hello", session_key="cli:test")

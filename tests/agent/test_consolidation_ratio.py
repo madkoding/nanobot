@@ -44,8 +44,12 @@ def _session_with_turns(loop: AgentLoop, *, turns: int):
     session = loop.sessions.get_or_create("cli:test")
     session.messages = []
     for i in range(turns):
-        session.messages.append({"role": "user", "content": f"u{i}", "timestamp": f"2026-01-01T00:00:{i:02d}"})
-        session.messages.append({"role": "assistant", "content": f"a{i}", "timestamp": f"2026-01-01T00:01:{i:02d}"})
+        session.messages.append(
+            {"role": "user", "content": f"u{i}", "timestamp": f"2026-01-01T00:00:{i:02d}"}
+        )
+        session.messages.append(
+            {"role": "assistant", "content": f"a{i}", "timestamp": f"2026-01-01T00:01:{i:02d}"}
+        )
     loop.sessions.save(session)
     return session
 

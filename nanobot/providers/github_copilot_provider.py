@@ -92,7 +92,9 @@ def login_github_copilot(
 
         device_code = str(payload["device_code"])
         user_code = str(payload["user_code"])
-        verify_url = str(payload.get("verification_uri") or payload.get("verification_uri_complete") or "")
+        verify_url = str(
+            payload.get("verification_uri") or payload.get("verification_uri_complete") or ""
+        )
         verify_complete = str(payload.get("verification_uri_complete") or verify_url)
         interval = max(1, int(payload.get("interval") or 5))
         expires_in = int(payload.get("expires_in") or 900)
@@ -207,7 +209,9 @@ class GitHubCopilotProvider(OpenAICompatProvider):
                 )
 
             timeout = httpx.Timeout(20.0, connect=20.0)
-            async with httpx.AsyncClient(timeout=timeout, follow_redirects=True, trust_env=True) as client:
+            async with httpx.AsyncClient(
+                timeout=timeout, follow_redirects=True, trust_env=True
+            ) as client:
                 response = await client.get(
                     _resolve("NANOBOT_COPILOT_TOKEN_URL", DEFAULT_COPILOT_TOKEN_URL),
                     headers=_copilot_headers(github_token.access),

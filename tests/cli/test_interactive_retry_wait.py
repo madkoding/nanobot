@@ -38,7 +38,9 @@ async def test_reasoning_displayed_when_show_reasoning_enabled():
     """Reasoning content should be displayed when show_reasoning is True."""
     calls: list[str] = []
     channels_config = SimpleNamespace(
-        send_progress=True, send_tool_hints=False, show_reasoning=True,
+        send_progress=True,
+        send_tool_hints=False,
+        show_reasoning=True,
     )
     msg = SimpleNamespace(
         content="Let me think about this...",
@@ -46,7 +48,10 @@ async def test_reasoning_displayed_when_show_reasoning_enabled():
         metadata={},
     )
 
-    with patch("nanobot.cli.commands._print_cli_reasoning", side_effect=lambda t, th, r=None: calls.append(t)):
+    with patch(
+        "nanobot.cli.commands._print_cli_reasoning",
+        side_effect=lambda t, th, r=None: calls.append(t),
+    ):
         handled = await commands._maybe_print_interactive_progress(msg, None, channels_config)
 
     assert handled is True
@@ -58,7 +63,9 @@ async def test_reasoning_delta_displayed_when_show_reasoning_enabled():
     """Streamed reasoning delta frames should use the reasoning renderer."""
     calls: list[str] = []
     channels_config = SimpleNamespace(
-        send_progress=True, send_tool_hints=False, show_reasoning=True,
+        send_progress=True,
+        send_tool_hints=False,
+        show_reasoning=True,
     )
     msg = SimpleNamespace(
         content="I should search first.",
@@ -66,7 +73,10 @@ async def test_reasoning_delta_displayed_when_show_reasoning_enabled():
         metadata={},
     )
 
-    with patch("nanobot.cli.commands._print_cli_reasoning", side_effect=lambda t, th, r=None: calls.append(t)):
+    with patch(
+        "nanobot.cli.commands._print_cli_reasoning",
+        side_effect=lambda t, th, r=None: calls.append(t),
+    ):
         handled = await commands._maybe_print_interactive_progress(msg, None, channels_config)
 
     assert handled is True
@@ -77,11 +87,16 @@ async def test_reasoning_delta_displayed_when_show_reasoning_enabled():
 async def test_reasoning_delta_buffers_until_sentence_boundary():
     calls: list[str] = []
     channels_config = SimpleNamespace(
-        send_progress=True, send_tool_hints=False, show_reasoning=True,
+        send_progress=True,
+        send_tool_hints=False,
+        show_reasoning=True,
     )
     reasoning_buffer = commands._ReasoningBuffer()
 
-    with patch("nanobot.cli.commands._print_cli_reasoning", side_effect=lambda t, th, r=None: calls.append(t)):
+    with patch(
+        "nanobot.cli.commands._print_cli_reasoning",
+        side_effect=lambda t, th, r=None: calls.append(t),
+    ):
         first = await commands._maybe_print_interactive_progress(
             SimpleNamespace(
                 content="The",
@@ -112,11 +127,16 @@ async def test_reasoning_delta_buffers_until_sentence_boundary():
 async def test_reasoning_end_flushes_buffered_delta():
     calls: list[str] = []
     channels_config = SimpleNamespace(
-        send_progress=True, send_tool_hints=False, show_reasoning=True,
+        send_progress=True,
+        send_tool_hints=False,
+        show_reasoning=True,
     )
     reasoning_buffer = commands._ReasoningBuffer()
 
-    with patch("nanobot.cli.commands._print_cli_reasoning", side_effect=lambda t, th, r=None: calls.append(t)):
+    with patch(
+        "nanobot.cli.commands._print_cli_reasoning",
+        side_effect=lambda t, th, r=None: calls.append(t),
+    ):
         delta = await commands._maybe_print_interactive_progress(
             SimpleNamespace(
                 content="The user asked",
@@ -147,7 +167,9 @@ async def test_reasoning_end_flushes_buffered_delta():
 async def test_reasoning_hidden_when_show_reasoning_disabled():
     """Reasoning content should be suppressed when show_reasoning is False."""
     channels_config = SimpleNamespace(
-        send_progress=True, send_tool_hints=False, show_reasoning=False,
+        send_progress=True,
+        send_tool_hints=False,
+        show_reasoning=False,
     )
     msg = SimpleNamespace(
         content="Let me think about this...",
@@ -167,7 +189,9 @@ async def test_non_reasoning_progress_not_affected_by_show_reasoning():
     """Regular progress lines should display regardless of show_reasoning."""
     calls: list[str] = []
     channels_config = SimpleNamespace(
-        send_progress=True, send_tool_hints=False, show_reasoning=False,
+        send_progress=True,
+        send_tool_hints=False,
+        show_reasoning=False,
     )
     msg = SimpleNamespace(
         content="working on it...",
@@ -191,7 +215,9 @@ async def test_reasoning_shown_when_send_progress_disabled():
     of `send_progress` — the two knobs are orthogonal."""
     calls: list[str] = []
     channels_config = SimpleNamespace(
-        send_progress=False, send_tool_hints=False, show_reasoning=True,
+        send_progress=False,
+        send_tool_hints=False,
+        show_reasoning=True,
     )
     msg = SimpleNamespace(
         content="Let me think about this...",

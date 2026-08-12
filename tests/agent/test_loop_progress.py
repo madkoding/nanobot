@@ -61,10 +61,12 @@ class TestToolEventProgress:
     async def test_start_and_finish_events_emitted(self, tmp_path: Path) -> None:
         loop = _make_loop(tmp_path)
         tool_call = ToolCallRequest(id="call1", name="custom_tool", arguments={"path": "foo.txt"})
-        calls = iter([
-            LLMResponse(content="Visible", tool_calls=[tool_call]),
-            LLMResponse(content="Done", tool_calls=[]),
-        ])
+        calls = iter(
+            [
+                LLMResponse(content="Visible", tool_calls=[tool_call]),
+                LLMResponse(content="Done", tool_calls=[]),
+            ]
+        )
         loop.provider.chat_with_retry = AsyncMock(side_effect=lambda *a, **kw: next(calls))
         loop.tools.get_definitions = MagicMock(return_value=[])
         loop.tools.prepare_call = MagicMock(return_value=(None, {"path": "foo.txt"}, None))
@@ -90,32 +92,36 @@ class TestToolEventProgress:
             (
                 'custom_tool("foo.txt")',
                 True,
-                [{
-                    "version": 1,
-                    "phase": "start",
-                    "call_id": "call1",
-                    "name": "custom_tool",
-                    "arguments": {"path": "foo.txt"},
-                    "result": None,
-                    "error": None,
-                    "files": [],
-                    "embeds": [],
-                }],
+                [
+                    {
+                        "version": 1,
+                        "phase": "start",
+                        "call_id": "call1",
+                        "name": "custom_tool",
+                        "arguments": {"path": "foo.txt"},
+                        "result": None,
+                        "error": None,
+                        "files": [],
+                        "embeds": [],
+                    }
+                ],
             ),
             (
                 "",
                 False,
-                [{
-                    "version": 1,
-                    "phase": "end",
-                    "call_id": "call1",
-                    "name": "custom_tool",
-                    "arguments": {"path": "foo.txt"},
-                    "result": "ok",
-                    "error": None,
-                    "files": [],
-                    "embeds": [],
-                }],
+                [
+                    {
+                        "version": 1,
+                        "phase": "end",
+                        "call_id": "call1",
+                        "name": "custom_tool",
+                        "arguments": {"path": "foo.txt"},
+                        "result": "ok",
+                        "error": None,
+                        "files": [],
+                        "embeds": [],
+                    }
+                ],
             ),
         ]
 
@@ -129,10 +135,12 @@ class TestToolEventProgress:
             name="write_file",
             arguments={"path": "foo.txt", "content": "new\nextra\n"},
         )
-        calls = iter([
-            LLMResponse(content="", tool_calls=[tool_call]),
-            LLMResponse(content="Done", tool_calls=[]),
-        ])
+        calls = iter(
+            [
+                LLMResponse(content="", tool_calls=[tool_call]),
+                LLMResponse(content="Done", tool_calls=[]),
+            ]
+        )
         loop.provider.chat_with_retry = AsyncMock(side_effect=lambda *a, **kw: next(calls))
         loop.tools.get_definitions = MagicMock(return_value=[])
         tool = WriteFileTool(workspace=tmp_path)
@@ -198,10 +206,12 @@ class TestToolEventProgress:
             name="write_file",
             arguments={"path": "foo.txt", "content": "new\n"},
         )
-        calls = iter([
-            LLMResponse(content="", tool_calls=[tool_call]),
-            LLMResponse(content="Done", tool_calls=[]),
-        ])
+        calls = iter(
+            [
+                LLMResponse(content="", tool_calls=[tool_call]),
+                LLMResponse(content="Done", tool_calls=[]),
+            ]
+        )
         loop.provider.chat_with_retry = AsyncMock(side_effect=lambda *a, **kw: next(calls))
         loop.tools.get_definitions = MagicMock(return_value=[])
         loop.tools.prepare_call = MagicMock(
@@ -237,10 +247,12 @@ class TestToolEventProgress:
             name="exec",
             arguments={"command": "printf hi > foo.txt"},
         )
-        calls = iter([
-            LLMResponse(content="", tool_calls=[tool_call]),
-            LLMResponse(content="Done", tool_calls=[]),
-        ])
+        calls = iter(
+            [
+                LLMResponse(content="", tool_calls=[tool_call]),
+                LLMResponse(content="Done", tool_calls=[]),
+            ]
+        )
         loop.provider.chat_with_retry = AsyncMock(side_effect=lambda *a, **kw: next(calls))
         loop.tools.get_definitions = MagicMock(return_value=[])
         loop.tools.prepare_call = MagicMock(
@@ -259,14 +271,14 @@ class TestToolEventProgress:
             if file_edit_events:
                 file_events.extend(file_edit_events)
 
-        await loop._run_agent_loop(
-            [], runtime=loop.llm_runtime(), on_progress=on_progress
-        )
+        await loop._run_agent_loop([], runtime=loop.llm_runtime(), on_progress=on_progress)
 
         assert file_events == []
 
     @pytest.mark.asyncio
-    async def test_bus_progress_forwards_tool_events_to_outbound_metadata(self, tmp_path: Path) -> None:
+    async def test_bus_progress_forwards_tool_events_to_outbound_metadata(
+        self, tmp_path: Path
+    ) -> None:
         """When run() handles a bus message, _tool_events lands in OutboundMessage metadata."""
         bus = MessageBus()
         provider = MagicMock()
@@ -274,10 +286,12 @@ class TestToolEventProgress:
         loop = AgentLoop(bus=bus, provider=provider, workspace=tmp_path, model="test-model")
 
         tool_call = ToolCallRequest(id="tc1", name="exec", arguments={"command": "ls"})
-        calls = iter([
-            LLMResponse(content="", tool_calls=[tool_call]),
-            LLMResponse(content="Done", tool_calls=[]),
-        ])
+        calls = iter(
+            [
+                LLMResponse(content="", tool_calls=[tool_call]),
+                LLMResponse(content="Done", tool_calls=[]),
+            ]
+        )
         loop.provider.chat_with_retry = AsyncMock(side_effect=lambda *a, **kw: next(calls))
         loop.tools.get_definitions = MagicMock(return_value=[])
         loop.tools.prepare_call = MagicMock(return_value=(None, {"command": "ls"}, None))
@@ -297,9 +311,7 @@ class TestToolEventProgress:
             outbound.append(await bus.consume_outbound())
 
         tool_event_msgs = [
-            m
-            for m in outbound
-            if isinstance(m.event, ProgressEvent) and m.event.tool_events
+            m for m in outbound if isinstance(m.event, ProgressEvent) and m.event.tool_events
         ]
         assert tool_event_msgs, "expected at least one outbound message with tool events"
 
@@ -334,21 +346,25 @@ class TestToolEventProgress:
         assert finish["result"] == "file.txt"
 
     @pytest.mark.asyncio
-    async def test_bus_progress_forwards_file_edit_events_without_channel_branch(self, tmp_path: Path) -> None:
+    async def test_bus_progress_forwards_file_edit_events_without_channel_branch(
+        self, tmp_path: Path
+    ) -> None:
         bus = MessageBus()
         provider = MagicMock()
         provider.get_default_model.return_value = "test-model"
         loop = AgentLoop(bus=bus, provider=provider, workspace=tmp_path, model="test-model")
-        edit_events = [{
-            "call_id": "call-write",
-            "tool": "write_file",
-            "path": "foo.txt",
-            "phase": "start",
-            "added": 1,
-            "deleted": 0,
-            "approximate": True,
-            "status": "editing",
-        }]
+        edit_events = [
+            {
+                "call_id": "call-write",
+                "tool": "write_file",
+                "path": "foo.txt",
+                "phase": "start",
+                "added": 1,
+                "deleted": 0,
+                "approximate": True,
+                "status": "editing",
+            }
+        ]
 
         msg = InboundMessage(
             channel="telegram",
@@ -404,9 +420,11 @@ class TestToolEventProgress:
             hook_factories=[create_file_edit_activity_hook],
         )
         tool = WriteFileTool(workspace=tmp_path)
-        loop.tools.get_definitions = MagicMock(return_value=[
-            {"type": "function", "function": {"name": "write_file"}},
-        ])
+        loop.tools.get_definitions = MagicMock(
+            return_value=[
+                {"type": "function", "function": {"name": "write_file"}},
+            ]
+        )
         loop.tools.prepare_call = MagicMock(
             return_value=(
                 tool,
@@ -416,13 +434,15 @@ class TestToolEventProgress:
         )
         loop.consolidator.maybe_consolidate_by_tokens = AsyncMock(return_value=False)  # type: ignore[method-assign]
 
-        await loop._dispatch(InboundMessage(
-            channel="websocket",
-            sender_id="u1",
-            chat_id="chat1",
-            content="/goal create goal file",
-            metadata={"_wants_stream": True},
-        ))
+        await loop._dispatch(
+            InboundMessage(
+                channel="websocket",
+                sender_id="u1",
+                chat_id="chat1",
+                content="/goal create goal file",
+                metadata={"_wants_stream": True},
+            )
+        )
 
         outbound = []
         while bus.outbound_size > 0:
@@ -435,9 +455,7 @@ class TestToolEventProgress:
             for event in msg.event.file_edit_events or []
         ]
         assert any(
-            event["status"] == "editing"
-            and event["approximate"]
-            and event["added"] == 0
+            event["status"] == "editing" and event["approximate"] and event["added"] == 0
             for event in edit_events
         )
         assert any(
@@ -459,18 +477,24 @@ class TestToolEventProgress:
         provider = MagicMock()
         provider.supports_progress_deltas = True
         provider.get_default_model.return_value = "openai-codex/gpt-5.5"
-        provider.chat_with_retry = AsyncMock(return_value=LLMResponse(content="Hello", tool_calls=[]))
+        provider.chat_with_retry = AsyncMock(
+            return_value=LLMResponse(content="Hello", tool_calls=[])
+        )
         provider.chat_stream_with_retry = AsyncMock()
-        loop = AgentLoop(bus=bus, provider=provider, workspace=tmp_path, model="openai-codex/gpt-5.5")
+        loop = AgentLoop(
+            bus=bus, provider=provider, workspace=tmp_path, model="openai-codex/gpt-5.5"
+        )
         loop.tools.get_definitions = MagicMock(return_value=[])
         loop.consolidator.maybe_consolidate_by_tokens = AsyncMock(return_value=False)  # type: ignore[method-assign]
 
-        await loop._dispatch(InboundMessage(
-            channel="whatsapp",
-            sender_id="u1",
-            chat_id="chat1",
-            content="say hello",
-        ))
+        await loop._dispatch(
+            InboundMessage(
+                channel="whatsapp",
+                sender_id="u1",
+                chat_id="chat1",
+                content="say hello",
+            )
+        )
 
         outbound = []
         while bus.outbound_size > 0:
@@ -500,18 +524,22 @@ class TestToolEventProgress:
 
         provider.chat_stream_with_retry = chat_stream_with_retry
         provider.chat_with_retry = AsyncMock()
-        loop = AgentLoop(bus=bus, provider=provider, workspace=tmp_path, model="openai-codex/gpt-5.5")
+        loop = AgentLoop(
+            bus=bus, provider=provider, workspace=tmp_path, model="openai-codex/gpt-5.5"
+        )
         _attach_webui_runtime_events(loop, bus)
         loop.tools.get_definitions = MagicMock(return_value=[])
         loop.consolidator.maybe_consolidate_by_tokens = AsyncMock(return_value=False)  # type: ignore[method-assign]
 
-        await loop._dispatch(InboundMessage(
-            channel="websocket",
-            sender_id="u1",
-            chat_id="chat1",
-            content="say hello",
-            metadata={"_wants_stream": True},
-        ))
+        await loop._dispatch(
+            InboundMessage(
+                channel="websocket",
+                sender_id="u1",
+                chat_id="chat1",
+                content="say hello",
+                metadata={"_wants_stream": True},
+            )
+        )
 
         outbound = []
         while bus.outbound_size > 0:
@@ -520,7 +548,8 @@ class TestToolEventProgress:
         deltas = [m for m in outbound if isinstance(m.event, StreamDeltaEvent)]
         stream_end = [m for m in outbound if isinstance(m.event, StreamEndEvent)]
         final = [
-            m for m in outbound
+            m
+            for m in outbound
             if not isinstance(m.event, StreamDeltaEvent | StreamEndEvent)
             and not isinstance(m.event, TurnEndEvent | GoalStatusEvent)
         ]
@@ -544,10 +573,12 @@ class TestToolEventProgress:
         provider = MagicMock()
         provider.supports_progress_deltas = True
         provider.get_default_model.return_value = "openai-codex/gpt-5.5"
-        provider.chat_stream_with_retry = AsyncMock(side_effect=[
-            LLMResponse(content=None, tool_calls=[]),
-            LLMResponse(content=None, tool_calls=[]),
-        ])
+        provider.chat_stream_with_retry = AsyncMock(
+            side_effect=[
+                LLMResponse(content=None, tool_calls=[]),
+                LLMResponse(content=None, tool_calls=[]),
+            ]
+        )
         provider.chat_with_retry = AsyncMock(
             return_value=LLMResponse(content="final answer", tool_calls=[]),
         )
@@ -561,22 +592,24 @@ class TestToolEventProgress:
         loop.tools.get_definitions = MagicMock(return_value=[])
         loop.consolidator.maybe_consolidate_by_tokens = AsyncMock(return_value=False)  # type: ignore[method-assign]
 
-        await loop._dispatch(InboundMessage(
-            channel="websocket",
-            sender_id="u1",
-            chat_id="chat1",
-            content="say hello",
-            metadata={"_wants_stream": True},
-        ))
+        await loop._dispatch(
+            InboundMessage(
+                channel="websocket",
+                sender_id="u1",
+                chat_id="chat1",
+                content="say hello",
+                metadata={"_wants_stream": True},
+            )
+        )
 
         outbound = []
         while bus.outbound_size > 0:
             outbound.append(await bus.consume_outbound())
 
         assert not any(isinstance(message.event, StreamDeltaEvent) for message in outbound)
-        assert len([
-            message for message in outbound if isinstance(message.event, StreamEndEvent)
-        ]) == 3
+        assert (
+            len([message for message in outbound if isinstance(message.event, StreamEndEvent)]) == 3
+        )
         final = [message for message in outbound if message.content == "final answer"]
         assert len(final) == 1
         assert final[0].event is None
@@ -597,10 +630,12 @@ class TestToolEventProgress:
         requests: list[list[dict]] = []
         request_contexts = []
         tool_call = ToolCallRequest(id="call1", name="custom_tool", arguments={})
-        responses = iter([
-            LLMResponse(content="Checking", tool_calls=[tool_call]),
-            LLMResponse(content="The late result is ready", tool_calls=[]),
-        ])
+        responses = iter(
+            [
+                LLMResponse(content="Checking", tool_calls=[tool_call]),
+                LLMResponse(content="The late result is ready", tool_calls=[]),
+            ]
+        )
 
         async def chat_stream_with_retry(*, messages, on_content_delta, **kwargs):
             requests.append([dict(message) for message in messages])
@@ -637,26 +672,32 @@ class TestToolEventProgress:
         session.add_message("user", "Run this in the background")
         session.metadata.update({"webui": True, "title": "Existing title"})
         loop.sessions.save(session)
-        dispatch = asyncio.create_task(loop._dispatch(InboundMessage(
-            channel="system",
-            sender_id="subagent",
-            chat_id=session_key,
-            content="Background research completed",
-            session_key_override=session_key,
-            metadata={
-                "injected_event": "subagent_result",
-                "subagent_task_id": "sub-1",
-            },
-        )))
+        dispatch = asyncio.create_task(
+            loop._dispatch(
+                InboundMessage(
+                    channel="system",
+                    sender_id="subagent",
+                    chat_id=session_key,
+                    content="Background research completed",
+                    session_key_override=session_key,
+                    metadata={
+                        "injected_event": "subagent_result",
+                        "subagent_task_id": "sub-1",
+                    },
+                )
+            )
+        )
 
         await asyncio.wait_for(first_request_started.wait(), timeout=1)
-        await loop._pending_queues[session_key].put(InboundMessage(
-            channel="websocket",
-            sender_id="user",
-            chat_id="chat-a",
-            content="Can you include the key detail?",
-            session_key_override=session_key,
-        ))
+        await loop._pending_queues[session_key].put(
+            InboundMessage(
+                channel="websocket",
+                sender_id="user",
+                chat_id="chat-a",
+                content="Can you include the key detail?",
+                session_key_override=session_key,
+            )
+        )
         release_first_request.set()
         await asyncio.wait_for(dispatch, timeout=2)
 
@@ -686,18 +727,22 @@ class TestToolEventProgress:
         ]
         assert statuses == ["running", "idle"]
         assert [
-            message.content
-            for message in outbound
-            if isinstance(message.event, StreamDeltaEvent)
+            message.content for message in outbound if isinstance(message.event, StreamDeltaEvent)
         ] == ["Checking", "The late result is ready"]
         assert any(isinstance(message.event, ProgressEvent) for message in outbound)
-        assert len([
-            message for message in outbound if isinstance(message.event, TurnEndEvent)
-        ]) == 1
-        assert len([
-            message for message in outbound
-            if isinstance(message.event, StreamedResponseEvent)
-        ]) == 1
+        assert (
+            len([message for message in outbound if isinstance(message.event, TurnEndEvent)]) == 1
+        )
+        assert (
+            len(
+                [
+                    message
+                    for message in outbound
+                    if isinstance(message.event, StreamedResponseEvent)
+                ]
+            )
+            == 1
+        )
         visible_events = [
             message
             for message in outbound
@@ -712,10 +757,7 @@ class TestToolEventProgress:
             )
         ]
         assert visible_events
-        turn_ids = {
-            message.metadata.get(WEBUI_TURN_METADATA_KEY)
-            for message in visible_events
-        }
+        turn_ids = {message.metadata.get(WEBUI_TURN_METADATA_KEY) for message in visible_events}
         assert len(turn_ids) == 1
         turn_id = turn_ids.pop()
         assert isinstance(turn_id, str)
@@ -724,7 +766,8 @@ class TestToolEventProgress:
             (message.channel, message.chat_id) == ("websocket", "chat-a")
             and message.metadata.get("webui") is True
             and message.metadata.get("_wants_stream") is True
-            and set(message.metadata) <= {
+            and set(message.metadata)
+            <= {
                 "webui",
                 "_wants_stream",
                 WEBUI_TURN_METADATA_KEY,
@@ -753,18 +796,22 @@ class TestToolEventProgress:
 
         provider.chat_stream_with_retry = chat_stream_with_retry
         provider.chat_with_retry = AsyncMock()
-        loop = AgentLoop(bus=bus, provider=provider, workspace=tmp_path, model="openai-codex/gpt-5.5")
+        loop = AgentLoop(
+            bus=bus, provider=provider, workspace=tmp_path, model="openai-codex/gpt-5.5"
+        )
         _attach_webui_runtime_events(loop, bus)
         loop.tools.get_definitions = MagicMock(return_value=[])
         loop.consolidator.maybe_consolidate_by_tokens = AsyncMock(return_value=False)  # type: ignore[method-assign]
 
-        await loop._dispatch(InboundMessage(
-            channel="websocket",
-            sender_id="u1",
-            chat_id="chat1",
-            content="say hello",
-            metadata={"_wants_stream": True},
-        ))
+        await loop._dispatch(
+            InboundMessage(
+                channel="websocket",
+                sender_id="u1",
+                chat_id="chat1",
+                content="say hello",
+                metadata={"_wants_stream": True},
+            )
+        )
 
         outbound = []
         while bus.outbound_size > 0:
@@ -773,7 +820,8 @@ class TestToolEventProgress:
         deltas = [m for m in outbound if isinstance(m.event, StreamDeltaEvent)]
         stream_end = [m for m in outbound if isinstance(m.event, StreamEndEvent)]
         final = [
-            m for m in outbound
+            m
+            for m in outbound
             if not isinstance(m.event, StreamDeltaEvent | StreamEndEvent)
             and not isinstance(m.event, TurnEndEvent | GoalStatusEvent)
         ]
@@ -803,10 +851,12 @@ class TestToolEventProgress:
         loop = _make_loop(tmp_path)
         loop.provider.supports_progress_deltas = True
         tool_call = ToolCallRequest(id="call1", name="custom_tool", arguments={"path": "foo.txt"})
-        calls = iter([
-            LLMResponse(content="I will inspect it.", tool_calls=[tool_call]),
-            LLMResponse(content="Done", tool_calls=[]),
-        ])
+        calls = iter(
+            [
+                LLMResponse(content="I will inspect it.", tool_calls=[tool_call]),
+                LLMResponse(content="Done", tool_calls=[]),
+            ]
+        )
 
         async def chat_stream_with_retry(*, on_content_delta, **kwargs):
             response = next(calls)
@@ -852,18 +902,22 @@ class TestToolEventProgress:
         bus = MessageBus()
         provider = MagicMock()
         provider.get_default_model.return_value = "test-model"
-        provider.chat_with_retry = AsyncMock(return_value=LLMResponse(content="Done", tool_calls=[]))
+        provider.chat_with_retry = AsyncMock(
+            return_value=LLMResponse(content="Done", tool_calls=[])
+        )
         loop = AgentLoop(bus=bus, provider=provider, workspace=tmp_path, model="test-model")
         _attach_webui_runtime_events(loop, bus)
         loop.tools.get_definitions = MagicMock(return_value=[])
         loop.consolidator.maybe_consolidate_by_tokens = AsyncMock(return_value=False)  # type: ignore[method-assign]
 
-        await loop._dispatch(InboundMessage(
-            channel="websocket",
-            sender_id="u1",
-            chat_id="chat1",
-            content="say hello",
-        ))
+        await loop._dispatch(
+            InboundMessage(
+                channel="websocket",
+                sender_id="u1",
+                chat_id="chat1",
+                content="say hello",
+            )
+        )
 
         outbound = []
         while bus.outbound_size > 0:
@@ -895,12 +949,14 @@ class TestToolEventProgress:
 
         loop._process_message = raise_from_turn  # type: ignore[method-assign]
 
-        await loop._dispatch(InboundMessage(
-            channel="websocket",
-            sender_id="u1",
-            chat_id="chat1",
-            content="say hello",
-        ))
+        await loop._dispatch(
+            InboundMessage(
+                channel="websocket",
+                sender_id="u1",
+                chat_id="chat1",
+                content="say hello",
+            )
+        )
 
         outbound = []
         while bus.outbound_size > 0:
@@ -914,7 +970,9 @@ class TestToolEventProgress:
         assert len(turn_end_msgs) == 1
         assert turn_end_msgs[0].content == ""
         assert turn_end_msgs[0].chat_id == "chat1"
-        assert [m.event.status for m in statuses if isinstance(m.event, GoalStatusEvent)] == ["idle"]
+        assert [m.event.status for m in statuses if isinstance(m.event, GoalStatusEvent)] == [
+            "idle"
+        ]
         assert outbound.index(error_msgs[0]) < outbound.index(turn_end_msgs[0])
         assert outbound.index(turn_end_msgs[0]) < outbound.index(statuses[-1])
 
@@ -942,13 +1000,18 @@ class TestToolEventProgress:
         loop.tools.get_definitions = MagicMock(return_value=[])
         loop.consolidator.maybe_consolidate_by_tokens = AsyncMock(return_value=False)  # type: ignore[method-assign]
 
-        await asyncio.wait_for(loop._dispatch(InboundMessage(
-            channel="websocket",
-            sender_id="u1",
-            chat_id="chat1",
-            content="say hello",
-            metadata={"webui": True},
-        )), timeout=0.5)
+        await asyncio.wait_for(
+            loop._dispatch(
+                InboundMessage(
+                    channel="websocket",
+                    sender_id="u1",
+                    chat_id="chat1",
+                    content="say hello",
+                    metadata={"webui": True},
+                )
+            ),
+            timeout=0.5,
+        )
 
         outbound: list = []
         for _ in range(12):
@@ -985,7 +1048,9 @@ class TestToolEventProgress:
         bus = MessageBus()
         provider = MagicMock()
         provider.get_default_model.return_value = "test-model"
-        provider.chat_with_retry = AsyncMock(return_value=LLMResponse(content="Done", tool_calls=[]))
+        provider.chat_with_retry = AsyncMock(
+            return_value=LLMResponse(content="Done", tool_calls=[])
+        )
         loop = AgentLoop(bus=bus, provider=provider, workspace=tmp_path, model="test-model")
         _attach_webui_runtime_events(loop, bus)
         loop.tools.get_definitions = MagicMock(return_value=[])
@@ -1012,23 +1077,27 @@ class TestToolEventProgress:
 
         loop._schedule_background = schedule_background  # type: ignore[method-assign]
 
-        await loop._dispatch(InboundMessage(
-            channel="websocket",
-            sender_id="u1",
-            chat_id="chat1",
-            content="say hello",
-            metadata={"webui": True},
-        ))
+        await loop._dispatch(
+            InboundMessage(
+                channel="websocket",
+                sender_id="u1",
+                chat_id="chat1",
+                content="say hello",
+                metadata={"webui": True},
+            )
+        )
 
         assert len(scheduled_title) == 1
         next_provider = MagicMock()
         next_provider.generation = loop.llm_runtime().generation
-        loop.runtime_resolver.adopt_snapshot(ProviderSnapshot(
-            provider=next_provider,
-            model="switched-after-turn",
-            context_window_tokens=loop.context_window_tokens,
-            signature=("switched-after-turn",),
-        ))
+        loop.runtime_resolver.adopt_snapshot(
+            ProviderSnapshot(
+                provider=next_provider,
+                model="switched-after-turn",
+                context_window_tokens=loop.context_window_tokens,
+                signature=("switched-after-turn",),
+            )
+        )
 
         await scheduled_title[0]  # type: ignore[misc]
 
@@ -1044,7 +1113,9 @@ class TestToolEventProgress:
         bus = MessageBus()
         provider = MagicMock()
         provider.get_default_model.return_value = "test-model"
-        provider.chat_with_retry = AsyncMock(return_value=LLMResponse(content="Done", tool_calls=[]))
+        provider.chat_with_retry = AsyncMock(
+            return_value=LLMResponse(content="Done", tool_calls=[])
+        )
         loop = AgentLoop(bus=bus, provider=provider, workspace=tmp_path, model="test-model")
         _attach_webui_runtime_events(loop, bus)
 
@@ -1058,32 +1129,40 @@ class TestToolEventProgress:
         scheduled: list[object] = []
         loop._schedule_background = scheduled.append  # type: ignore[method-assign]
 
-        await loop._dispatch(InboundMessage(
-            channel="websocket",
-            sender_id="u1",
-            chat_id="chat1",
-            content="/model",
-            metadata={"webui": True},
-        ))
+        await loop._dispatch(
+            InboundMessage(
+                channel="websocket",
+                sender_id="u1",
+                chat_id="chat1",
+                content="/model",
+                metadata={"webui": True},
+            )
+        )
 
         assert scheduled == []
 
     @pytest.mark.asyncio
-    async def test_non_websocket_dispatch_does_not_publish_turn_end_marker(self, tmp_path: Path) -> None:
+    async def test_non_websocket_dispatch_does_not_publish_turn_end_marker(
+        self, tmp_path: Path
+    ) -> None:
         bus = MessageBus()
         provider = MagicMock()
         provider.get_default_model.return_value = "test-model"
-        provider.chat_with_retry = AsyncMock(return_value=LLMResponse(content="Done", tool_calls=[]))
+        provider.chat_with_retry = AsyncMock(
+            return_value=LLMResponse(content="Done", tool_calls=[])
+        )
         loop = AgentLoop(bus=bus, provider=provider, workspace=tmp_path, model="test-model")
         loop.tools.get_definitions = MagicMock(return_value=[])
         loop.consolidator.maybe_consolidate_by_tokens = AsyncMock(return_value=False)  # type: ignore[method-assign]
 
-        await loop._dispatch(InboundMessage(
-            channel="slack",
-            sender_id="u1",
-            chat_id="chat1",
-            content="say hello",
-        ))
+        await loop._dispatch(
+            InboundMessage(
+                channel="slack",
+                sender_id="u1",
+                chat_id="chat1",
+                content="say hello",
+            )
+        )
 
         outbound = []
         while bus.outbound_size > 0:

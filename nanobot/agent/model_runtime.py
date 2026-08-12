@@ -52,10 +52,9 @@ class ModelRuntimeResolver:
     @property
     def model_presets(self) -> Mapping[str, ModelPresetConfig]:
         self._refresh_preset_catalog()
-        return MappingProxyType({
-            name: preset.model_copy(deep=True)
-            for name, preset in self._model_presets.items()
-        })
+        return MappingProxyType(
+            {name: preset.model_copy(deep=True) for name, preset in self._model_presets.items()}
+        )
 
     @property
     def model_preset(self) -> str | None:

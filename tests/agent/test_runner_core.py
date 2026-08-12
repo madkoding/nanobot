@@ -43,25 +43,27 @@ async def test_runner_preserves_reasoning_fields_and_tool_results():
     tools.execute = AsyncMock(return_value="tool result")
 
     runner = AgentRunner()
-    result = await runner.run(make_run_spec(provider,
-        initial_messages=[
-            {"role": "system", "content": "system"},
-            {"role": "user", "content": "do task"},
-        ],
-        tools=tools,
-        model="test-model",
-        max_iterations=3,
-        max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
-    ))
+    result = await runner.run(
+        make_run_spec(
+            provider,
+            initial_messages=[
+                {"role": "system", "content": "system"},
+                {"role": "user", "content": "do task"},
+            ],
+            tools=tools,
+            model="test-model",
+            max_iterations=3,
+            max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
+        )
+    )
 
     assert result.final_content == "done"
     assert result.tools_used == ["list_dir"]
-    assert result.tool_events == [
-        {"name": "list_dir", "status": "ok", "detail": "tool result"}
-    ]
+    assert result.tool_events == [{"name": "list_dir", "status": "ok", "detail": "tool result"}]
 
     assistant_messages = [
-        msg for msg in captured_second_call
+        msg
+        for msg in captured_second_call
         if msg.get("role") == "assistant" and msg.get("tool_calls")
     ]
     assert len(assistant_messages) == 1
@@ -78,22 +80,27 @@ async def test_runner_returns_max_iterations_fallback():
     from nanobot.agent.runner import AgentRunner
 
     provider = MagicMock(spec=LLMProvider)
-    provider.chat_with_retry = AsyncMock(return_value=LLMResponse(
-        content="still working",
-        tool_calls=[ToolCallRequest(id="call_1", name="list_dir", arguments={"path": "."})],
-    ))
+    provider.chat_with_retry = AsyncMock(
+        return_value=LLMResponse(
+            content="still working",
+            tool_calls=[ToolCallRequest(id="call_1", name="list_dir", arguments={"path": "."})],
+        )
+    )
     tools = MagicMock()
     tools.get_definitions.return_value = []
     tools.execute = AsyncMock(return_value="tool result")
 
     runner = AgentRunner()
-    result = await runner.run(make_run_spec(provider,
-        initial_messages=[],
-        tools=tools,
-        model="test-model",
-        max_iterations=2,
-        max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
-    ))
+    result = await runner.run(
+        make_run_spec(
+            provider,
+            initial_messages=[],
+            tools=tools,
+            model="test-model",
+            max_iterations=2,
+            max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
+        )
+    )
 
     assert result.stop_reason == "max_iterations"
     assert result.final_content == (
@@ -139,13 +146,16 @@ async def test_runner_uses_no_tools_finalization_after_max_iterations():
     tools.execute = AsyncMock(return_value="tool result")
 
     runner = AgentRunner()
-    result = await runner.run(make_run_spec(provider,
-        initial_messages=[{"role": "user", "content": "inspect the repo"}],
-        tools=tools,
-        model="test-model",
-        max_iterations=2,
-        max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
-    ))
+    result = await runner.run(
+        make_run_spec(
+            provider,
+            initial_messages=[{"role": "user", "content": "inspect the repo"}],
+            tools=tools,
+            model="test-model",
+            max_iterations=2,
+            max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
+        )
+    )
 
     assert result.stop_reason == "max_iterations"
     assert result.final_content == "Read the directory twice. More investigation remains."
@@ -174,14 +184,17 @@ async def test_runner_times_out_hung_llm_request():
 
     runner = AgentRunner()
     started = time.monotonic()
-    result = await runner.run(make_run_spec(provider,
-        initial_messages=[{"role": "user", "content": "hello"}],
-        tools=tools,
-        model="test-model",
-        max_iterations=1,
-        max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
-        llm_timeout_s=0.05,
-    ))
+    result = await runner.run(
+        make_run_spec(
+            provider,
+            initial_messages=[{"role": "user", "content": "hello"}],
+            tools=tools,
+            model="test-model",
+            max_iterations=1,
+            max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
+            llm_timeout_s=0.05,
+        )
+    )
 
     assert (time.monotonic() - started) < 1.0
     assert result.stop_reason == "error"
@@ -223,15 +236,18 @@ async def test_runner_applies_outer_wall_timeout_to_streaming_requests():
         return await coro
 
     with patch("nanobot.agent.runner.asyncio.wait_for", fake_wait_for):
-        result = await runner.run(make_run_spec(provider,
-            initial_messages=[{"role": "user", "content": "think for a while"}],
-            tools=tools,
-            model="test-model",
-            max_iterations=1,
-            max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
-            hook=StreamingHook(),
-            llm_timeout_s=0.01,
-        ))
+        result = await runner.run(
+            make_run_spec(
+                provider,
+                initial_messages=[{"role": "user", "content": "think for a while"}],
+                tools=tools,
+                model="test-model",
+                max_iterations=1,
+                max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
+                hook=StreamingHook(),
+                llm_timeout_s=0.01,
+            )
+        )
 
     assert result.stop_reason == "completed"
     assert result.final_content == "still alive"
@@ -265,15 +281,18 @@ async def test_runner_times_out_never_ending_streaming_request():
 
     runner = AgentRunner()
     with patch("nanobot.agent.runner.asyncio.wait_for", fake_wait_for):
-        result = await runner.run(make_run_spec(provider,
-            initial_messages=[{"role": "user", "content": "think forever"}],
-            tools=tools,
-            model="test-model",
-            max_iterations=1,
-            max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
-            hook=StreamingHook(),
-            llm_timeout_s=200,
-        ))
+        result = await runner.run(
+            make_run_spec(
+                provider,
+                initial_messages=[{"role": "user", "content": "think forever"}],
+                tools=tools,
+                model="test-model",
+                max_iterations=1,
+                max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
+                hook=StreamingHook(),
+                llm_timeout_s=200,
+            )
+        )
 
     assert result.stop_reason == "error"
     assert result.final_content == "Error calling LLM: timed out after 400s"
@@ -317,17 +336,20 @@ async def test_runner_closes_progress_reasoning_on_streaming_wall_timeout():
 
     runner = AgentRunner()
     with patch("nanobot.agent.runner.asyncio.wait_for", fake_wait_for):
-        result = await runner.run(make_run_spec(provider,
-            initial_messages=[{"role": "user", "content": "think forever"}],
-            tools=tools,
-            model="test-model",
-            max_iterations=1,
-            max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
-            hook=ProgressReasoningHook(),
-            progress_callback=AsyncMock(),
-            stream_progress_deltas=True,
-            llm_timeout_s=1,
-        ))
+        result = await runner.run(
+            make_run_spec(
+                provider,
+                initial_messages=[{"role": "user", "content": "think forever"}],
+                tools=tools,
+                model="test-model",
+                max_iterations=1,
+                max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
+                hook=ProgressReasoningHook(),
+                progress_callback=AsyncMock(),
+                stream_progress_deltas=True,
+                llm_timeout_s=1,
+            )
+        )
 
     assert result.stop_reason == "error"
     assert result.final_content == "Error calling LLM: timed out after 300s"
@@ -364,13 +386,16 @@ async def test_runner_replaces_empty_tool_result_with_marker():
     tools.execute = AsyncMock(return_value="")
 
     runner = AgentRunner()
-    result = await runner.run(make_run_spec(provider,
-        initial_messages=[{"role": "user", "content": "do task"}],
-        tools=tools,
-        model="test-model",
-        max_iterations=2,
-        max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
-    ))
+    result = await runner.run(
+        make_run_spec(
+            provider,
+            initial_messages=[{"role": "user", "content": "do task"}],
+            tools=tools,
+            model="test-model",
+            max_iterations=2,
+            max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
+        )
+    )
 
     assert result.final_content == "done"
     tool_message = next(msg for msg in captured_second_call if msg.get("role") == "tool")
@@ -404,13 +429,16 @@ async def test_runner_retries_empty_final_response_with_summary_prompt():
     tools.get_definitions.return_value = []
 
     runner = AgentRunner()
-    result = await runner.run(make_run_spec(provider,
-        initial_messages=[{"role": "user", "content": "do task"}],
-        tools=tools,
-        model="test-model",
-        max_iterations=3,
-        max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
-    ))
+    result = await runner.run(
+        make_run_spec(
+            provider,
+            initial_messages=[{"role": "user", "content": "do task"}],
+            tools=tools,
+            model="test-model",
+            max_iterations=3,
+            max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
+        )
+    )
 
     assert result.final_content == "final answer"
     # 2 silent retries (iterations 0,1) + finalization on iteration 1
@@ -438,13 +466,16 @@ async def test_runner_uses_specific_message_after_empty_finalization_retry():
     tools.get_definitions.return_value = []
 
     runner = AgentRunner()
-    result = await runner.run(make_run_spec(provider,
-        initial_messages=[{"role": "user", "content": "do task"}],
-        tools=tools,
-        model="test-model",
-        max_iterations=3,
-        max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
-    ))
+    result = await runner.run(
+        make_run_spec(
+            provider,
+            initial_messages=[{"role": "user", "content": "do task"}],
+            tools=tools,
+            model="test-model",
+            max_iterations=3,
+            max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
+        )
+    )
 
     assert result.final_content == EMPTY_FINAL_RESPONSE_MESSAGE
     assert result.stop_reason == "empty_final_response"
@@ -468,15 +499,21 @@ async def test_runner_empty_response_does_not_break_tool_chain():
         if call_count == 1:
             return LLMResponse(
                 content=None,
-                tool_calls=[ToolCallRequest(id="tc1", name="read_file", arguments={"path": "a.txt"})],
+                tool_calls=[
+                    ToolCallRequest(id="tc1", name="read_file", arguments={"path": "a.txt"})
+                ],
                 usage={"prompt_tokens": 10, "completion_tokens": 5},
             )
         if call_count == 2:
-            return LLMResponse(content=None, tool_calls=[], usage={"prompt_tokens": 10, "completion_tokens": 1})
+            return LLMResponse(
+                content=None, tool_calls=[], usage={"prompt_tokens": 10, "completion_tokens": 1}
+            )
         if call_count == 3:
             return LLMResponse(
                 content=None,
-                tool_calls=[ToolCallRequest(id="tc2", name="read_file", arguments={"path": "b.txt"})],
+                tool_calls=[
+                    ToolCallRequest(id="tc2", name="read_file", arguments={"path": "b.txt"})
+                ],
                 usage={"prompt_tokens": 10, "completion_tokens": 5},
             )
         return LLMResponse(
@@ -492,17 +529,22 @@ async def test_runner_empty_response_does_not_break_tool_chain():
         return "file content"
 
     tool_registry = MagicMock()
-    tool_registry.get_definitions.return_value = [{"type": "function", "function": {"name": "read_file"}}]
+    tool_registry.get_definitions.return_value = [
+        {"type": "function", "function": {"name": "read_file"}}
+    ]
     tool_registry.execute = AsyncMock(side_effect=fake_tool)
 
     runner = AgentRunner()
-    result = await runner.run(make_run_spec(provider,
-        initial_messages=[{"role": "user", "content": "read both files"}],
-        tools=tool_registry,
-        model="test-model",
-        max_iterations=10,
-        max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
-    ))
+    result = await runner.run(
+        make_run_spec(
+            provider,
+            initial_messages=[{"role": "user", "content": "read both files"}],
+            tools=tool_registry,
+            model="test-model",
+            max_iterations=10,
+            max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
+        )
+    )
 
     assert result.final_content == "Here are the results."
     assert result.stop_reason == "completed"
@@ -524,7 +566,9 @@ async def test_runner_accumulates_usage_and_preserves_cached_tokens():
         if call_count["n"] == 1:
             return LLMResponse(
                 content="thinking",
-                tool_calls=[ToolCallRequest(id="call_1", name="read_file", arguments={"path": "x"})],
+                tool_calls=[
+                    ToolCallRequest(id="call_1", name="read_file", arguments={"path": "x"})
+                ],
                 usage={"prompt_tokens": 100, "completion_tokens": 10, "cached_tokens": 80},
             )
         return LLMResponse(
@@ -539,13 +583,16 @@ async def test_runner_accumulates_usage_and_preserves_cached_tokens():
     tools.execute = AsyncMock(return_value="file content")
 
     runner = AgentRunner()
-    result = await runner.run(make_run_spec(provider,
-        initial_messages=[{"role": "user", "content": "do task"}],
-        tools=tools,
-        model="test-model",
-        max_iterations=3,
-        max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
-    ))
+    result = await runner.run(
+        make_run_spec(
+            provider,
+            initial_messages=[{"role": "user", "content": "do task"}],
+            tools=tools,
+            model="test-model",
+            max_iterations=3,
+            max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
+        )
+    )
 
     # Usage should be accumulated across iterations
     assert result.usage["prompt_tokens"] == 300  # 100 + 200
@@ -578,18 +625,21 @@ async def test_runner_binds_on_retry_wait_to_retry_callback_not_progress():
     retry_wait_cb = AsyncMock()
 
     runner = AgentRunner()
-    await runner.run(make_run_spec(provider,
-        initial_messages=[
-            {"role": "system", "content": "system"},
-            {"role": "user", "content": "hi"},
-        ],
-        tools=tools,
-        model="test-model",
-        max_iterations=1,
-        max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
-        progress_callback=progress_cb,
-        retry_wait_callback=retry_wait_cb,
-    ))
+    await runner.run(
+        make_run_spec(
+            provider,
+            initial_messages=[
+                {"role": "system", "content": "system"},
+                {"role": "user", "content": "hi"},
+            ],
+            tools=tools,
+            model="test-model",
+            max_iterations=1,
+            max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
+            progress_callback=progress_cb,
+            retry_wait_callback=retry_wait_cb,
+        )
+    )
 
     assert captured["on_retry_wait"] is retry_wait_cb
     assert captured["on_retry_wait"] is not progress_cb
@@ -617,14 +667,17 @@ async def test_runner_passes_temperature_to_provider():
     tools.get_definitions.return_value = []
 
     runner = AgentRunner()
-    await runner.run(make_run_spec(provider,
-        initial_messages=[{"role": "user", "content": "hi"}],
-        tools=tools,
-        model="test-model",
-        max_iterations=1,
-        max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
-        temperature=0.7,
-    ))
+    await runner.run(
+        make_run_spec(
+            provider,
+            initial_messages=[{"role": "user", "content": "hi"}],
+            tools=tools,
+            model="test-model",
+            max_iterations=1,
+            max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
+            temperature=0.7,
+        )
+    )
 
     assert captured["temperature"] == 0.7
 
@@ -646,14 +699,17 @@ async def test_runner_passes_max_tokens_to_provider():
     tools.get_definitions.return_value = []
 
     runner = AgentRunner()
-    await runner.run(make_run_spec(provider,
-        initial_messages=[{"role": "user", "content": "hi"}],
-        tools=tools,
-        model="test-model",
-        max_iterations=1,
-        max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
-        max_tokens=8192,
-    ))
+    await runner.run(
+        make_run_spec(
+            provider,
+            initial_messages=[{"role": "user", "content": "hi"}],
+            tools=tools,
+            model="test-model",
+            max_iterations=1,
+            max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
+            max_tokens=8192,
+        )
+    )
 
     assert captured["max_tokens"] == 8192
 
@@ -675,13 +731,16 @@ async def test_runner_passes_reasoning_effort_to_provider():
     tools.get_definitions.return_value = []
 
     runner = AgentRunner()
-    await runner.run(make_run_spec(provider,
-        initial_messages=[{"role": "user", "content": "hi"}],
-        tools=tools,
-        model="test-model",
-        max_iterations=1,
-        max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
-        reasoning_effort="high",
-    ))
+    await runner.run(
+        make_run_spec(
+            provider,
+            initial_messages=[{"role": "user", "content": "hi"}],
+            tools=tools,
+            model="test-model",
+            max_iterations=1,
+            max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
+            reasoning_effort="high",
+        )
+    )
 
     assert captured["reasoning_effort"] == "high"

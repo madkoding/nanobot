@@ -446,9 +446,7 @@ def skills_sh_install(reference: str, skills_dir: Path) -> dict[str, Any]:
     else:
         parts = ref.split("/")
         if len(parts) != 3:
-            raise ClawhubError(
-                "Invalid skills-sh reference (expected owner/repo/slug)"
-            )
+            raise ClawhubError("Invalid skills-sh reference (expected owner/repo/slug)")
         owner_repo, slug = "/".join(parts[:2]), parts[2]
     owner, sep, repo = owner_repo.partition("/")
     if not sep or not owner or not repo or not slug:
@@ -482,9 +480,7 @@ def skills_sh_install(reference: str, skills_dir: Path) -> dict[str, Any]:
                 raise ClawhubError("Skill source contains unsafe paths")
             resolved.parent.mkdir(parents=True, exist_ok=True)
             resolved.write_bytes(
-                _github_get_raw(
-                    f"https://raw.githubusercontent.com/{owner}/{repo}/{branch}/{path}"
-                )
+                _github_get_raw(f"https://raw.githubusercontent.com/{owner}/{repo}/{branch}/{path}")
             )
 
     _write_source_meta(skills_dir, slug, ref, "skills-sh")
@@ -578,11 +574,13 @@ def _skill_folder_paths(entries: list[dict[str, Any]], slug: str) -> list[str]:
             candidates.append(folder)
     if not candidates:
         return []
+
     def _rank(folder: str) -> tuple[int, int]:
         parts = folder.split("/")
         if len(parts) == 2 and parts[0].lower() == "skills":
             return (0, 0)
         return (1, len(parts))
+
     candidates.sort(key=_rank)
     return candidates
 

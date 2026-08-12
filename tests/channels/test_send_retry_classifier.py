@@ -6,9 +6,7 @@ from nanobot.channels.manager import _is_non_retriable_send_error
 
 # ponytail: match the real neonize.exc.SendMessageError class name
 # because the manager inspects type(exc).__name__, not isinstance.
-_SendMessageError = type(
-    "SendMessageError", (Exception,), {}
-)
+_SendMessageError = type("SendMessageError", (Exception,), {})
 
 
 def test_463_send_message_error_is_non_retriable() -> None:

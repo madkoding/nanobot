@@ -10,6 +10,7 @@ import pytest
 # Check optional dingtalk dependencies before running tests
 try:
     from nanobot.channels import dingtalk
+
     DINGTALK_AVAILABLE = getattr(dingtalk, "DINGTALK_AVAILABLE", False)
 except ImportError:
     DINGTALK_AVAILABLE = False
@@ -294,13 +295,15 @@ async def test_handler_richtext_keeps_formatted_segments(monkeypatch) -> None:
     )
     handler = NanobotDingTalkHandler(channel)
 
-    fake_msg = _rich_text_message([
-        {"type": "bold", "text": "Title"},
-        {"type": "text", "text": "plain"},
-        {"type": "italic", "text": "em"},
-        {"type": "inlineCode", "text": "x = 1"},
-        {"type": "pre", "text": "block"},
-    ])
+    fake_msg = _rich_text_message(
+        [
+            {"type": "bold", "text": "Title"},
+            {"type": "text", "text": "plain"},
+            {"type": "italic", "text": "em"},
+            {"type": "inlineCode", "text": "x = 1"},
+            {"type": "pre", "text": "block"},
+        ]
+    )
     monkeypatch.setattr(dingtalk_module, "ChatbotMessage", fake_msg)
     monkeypatch.setattr(dingtalk_module, "AckMessage", SimpleNamespace(STATUS_OK="OK"))
 
@@ -350,9 +353,11 @@ async def test_handler_richtext_item_with_text_and_download(monkeypatch) -> None
     )
     handler = NanobotDingTalkHandler(channel)
 
-    fake_msg = _rich_text_message([
-        {"text": "see attached", "downloadCode": "abc123", "fileName": "report.xlsx"},
-    ])
+    fake_msg = _rich_text_message(
+        [
+            {"text": "see attached", "downloadCode": "abc123", "fileName": "report.xlsx"},
+        ]
+    )
 
     async def fake_download(download_code, filename, sender_id):
         return f"/tmp/nanobot_dingtalk/{sender_id}/{filename}"
@@ -480,10 +485,12 @@ async def test_download_dingtalk_file(tmp_path, monkeypatch) -> None:
 
     # Mock HTTP: first POST returns downloadUrl, then GET returns file bytes
     file_content = b"fake file content"
-    channel._http = _FakeHttp(responses=[
-        _FakeResponse(200, {"downloadUrl": "https://example.com/tmpfile"}),
-        _FakeResponse(200),
-    ])
+    channel._http = _FakeHttp(
+        responses=[
+            _FakeResponse(200, {"downloadUrl": "https://example.com/tmpfile"}),
+            _FakeResponse(200),
+        ]
+    )
     channel._http._responses[1].content = file_content
 
     # Redirect media dir to tmp_path
@@ -594,7 +601,9 @@ async def test_read_media_bytes_does_not_follow_remote_redirects_by_default() ->
         ]
     )
 
-    data, filename, content_type = await channel._read_media_bytes("https://example.com/redirect.txt")
+    data, filename, content_type = await channel._read_media_bytes(
+        "https://example.com/redirect.txt"
+    )
 
     assert (data, filename, content_type) == (None, None, None)
     assert channel._http.calls[0]["kwargs"]["follow_redirects"] is False
@@ -628,7 +637,9 @@ async def test_read_media_bytes_follows_safe_redirect_when_explicitly_enabled() 
         ]
     )
 
-    data, filename, content_type = await channel._read_media_bytes("https://example.com/redirect.txt")
+    data, filename, content_type = await channel._read_media_bytes(
+        "https://example.com/redirect.txt"
+    )
 
     assert (data, filename, content_type) == (b"redirected media", "redirect.txt", "text/plain")
     assert [call["url"] for call in channel._http.calls] == [
@@ -666,7 +677,9 @@ async def test_read_media_bytes_blocks_cross_host_redirect_without_allowlist() -
         ]
     )
 
-    data, filename, content_type = await channel._read_media_bytes("https://example.com/redirect.txt")
+    data, filename, content_type = await channel._read_media_bytes(
+        "https://example.com/redirect.txt"
+    )
 
     assert (data, filename, content_type) == (None, None, None)
     assert [call["url"] for call in channel._http.calls] == ["https://example.com/redirect.txt"]
@@ -701,7 +714,9 @@ async def test_read_media_bytes_allows_cross_host_redirect_when_allowlisted() ->
         ]
     )
 
-    data, filename, content_type = await channel._read_media_bytes("https://example.com/redirect.txt")
+    data, filename, content_type = await channel._read_media_bytes(
+        "https://example.com/redirect.txt"
+    )
 
     assert (data, filename, content_type) == (b"cross-host media", "redirect.txt", "text/plain")
     assert [call["url"] for call in channel._http.calls] == [
@@ -738,7 +753,9 @@ async def test_read_media_bytes_blocks_private_redirect_even_when_redirects_enab
         ]
     )
 
-    data, filename, content_type = await channel._read_media_bytes("https://example.com/redirect.txt")
+    data, filename, content_type = await channel._read_media_bytes(
+        "https://example.com/redirect.txt"
+    )
 
     assert (data, filename, content_type) == (None, None, None)
     assert [call["url"] for call in channel._http.calls] == ["https://example.com/redirect.txt"]
@@ -879,9 +896,7 @@ async def test_send_raises_when_access_token_is_unavailable(monkeypatch) -> None
     monkeypatch.setattr(channel, "_get_access_token", AsyncMock(return_value=None))
 
     with pytest.raises(RuntimeError, match="access token unavailable"):
-        await channel.send(
-            OutboundMessage(channel="dingtalk", chat_id="user123", content="hello")
-        )
+        await channel.send(OutboundMessage(channel="dingtalk", chat_id="user123", content="hello"))
 
 
 @pytest.mark.asyncio
@@ -894,9 +909,7 @@ async def test_send_raises_when_text_is_not_delivered(monkeypatch) -> None:
     monkeypatch.setattr(channel, "_send_markdown_text", AsyncMock(return_value=False))
 
     with pytest.raises(RuntimeError, match="text message was not delivered"):
-        await channel.send(
-            OutboundMessage(channel="dingtalk", chat_id="user123", content="hello")
-        )
+        await channel.send(OutboundMessage(channel="dingtalk", chat_id="user123", content="hello"))
 
 
 @pytest.mark.asyncio

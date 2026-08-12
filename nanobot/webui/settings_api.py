@@ -134,6 +134,7 @@ _xai_webui_oauth_flows_lock = threading.Lock()
 _MODEL_CONFIGURATION_SLUG_RE = re.compile(r"[^a-z0-9_-]+")
 _ENV_REF_RE = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}")
 
+
 class WebUISettingsError(ValueError):
     """User-facing settings validation failure."""
 
@@ -240,23 +241,25 @@ def _provider_json_setting(
 
 _REDACTED_PROVIDER_SECRET = "••••••••"
 _PROVIDER_STRUCTURED_FIELDS = ("extra_headers", "extra_body", "extra_query")
-_PROVIDER_SECRET_KEYS = frozenset({
-    "auth",
-    "authentication",
-    "authorization",
-    "bearer",
-    "cookie",
-    "credential",
-    "credentials",
-    "hmac",
-    "key",
-    "passphrase",
-    "passwd",
-    "proxyauthorization",
-    "setcookie",
-    "sig",
-    "signature",
-})
+_PROVIDER_SECRET_KEYS = frozenset(
+    {
+        "auth",
+        "authentication",
+        "authorization",
+        "bearer",
+        "cookie",
+        "credential",
+        "credentials",
+        "hmac",
+        "key",
+        "passphrase",
+        "passwd",
+        "proxyauthorization",
+        "setcookie",
+        "sig",
+        "signature",
+    }
+)
 _PROVIDER_SECRET_KEY_SUFFIXES = (
     "accesskey",
     "apikey",
@@ -913,8 +916,7 @@ def _custom_provider_key(config: Any, display_name: str) -> str:
     if len(base) > 56:
         base = base[:56].rstrip("-_")
     existing = {
-        name.replace("_", "-").lower()
-        for name, _provider_config in _dynamic_provider_items(config)
+        name.replace("_", "-").lower() for name, _provider_config in _dynamic_provider_items(config)
     }
     candidate = base
     suffix = 2
@@ -937,8 +939,7 @@ def _provider_display_name_exists(
         if provider_key == exclude_key:
             continue
         label = (
-            provider_config.display_name
-            or provider_key.replace("-", " ").replace("_", " ").title()
+            provider_config.display_name or provider_key.replace("-", " ").replace("_", " ").title()
         )
         if label.strip().casefold() == normalized:
             return True
@@ -1006,9 +1007,7 @@ def _image_generation_provider_rows(config: Any) -> list[dict[str, Any]]:
                 "label": spec.label if spec is not None else name,
                 "configured": configured,
                 "auth_type": "oauth" if spec is not None and spec.is_oauth else "api_key",
-                "api_key_hint": _mask_secret_hint(
-                    getattr(provider_config, "api_key", None)
-                ),
+                "api_key_hint": _mask_secret_hint(getattr(provider_config, "api_key", None)),
                 "api_base": getattr(provider_config, "api_base", None),
                 "default_api_base": (
                     spec.default_api_base if spec and spec.default_api_base else None
@@ -1067,14 +1066,18 @@ def _transcription_provider_rows(config: Any) -> list[dict[str, Any]]:
     for name in transcription_provider_names():
         spec = find_by_name(name)
         provider_config = getattr(config.providers, name, None)
-        rows.append({
-            "name": name,
-            "label": spec.label if spec is not None else name,
-            "configured": bool(getattr(provider_config, "api_key", None)),
-            "api_key_hint": _mask_secret_hint(getattr(provider_config, "api_key", None)),
-            "api_base": getattr(provider_config, "api_base", None),
-            "default_api_base": spec.default_api_base if spec and spec.default_api_base else None,
-        })
+        rows.append(
+            {
+                "name": name,
+                "label": spec.label if spec is not None else name,
+                "configured": bool(getattr(provider_config, "api_key", None)),
+                "api_key_hint": _mask_secret_hint(getattr(provider_config, "api_key", None)),
+                "api_base": getattr(provider_config, "api_base", None),
+                "default_api_base": spec.default_api_base
+                if spec and spec.default_api_base
+                else None,
+            }
+        )
     return rows
 
 
@@ -1125,11 +1128,7 @@ def settings_payload(
     )
     image_providers = _image_generation_provider_rows(config)
     selected_image_provider = next(
-        (
-            provider
-            for provider in image_providers
-            if provider["name"] == image_config.provider
-        ),
+        (provider for provider in image_providers if provider["name"] == image_config.provider),
         None,
     )
     model_presets = [
@@ -1240,8 +1239,7 @@ def settings_payload(
         "observability": {
             "provider": "langfuse",
             "configured": bool(
-                os.environ.get("LANGFUSE_SECRET_KEY")
-                and os.environ.get("LANGFUSE_PUBLIC_KEY")
+                os.environ.get("LANGFUSE_SECRET_KEY") and os.environ.get("LANGFUSE_PUBLIC_KEY")
             ),
             "base_url": os.environ.get("LANGFUSE_BASE_URL") or "https://cloud.langfuse.com",
         },
@@ -1570,10 +1568,7 @@ def update_model_configuration(query: QueryParams) -> dict[str, Any]:
         _query_first_alias(query, "context_window_tokens", "contextWindowTokens"),
         "context_window_tokens",
     )
-    if (
-        context_window_tokens is not None
-        and preset.context_window_tokens != context_window_tokens
-    ):
+    if context_window_tokens is not None and preset.context_window_tokens != context_window_tokens:
         preset.context_window_tokens = context_window_tokens
         changed = True
 
@@ -1632,10 +1627,7 @@ def update_model_call_order(query: QueryParams) -> dict[str, Any]:
 
     defaults = config.agents.defaults
     fallback_models = normalized_order[1:]
-    if (
-        defaults.model_preset != normalized_order[0]
-        or defaults.fallback_models != fallback_models
-    ):
+    if defaults.model_preset != normalized_order[0] or defaults.fallback_models != fallback_models:
         defaults.model_preset = normalized_order[0]
         defaults.fallback_models = fallback_models
         save_config(config)
@@ -1676,9 +1668,7 @@ def migrate_model_configurations(_query: QueryParams | None = None) -> dict[str,
             model=fallback.model,
             provider=fallback.provider,
             max_tokens=(
-                fallback.max_tokens
-                if fallback.max_tokens is not None
-                else primary.max_tokens
+                fallback.max_tokens if fallback.max_tokens is not None else primary.max_tokens
             ),
             context_window_tokens=(
                 fallback.context_window_tokens
@@ -1686,9 +1676,7 @@ def migrate_model_configurations(_query: QueryParams | None = None) -> dict[str,
                 else primary.context_window_tokens
             ),
             temperature=(
-                fallback.temperature
-                if fallback.temperature is not None
-                else primary.temperature
+                fallback.temperature if fallback.temperature is not None else primary.temperature
             ),
             reasoning_effort=fallback.reasoning_effort,
         )
@@ -1952,7 +1940,9 @@ def logout_oauth_provider(query: QueryParams) -> dict[str, Any]:
             raise WebUISettingsError(
                 "oauth_cli_kit not installed. Run: pip install oauth-cli-kit", status=500
             ) from None
-        token_path = FileTokenStorage(token_filename=OPENAI_CODEX_PROVIDER.token_filename).get_token_path()
+        token_path = FileTokenStorage(
+            token_filename=OPENAI_CODEX_PROVIDER.token_filename
+        ).get_token_path()
     elif spec.name == "github_copilot":
         try:
             from nanobot.providers.github_copilot_provider import get_storage
@@ -2022,18 +2012,23 @@ def _clear_xai_webui_oauth_flows() -> None:
 
 
 def update_network_safety_settings(query: QueryParams) -> dict[str, Any]:
-    raw_allow = (
-        _query_first_alias(query, "webui_allow_local_service_access", "webuiAllowLocalServiceAccess")
-        or _query_first_alias(query, "allow_local_preview_access", "allowLocalPreviewAccess")
+    raw_allow = _query_first_alias(
+        query, "webui_allow_local_service_access", "webuiAllowLocalServiceAccess"
+    ) or _query_first_alias(query, "allow_local_preview_access", "allowLocalPreviewAccess")
+    raw_default_access_mode = _query_first_alias(
+        query, "webui_default_access_mode", "webuiDefaultAccessMode"
     )
-    raw_default_access_mode = _query_first_alias(query, "webui_default_access_mode", "webuiDefaultAccessMode")
     if raw_allow is None and raw_default_access_mode is None:
-        raise WebUISettingsError("webui_allow_local_service_access or webui_default_access_mode is required")
+        raise WebUISettingsError(
+            "webui_allow_local_service_access or webui_default_access_mode is required"
+        )
 
     config = load_config()
     changed = False
     if raw_allow is not None:
-        webui_allow_local_service_access = _parse_bool(raw_allow, "webui_allow_local_service_access")
+        webui_allow_local_service_access = _parse_bool(
+            raw_allow, "webui_allow_local_service_access"
+        )
         if config.tools.webui_allow_local_service_access != webui_allow_local_service_access:
             config.tools.webui_allow_local_service_access = webui_allow_local_service_access
             changed = True

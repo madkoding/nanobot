@@ -214,9 +214,7 @@ class DurableInboundQueue(DurableMessageQueue):
         super().__init__(workspace / "bus" / "inbound")
 
     async def publish(self, msg: InboundMessage) -> None:
-        await self._publish(
-            _inbound_to_dict(msg), put_signal=lambda: self._signal.put("published")
-        )
+        await self._publish(_inbound_to_dict(msg), put_signal=lambda: self._signal.put("published"))
 
     async def consume(self) -> InboundMessage:
         path = self._next_inbox_file()

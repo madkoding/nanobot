@@ -41,7 +41,9 @@ TELEGRAM_MAX_MESSAGE_LEN = 4000  # Telegram message character limit
 # raw markdown into chunks whose rendered HTML fits Telegram's true 4096-char
 # boundary so the final rendered message never overflows.
 TELEGRAM_HTML_MAX_LEN = 4096
-TELEGRAM_REPLY_CONTEXT_MAX_LEN = TELEGRAM_MAX_MESSAGE_LEN  # Max length for reply context in user message
+TELEGRAM_REPLY_CONTEXT_MAX_LEN = (
+    TELEGRAM_MAX_MESSAGE_LEN  # Max length for reply context in user message
+)
 
 
 def _split_telegram_markdown(content: str, max_len: int) -> list[str]:
@@ -142,10 +144,10 @@ def _tool_hint_to_telegram_blockquote(text: str) -> str:
 
 def _strip_md(s: str) -> str:
     """Strip markdown inline formatting from text."""
-    s = re.sub(r'\*\*(.+?)\*\*', r'\1', s)
-    s = re.sub(r'__(.+?)__', r'\1', s)
-    s = re.sub(r'~~(.+?)~~', r'\1', s)
-    s = re.sub(r'`([^`]+)`', r'\1', s)
+    s = re.sub(r"\*\*(.+?)\*\*", r"\1", s)
+    s = re.sub(r"__(.+?)__", r"\1", s)
+    s = re.sub(r"~~(.+?)~~", r"\1", s)
+    s = re.sub(r"`([^`]+)`", r"\1", s)
     return s.strip()
 
 
@@ -156,24 +158,24 @@ def _strip_md_block(text: str) -> str:
     markdown syntax while the response is still being generated.
     """
     # Code blocks -> just the code
-    text = re.sub(r'```[\w]*\n?([\s\S]*?)```', r'\1', text)
+    text = re.sub(r"```[\w]*\n?([\s\S]*?)```", r"\1", text)
     # Headers -> plain text
-    text = re.sub(r'^#{1,6}\s+(.+)$', r'\1', text, flags=re.MULTILINE)
+    text = re.sub(r"^#{1,6}\s+(.+)$", r"\1", text, flags=re.MULTILINE)
     # Blockquotes
-    text = re.sub(r'^>\s*(.*)$', r'\1', text, flags=re.MULTILINE)
+    text = re.sub(r"^>\s*(.*)$", r"\1", text, flags=re.MULTILINE)
     # Bold / italic / strikethrough
-    text = re.sub(r'\*\*(.+?)\*\*', r'\1', text)
-    text = re.sub(r'__(.+?)__', r'\1', text)
-    text = re.sub(r'(?<![a-zA-Z0-9])_([^_]+)_(?![a-zA-Z0-9])', r'\1', text)
-    text = re.sub(r'~~(.+?)~~', r'\1', text)
+    text = re.sub(r"\*\*(.+?)\*\*", r"\1", text)
+    text = re.sub(r"__(.+?)__", r"\1", text)
+    text = re.sub(r"(?<![a-zA-Z0-9])_([^_]+)_(?![a-zA-Z0-9])", r"\1", text)
+    text = re.sub(r"~~(.+?)~~", r"\1", text)
     # Inline code
-    text = re.sub(r'`([^`]+)`', r'\1', text)
+    text = re.sub(r"`([^`]+)`", r"\1", text)
     # Links [text](url) -> text
-    text = re.sub(r'\[([^\]]+)\]\([^)]+\)', r'\1', text)
+    text = re.sub(r"\[([^\]]+)\]\([^)]+\)", r"\1", text)
     # Bullet lists
-    text = re.sub(r'^[-*]\s+', '• ', text, flags=re.MULTILINE)
+    text = re.sub(r"^[-*]\s+", "• ", text, flags=re.MULTILINE)
     # Numbered lists (normalize spacing)
-    text = re.sub(r'^(\d+)\.\s+', r'\1. ', text, flags=re.MULTILINE)
+    text = re.sub(r"^(\d+)\.\s+", r"\1. ", text, flags=re.MULTILINE)
     return text
 
 
@@ -181,32 +183,32 @@ def _render_table_box(table_lines: list[str]) -> str:
     """Convert markdown pipe-table to compact aligned text for <pre> display."""
 
     def dw(s: str) -> int:
-        return sum(2 if unicodedata.east_asian_width(c) in ('W', 'F') else 1 for c in s)
+        return sum(2 if unicodedata.east_asian_width(c) in ("W", "F") else 1 for c in s)
 
     rows: list[list[str]] = []
     has_sep = False
     for line in table_lines:
-        cells = [_strip_md(c) for c in line.strip().strip('|').split('|')]
-        if all(re.match(r'^:?-+:?$', c) for c in cells if c):
+        cells = [_strip_md(c) for c in line.strip().strip("|").split("|")]
+        if all(re.match(r"^:?-+:?$", c) for c in cells if c):
             has_sep = True
             continue
         rows.append(cells)
     if not rows or not has_sep:
-        return '\n'.join(table_lines)
+        return "\n".join(table_lines)
 
     ncols = max(len(r) for r in rows)
     for r in rows:
-        r.extend([''] * (ncols - len(r)))
+        r.extend([""] * (ncols - len(r)))
     widths = [max(dw(r[c]) for r in rows) for c in range(ncols)]
 
     def dr(cells: list[str]) -> str:
-        return '  '.join(f'{c}{" " * (w - dw(c))}' for c, w in zip(cells, widths))
+        return "  ".join(f"{c}{' ' * (w - dw(c))}" for c, w in zip(cells, widths))
 
     out = [dr(rows[0])]
-    out.append('  '.join('─' * w for w in widths))
+    out.append("  ".join("─" * w for w in widths))
     for row in rows[1:]:
         out.append(dr(row))
-    return '\n'.join(out)
+    return "\n".join(out)
 
 
 def _markdown_to_telegram_html(text: str) -> str:
@@ -218,24 +220,25 @@ def _markdown_to_telegram_html(text: str) -> str:
 
     # 1. Extract and protect code blocks (preserve content from other processing)
     code_blocks: list[str] = []
+
     def save_code_block(m: re.Match) -> str:
         code_blocks.append(m.group(1))
         return f"\x00CB{len(code_blocks) - 1}\x00"
 
-    text = re.sub(r'```[\w]*\n?([\s\S]*?)```', save_code_block, text)
+    text = re.sub(r"```[\w]*\n?([\s\S]*?)```", save_code_block, text)
 
     # 1.5. Convert markdown tables to box-drawing (reuse code_block placeholders)
-    lines = text.split('\n')
+    lines = text.split("\n")
     rebuilt: list[str] = []
     li = 0
     while li < len(lines):
-        if re.match(r'^\s*\|.+\|', lines[li]):
+        if re.match(r"^\s*\|.+\|", lines[li]):
             tbl: list[str] = []
-            while li < len(lines) and re.match(r'^\s*\|.+\|', lines[li]):
+            while li < len(lines) and re.match(r"^\s*\|.+\|", lines[li]):
                 tbl.append(lines[li])
                 li += 1
             box = _render_table_box(tbl)
-            if box != '\n'.join(tbl):
+            if box != "\n".join(tbl):
                 code_blocks.append(box)
                 rebuilt.append(f"\x00CB{len(code_blocks) - 1}\x00")
             else:
@@ -243,43 +246,44 @@ def _markdown_to_telegram_html(text: str) -> str:
         else:
             rebuilt.append(lines[li])
             li += 1
-    text = '\n'.join(rebuilt)
+    text = "\n".join(rebuilt)
 
     # 2. Extract and protect inline code
     inline_codes: list[str] = []
+
     def save_inline_code(m: re.Match) -> str:
         inline_codes.append(m.group(1))
         return f"\x00IC{len(inline_codes) - 1}\x00"
 
-    text = re.sub(r'`([^`]+)`', save_inline_code, text)
+    text = re.sub(r"`([^`]+)`", save_inline_code, text)
 
     # 3. Headers # Title -> <b>Title</b> (preserve visual hierarchy)
-    text = re.sub(r'^#{1,6}\s+(.+)$', r'⟪B⟫\1⟪/B⟫', text, flags=re.MULTILINE)
+    text = re.sub(r"^#{1,6}\s+(.+)$", r"⟪B⟫\1⟪/B⟫", text, flags=re.MULTILINE)
 
     # 4. Blockquotes > text -> just the text (before HTML escaping)
-    text = re.sub(r'^>\s*(.*)$', r'\1', text, flags=re.MULTILINE)
+    text = re.sub(r"^>\s*(.*)$", r"\1", text, flags=re.MULTILINE)
 
     # 5. Escape HTML special characters
     text = _escape_telegram_html(text)
 
     # 6. Links [text](url) - must be before bold/italic to handle nested cases
-    text = re.sub(r'\[([^\]]+)\]\(([^)]+)\)', r'<a href="\2">\1</a>', text)
+    text = re.sub(r"\[([^\]]+)\]\(([^)]+)\)", r'<a href="\2">\1</a>', text)
 
     # 7. Bold **text** or __text__
-    text = re.sub(r'\*\*(.+?)\*\*', r'<b>\1</b>', text)
-    text = re.sub(r'__(.+?)__', r'<b>\1</b>', text)
+    text = re.sub(r"\*\*(.+?)\*\*", r"<b>\1</b>", text)
+    text = re.sub(r"__(.+?)__", r"<b>\1</b>", text)
 
     # 8. Italic _text_ (avoid matching inside words like some_var_name)
-    text = re.sub(r'(?<![a-zA-Z0-9])_([^_]+)_(?![a-zA-Z0-9])', r'<i>\1</i>', text)
+    text = re.sub(r"(?<![a-zA-Z0-9])_([^_]+)_(?![a-zA-Z0-9])", r"<i>\1</i>", text)
 
     # 9. Strikethrough ~~text~~
-    text = re.sub(r'~~(.+?)~~', r'<s>\1</s>', text)
+    text = re.sub(r"~~(.+?)~~", r"<s>\1</s>", text)
 
     # 10. Bullet lists - item -> • item
-    text = re.sub(r'^[-*]\s+', '• ', text, flags=re.MULTILINE)
+    text = re.sub(r"^[-*]\s+", "• ", text, flags=re.MULTILINE)
 
     # 10.5. Numbered lists  1. item -> 1. item (keep number, normalize indent)
-    text = re.sub(r'^(\d+)\.\s+', r'\1. ', text, flags=re.MULTILINE)
+    text = re.sub(r"^(\d+)\.\s+", r"\1. ", text, flags=re.MULTILINE)
 
     # 11. Restore inline code with HTML tags
     for i, code in enumerate(inline_codes):
@@ -294,13 +298,14 @@ def _markdown_to_telegram_html(text: str) -> str:
         text = text.replace(f"\x00CB{i}\x00", f"<pre><code>{escaped}</code></pre>")
 
     # 13. Restore header bold markers (inserted in step 3, after HTML escaping)
-    text = text.replace('⟪B⟫', '<b>').replace('⟪/B⟫', '</b>')
+    text = text.replace("⟪B⟫", "<b>").replace("⟪/B⟫", "</b>")
 
     return text
 
 
 def _split_telegram_markdown_html_chunks(
-    content: str, max_html_len: int,
+    content: str,
+    max_html_len: int,
 ) -> list[tuple[str, str]]:
     """Return raw Markdown and rendered HTML chunk pairs within Telegram's limit."""
     chunks: list[tuple[str, str]] = []
@@ -338,6 +343,7 @@ _STREAM_EDIT_INTERVAL_DEFAULT = 0.6  # min seconds between edit_message_text cal
 @dataclass
 class _StreamBuf:
     """Per-chat streaming accumulator for progressive message editing."""
+
     text: str = ""
     message_id: int | None = None
     last_edit: float = 0.0
@@ -555,11 +561,19 @@ class TelegramChannel(BaseChannel):
         # Add message handler for text, photos, video, voice, documents, and locations
         self._app.add_handler(
             MessageHandler(
-                (filters.TEXT | filters.PHOTO | filters.VIDEO | filters.VIDEO_NOTE
-                 | filters.ANIMATION | filters.VOICE | filters.AUDIO
-                 | filters.Document.ALL | filters.LOCATION)
+                (
+                    filters.TEXT
+                    | filters.PHOTO
+                    | filters.VIDEO
+                    | filters.VIDEO_NOTE
+                    | filters.ANIMATION
+                    | filters.VOICE
+                    | filters.AUDIO
+                    | filters.Document.ALL
+                    | filters.LOCATION
+                )
                 & ~filters.COMMAND,
-                self._on_message
+                self._on_message,
             )
         )
 
@@ -757,12 +771,11 @@ class TelegramChannel(BaseChannel):
         if self.config.reply_to_message:
             if reply_to_message_id:
                 reply_params = ReplyParameters(
-                    message_id=reply_to_message_id,
-                    allow_sending_without_reply=True
+                    message_id=reply_to_message_id, allow_sending_without_reply=True
                 )
 
         # Send media files
-        for media_path in (msg.media or []):
+        for media_path in msg.media or []:
             try:
                 media_type = self._get_media_type(media_path)
                 sender = {
@@ -836,16 +849,23 @@ class TelegramChannel(BaseChannel):
                 and not getattr(self, "_rich_send_disabled", False)
             ):
                 rich_ok = await self._try_send_rich(
-                    chat_id, text, reply_params, thread_kwargs, reply_markup,
+                    chat_id,
+                    text,
+                    reply_params,
+                    thread_kwargs,
+                    reply_markup,
                 )
                 if rich_ok:
                     return
 
             chunks = _split_telegram_markdown(text, TELEGRAM_MAX_MESSAGE_LEN)
             for i, chunk in enumerate(chunks):
-                is_last = (i == len(chunks) - 1)
+                is_last = i == len(chunks) - 1
                 await self._send_text(
-                    chat_id, chunk, reply_params, thread_kwargs,
+                    chat_id,
+                    chunk,
+                    reply_params,
+                    thread_kwargs,
                     render_as_blockquote=render_as_blockquote,
                     reply_markup=reply_markup if is_last else None,
                 )
@@ -863,7 +883,9 @@ class TelegramChannel(BaseChannel):
                 delay = _SEND_RETRY_BASE_DELAY * (2 ** (attempt - 1))
                 self.logger.warning(
                     "timeout (attempt {}/{}), retrying in {:.1f}s",
-                    attempt, _SEND_MAX_RETRIES, delay,
+                    attempt,
+                    _SEND_MAX_RETRIES,
+                    delay,
                 )
                 await asyncio.sleep(delay)
             except RetryAfter as e:
@@ -872,7 +894,9 @@ class TelegramChannel(BaseChannel):
                 delay = float(e.retry_after)
                 self.logger.warning(
                     "Flood Control (attempt {}/{}), retrying in {:.1f}s",
-                    attempt, _SEND_MAX_RETRIES, delay,
+                    attempt,
+                    _SEND_MAX_RETRIES,
+                    delay,
                 )
                 await asyncio.sleep(delay)
 
@@ -887,10 +911,16 @@ class TelegramChannel(BaseChannel):
     ) -> None:
         """Send a plain text message with HTML fallback."""
         try:
-            html = _tool_hint_to_telegram_blockquote(text) if render_as_blockquote else _markdown_to_telegram_html(text)
+            html = (
+                _tool_hint_to_telegram_blockquote(text)
+                if render_as_blockquote
+                else _markdown_to_telegram_html(text)
+            )
             await self._call_with_retry(
                 self._app.bot.send_message,
-                chat_id=chat_id, text=html, parse_mode="HTML",
+                chat_id=chat_id,
+                text=html,
+                parse_mode="HTML",
                 reply_parameters=reply_params,
                 reply_markup=reply_markup,
                 **(thread_kwargs or {}),
@@ -949,19 +979,31 @@ class TelegramChannel(BaseChannel):
             # Skip when a streaming preview already exists to avoid the
             # delete-and-resend pattern that causes flickering and drops
             # line breaks (issue #4470).
-            if not buf.message_id and self.config.rich_messages and not getattr(self, "_rich_send_disabled", False):
+            if (
+                not buf.message_id
+                and self.config.rich_messages
+                and not getattr(self, "_rich_send_disabled", False)
+            ):
                 reply_params = None
                 if reply_to_message_id := meta.get("message_id"):
-                    reply_params = {"message_id": int(reply_to_message_id), "allow_sending_without_reply": True}
+                    reply_params = {
+                        "message_id": int(reply_to_message_id),
+                        "allow_sending_without_reply": True,
+                    }
                 rich_ok = await self._try_send_rich(
-                    int_chat_id, raw_text, reply_params, thread_kwargs, None,
+                    int_chat_id,
+                    raw_text,
+                    reply_params,
+                    thread_kwargs,
+                    None,
                 )
                 if rich_ok:
                     # Delete the streaming preview message
                     try:
                         await self._call_with_retry(
                             self._app.bot.delete_message,
-                            chat_id=int_chat_id, message_id=buf.message_id,
+                            chat_id=int_chat_id,
+                            message_id=buf.message_id,
                         )
                     except Exception:
                         pass  # Preview stays if delete fails
@@ -975,8 +1017,10 @@ class TelegramChannel(BaseChannel):
             try:
                 await self._call_with_retry(
                     self._app.bot.edit_message_text,
-                    chat_id=int_chat_id, message_id=buf.message_id,
-                    text=primary_html, parse_mode="HTML",
+                    chat_id=int_chat_id,
+                    message_id=buf.message_id,
+                    text=primary_html,
+                    parse_mode="HTML",
                 )
             except BadRequest as e:
                 # Only fall back to plain text on actual HTML parse/format errors.
@@ -988,11 +1032,16 @@ class TelegramChannel(BaseChannel):
                     return
                 self.logger.debug("Final stream edit failed (HTML), trying plain: {}", e)
                 # Fall back to raw markdown (not HTML) so users don't see raw tags.
-                primary_plain = split_message(raw_text, TELEGRAM_MAX_MESSAGE_LEN)[0] if len(raw_text) > TELEGRAM_MAX_MESSAGE_LEN else raw_text
+                primary_plain = (
+                    split_message(raw_text, TELEGRAM_MAX_MESSAGE_LEN)[0]
+                    if len(raw_text) > TELEGRAM_MAX_MESSAGE_LEN
+                    else raw_text
+                )
                 try:
                     await self._call_with_retry(
                         self._app.bot.edit_message_text,
-                        chat_id=int_chat_id, message_id=buf.message_id,
+                        chat_id=int_chat_id,
+                        message_id=buf.message_id,
                         text=primary_plain,
                     )
                 except Exception as e2:
@@ -1005,7 +1054,8 @@ class TelegramChannel(BaseChannel):
                 try:
                     await self._call_with_retry(
                         self._app.bot.send_message,
-                        chat_id=int_chat_id, text=extra_html_chunk,
+                        chat_id=int_chat_id,
+                        text=extra_html_chunk,
                         parse_mode="HTML",
                         **thread_kwargs,
                     )
@@ -1016,7 +1066,9 @@ class TelegramChannel(BaseChannel):
             return
 
         buf = self._stream_bufs.get(chat_id)
-        if buf is None or (stream_id is not None and buf.stream_id is not None and buf.stream_id != stream_id):
+        if buf is None or (
+            stream_id is not None and buf.stream_id is not None and buf.stream_id != stream_id
+        ):
             buf = _StreamBuf(stream_id=stream_id)
             self._stream_bufs[chat_id] = buf
         elif buf.stream_id is None:
@@ -1035,7 +1087,8 @@ class TelegramChannel(BaseChannel):
             try:
                 sent = await self._call_with_retry(
                     self._app.bot.send_message,
-                    chat_id=int_chat_id, text=preview,
+                    chat_id=int_chat_id,
+                    text=preview,
                     **thread_kwargs,
                 )
                 buf.message_id = sent.message_id
@@ -1052,7 +1105,8 @@ class TelegramChannel(BaseChannel):
             try:
                 await self._call_with_retry(
                     self._app.bot.edit_message_text,
-                    chat_id=int_chat_id, message_id=buf.message_id,
+                    chat_id=int_chat_id,
+                    message_id=buf.message_id,
                     text=preview,
                 )
                 buf.last_edit = now
@@ -1082,7 +1136,8 @@ class TelegramChannel(BaseChannel):
         try:
             await self._call_with_retry(
                 self._app.bot.edit_message_text,
-                chat_id=chat_id, message_id=buf.message_id,
+                chat_id=chat_id,
+                message_id=buf.message_id,
                 text=first_html,
                 parse_mode="HTML",
             )
@@ -1094,7 +1149,8 @@ class TelegramChannel(BaseChannel):
                 try:
                     await self._call_with_retry(
                         self._app.bot.edit_message_text,
-                        chat_id=chat_id, message_id=buf.message_id,
+                        chat_id=chat_id,
+                        message_id=buf.message_id,
                         text=first_markdown,
                     )
                 except Exception as plain_error:
@@ -1109,7 +1165,10 @@ class TelegramChannel(BaseChannel):
             try:
                 return await self._call_with_retry(
                     self._app.bot.send_message,
-                    chat_id=chat_id, text=html, parse_mode="HTML", **thread_kwargs,
+                    chat_id=chat_id,
+                    text=html,
+                    parse_mode="HTML",
+                    **thread_kwargs,
                 )
             except BadRequest as e:
                 self.logger.warning(
@@ -1117,7 +1176,9 @@ class TelegramChannel(BaseChannel):
                 )
                 return await self._call_with_retry(
                     self._app.bot.send_message,
-                    chat_id=chat_id, text=markdown, **thread_kwargs,
+                    chat_id=chat_id,
+                    text=markdown,
+                    **thread_kwargs,
                 )
 
         for markdown, html in chunks[1:-1]:
@@ -1378,9 +1439,7 @@ class TelegramChannel(BaseChannel):
             )
         )
         if key not in self._inbound_workers:
-            self._inbound_workers[key] = asyncio.create_task(
-                self._drain_ordered_updates(key)
-            )
+            self._inbound_workers[key] = asyncio.create_task(self._drain_ordered_updates(key))
 
     async def _drain_ordered_updates(self, key: str) -> None:
         """Drain one Telegram session buffer in stable message order."""
@@ -1423,7 +1482,9 @@ class TelegramChannel(BaseChannel):
             return
         self._enqueue_ordered_update(kind="command", update=update, context=context)
 
-    async def _process_forward_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    async def _process_forward_command(
+        self, update: Update, context: ContextTypes.DEFAULT_TYPE
+    ) -> None:
         """Process a queued slash command."""
         message = update.message
         user = update.effective_user
@@ -1459,7 +1520,9 @@ class TelegramChannel(BaseChannel):
             return
         self._enqueue_ordered_update(kind="message", update=update, context=context)
 
-    async def _process_message_update(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    async def _process_message_update(
+        self, update: Update, context: ContextTypes.DEFAULT_TYPE
+    ) -> None:
         """Process a queued Telegram message update."""
 
         message = update.message
@@ -1510,7 +1573,9 @@ class TelegramChannel(BaseChannel):
             if reply_media:
                 media_paths = reply_media + media_paths
                 self.logger.debug("Attached replied-to media: {}", reply_media[0])
-            tag = reply_ctx or (f"[Reply to: {reply_media_parts[0]}]" if reply_media_parts else None)
+            tag = reply_ctx or (
+                f"[Reply to: {reply_media_parts[0]}]" if reply_media_parts else None
+            )
             if tag:
                 content_parts.insert(0, tag)
         content = "\n".join(content_parts) if content_parts else "[empty message]"
@@ -1526,8 +1591,10 @@ class TelegramChannel(BaseChannel):
             key = f"{str_chat_id}:{media_group_id}"
             if key not in self._media_group_buffers:
                 self._media_group_buffers[key] = {
-                    "sender_id": sender_id, "chat_id": str_chat_id,
-                    "contents": [], "media": [],
+                    "sender_id": sender_id,
+                    "chat_id": str_chat_id,
+                    "contents": [],
+                    "media": [],
                     "metadata": metadata,
                     "session_key": session_key,
                 }
@@ -1563,8 +1630,10 @@ class TelegramChannel(BaseChannel):
                 return
             content = "\n".join(buf["contents"]) or "[empty message]"
             await self._handle_message(
-                sender_id=buf["sender_id"], chat_id=buf["chat_id"],
-                content=content, media=list(dict.fromkeys(buf["media"])),
+                sender_id=buf["sender_id"],
+                chat_id=buf["chat_id"],
+                content=content,
+                media=list(dict.fromkeys(buf["media"])),
                 metadata=buf["metadata"],
                 session_key=buf.get("session_key"),
             )
@@ -1659,11 +1728,18 @@ class TelegramChannel(BaseChannel):
         """Get file extension based on media type or original filename."""
         if mime_type:
             ext_map = {
-                "image/jpeg": ".jpg", "image/png": ".png", "image/gif": ".gif",
+                "image/jpeg": ".jpg",
+                "image/png": ".png",
+                "image/gif": ".gif",
                 "image/webp": ".webp",
-                "audio/ogg": ".ogg", "audio/mpeg": ".mp3", "audio/mp4": ".m4a",
-                "video/mp4": ".mp4", "video/quicktime": ".mov", "video/webm": ".webm",
-                "video/x-matroska": ".mkv", "video/3gpp": ".3gp",
+                "audio/ogg": ".ogg",
+                "audio/mpeg": ".mp3",
+                "audio/mp4": ".m4a",
+                "video/mp4": ".mp4",
+                "video/quicktime": ".mov",
+                "video/webm": ".webm",
+                "video/x-matroska": ".mkv",
+                "video/3gpp": ".3gp",
             }
             if mime_type in ext_map:
                 return ext_map[mime_type]
@@ -1682,7 +1758,10 @@ class TelegramChannel(BaseChannel):
         if not buttons or not self.config.inline_keyboards:
             return None
         keyboard = [
-            [InlineKeyboardButton(label, callback_data=self._safe_callback_data(label)) for label in row]
+            [
+                InlineKeyboardButton(label, callback_data=self._safe_callback_data(label))
+                for label in row
+            ]
             for row in buttons
         ]
         return InlineKeyboardMarkup(keyboard)

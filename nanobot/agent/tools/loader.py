@@ -1,4 +1,5 @@
 """Tool discovery and registration via package scanning."""
+
 from __future__ import annotations
 
 import importlib
@@ -10,16 +11,28 @@ from loguru import logger
 from nanobot.agent.tools.base import Tool
 from nanobot.agent.tools.registry import ToolRegistry
 
-_SKIP_MODULES = frozenset({
-    "base", "schema", "registry", "context", "loader", "config",
-    "file_state", "sandbox", "mcp", "__init__", "runtime_state",
-})
+_SKIP_MODULES = frozenset(
+    {
+        "base",
+        "schema",
+        "registry",
+        "context",
+        "loader",
+        "config",
+        "file_state",
+        "sandbox",
+        "mcp",
+        "__init__",
+        "runtime_state",
+    }
+)
 
 
 class ToolLoader:
     def __init__(self, package: Any = None, *, test_classes: list[type[Tool]] | None = None):
         if package is None:
             import nanobot.agent.tools as _pkg
+
             package = _pkg
         self._package = package
         self._test_classes = test_classes
@@ -70,7 +83,8 @@ class ToolLoader:
                 if registry.has(tool.name):
                     logger.warning(
                         "Tool name collision: %s from %s overwrites existing",
-                        tool.name, cls_label,
+                        tool.name,
+                        cls_label,
                     )
                 registry.register(tool)
                 registered.append(tool.name)

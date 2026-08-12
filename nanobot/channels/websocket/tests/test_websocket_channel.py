@@ -85,12 +85,17 @@ def _ch(bus: Any, **kw: Any) -> WebSocketChannel:
 
 
 def _basic_handler(bus: Any, **kw: Any) -> GatewayServices:
-    cfg = WebSocketConfig.model_validate({
-        "enabled": True, "allowFrom": ["*"],
-        "host": "127.0.0.1", "port": _PORT,
-        "path": "/ws", "websocketRequiresToken": False,
-        "tokenIssueSecret": kw.get("token_issue_secret", ""),
-    })
+    cfg = WebSocketConfig.model_validate(
+        {
+            "enabled": True,
+            "allowFrom": ["*"],
+            "host": "127.0.0.1",
+            "port": _PORT,
+            "path": "/ws",
+            "websocketRequiresToken": False,
+            "tokenIssueSecret": kw.get("token_issue_secret", ""),
+        }
+    )
     return build_gateway_services(
         config=cfg,
         bus=bus,
@@ -278,12 +283,12 @@ def test_parse_inbound_invalid_json_falls_back_to_raw_string() -> None:
 @pytest.mark.parametrize(
     ("raw", "expected"),
     [
-        ('{"content": ""}', None),           # empty string content
-        ('{"content": 123}', None),          # non-string content
-        ('{"content": "  "}', None),         # whitespace-only content
-        ('["hello"]', '["hello"]'),           # JSON array: not a dict, treated as plain text
-        ('{"unknown_key": "val"}', None),    # unrecognized key
-        ('{"content": null}', None),         # null content
+        ('{"content": ""}', None),  # empty string content
+        ('{"content": 123}', None),  # non-string content
+        ('{"content": "  "}', None),  # whitespace-only content
+        ('["hello"]', '["hello"]'),  # JSON array: not a dict, treated as plain text
+        ('{"unknown_key": "val"}', None),  # unrecognized key
+        ('{"content": null}', None),  # null content
     ],
 )
 def test_parse_inbound_payload_edge_cases(raw: str, expected: str | None) -> None:
@@ -341,7 +346,9 @@ def test_issue_route_secret_matches_empty_secret() -> None:
 
 
 @pytest.mark.asyncio
-async def test_token_issue_route_requires_secret_when_static_token_configured(bus: MagicMock) -> None:
+async def test_token_issue_route_requires_secret_when_static_token_configured(
+    bus: MagicMock,
+) -> None:
     port = 29882
     channel = _ch(
         bus,
@@ -397,14 +404,17 @@ async def test_webui_message_envelope_marks_inbound_metadata(bus: MagicMock) -> 
     assert msg.metadata["_wants_stream"] is True
     lines = read_transcript_lines("websocket:chat-1")
     assert len(lines) == 1
-    assert {key: lines[0].get(key) for key in (
-        "event",
-        "chat_id",
-        "text",
-        "turn_id",
-        "turn_phase",
-        "turn_seq",
-    )} == {
+    assert {
+        key: lines[0].get(key)
+        for key in (
+            "event",
+            "chat_id",
+            "text",
+            "turn_id",
+            "turn_phase",
+            "turn_seq",
+        )
+    } == {
         "event": "user",
         "chat_id": "chat-1",
         "text": "hello",
@@ -429,7 +439,9 @@ async def test_webui_message_envelope_persists_user_transcript_for_refresh(
     conn.remote_address = ("127.0.0.1", 50123)
 
     async def answer_during_publish(_msg: Any) -> None:
-        await channel.send(OutboundMessage(channel="websocket", chat_id="chat-1", content="hi back"))
+        await channel.send(
+            OutboundMessage(channel="websocket", chat_id="chat-1", content="hi back")
+        )
 
     bus.publish_inbound.side_effect = answer_during_publish
 
@@ -524,14 +536,20 @@ def test_only_bootstrap_tokens_mark_webui_connections(bus: MagicMock) -> None:
     webui_token = channel.gateway.tokens.issue_token(300, audience="webui")
     client_token = channel.gateway.tokens.issue_token(300)
 
-    assert channel._authorize_websocket_handshake(
-        webui_connection,
-        {"token": [webui_token]},
-    ) is None
-    assert channel._authorize_websocket_handshake(
-        client_connection,
-        {"token": [client_token]},
-    ) is None
+    assert (
+        channel._authorize_websocket_handshake(
+            webui_connection,
+            {"token": [webui_token]},
+        )
+        is None
+    )
+    assert (
+        channel._authorize_websocket_handshake(
+            client_connection,
+            {"token": [client_token]},
+        )
+        is None
+    )
 
     assert webui_connection in channel._webui_connections
     assert client_connection not in channel._webui_connections
@@ -642,7 +660,11 @@ async def test_webui_scope_expands_home_project_path(
     channel = WebSocketChannel(
         {"enabled": True, "allowFrom": ["*"], "host": "127.0.0.1"},
         bus,
-        gateway=_basic_handler(bus, session_manager=SessionManager(tmp_path / "sessions"), workspace_path=default_workspace),
+        gateway=_basic_handler(
+            bus,
+            session_manager=SessionManager(tmp_path / "sessions"),
+            workspace_path=default_workspace,
+        ),
     )
     conn = AsyncMock()
     conn.remote_address = ("127.0.0.1", 50123)
@@ -679,7 +701,11 @@ async def test_webui_scope_rejects_missing_project_path(bus: MagicMock, tmp_path
     channel = WebSocketChannel(
         {"enabled": True, "allowFrom": ["*"], "host": "127.0.0.1"},
         bus,
-        gateway=_basic_handler(bus, session_manager=SessionManager(tmp_path / "sessions"), workspace_path=default_workspace),
+        gateway=_basic_handler(
+            bus,
+            session_manager=SessionManager(tmp_path / "sessions"),
+            workspace_path=default_workspace,
+        ),
     )
     conn = AsyncMock()
     conn.remote_address = ("127.0.0.1", 50123)
@@ -1023,7 +1049,9 @@ async def test_native_webui_scope_allows_custom_scope_without_loopback(
 @pytest.mark.asyncio
 async def test_send_delivers_json_message_with_media_and_reply() -> None:
     bus = MagicMock()
-    channel = WebSocketChannel({"enabled": True, "allowFrom": ["*"]}, bus, gateway=_basic_handler(bus))
+    channel = WebSocketChannel(
+        {"enabled": True, "allowFrom": ["*"]}, bus, gateway=_basic_handler(bus)
+    )
     mock_ws = AsyncMock()
     channel._attach(mock_ws, "chat-1")
 
@@ -1049,7 +1077,9 @@ async def test_send_delivers_json_message_with_media_and_reply() -> None:
 @pytest.mark.asyncio
 async def test_send_broadcasts_runtime_model_updates() -> None:
     bus = MessageBus()
-    channel = WebSocketChannel({"enabled": True, "allowFrom": ["*"]}, bus, gateway=_basic_handler(bus))
+    channel = WebSocketChannel(
+        {"enabled": True, "allowFrom": ["*"]}, bus, gateway=_basic_handler(bus)
+    )
     mock_ws = AsyncMock()
     channel._attach(mock_ws, "chat-1")
 
@@ -1065,7 +1095,9 @@ async def test_send_broadcasts_runtime_model_updates() -> None:
 @pytest.mark.asyncio
 async def test_send_scopes_turn_model_updates_to_the_subscribed_chat() -> None:
     bus = MessageBus()
-    channel = WebSocketChannel({"enabled": True, "allowFrom": ["*"]}, bus, gateway=_basic_handler(bus))
+    channel = WebSocketChannel(
+        {"enabled": True, "allowFrom": ["*"]}, bus, gateway=_basic_handler(bus)
+    )
     chat_one = AsyncMock()
     chat_two = AsyncMock()
     channel._attach(chat_one, "chat-1")
@@ -1122,7 +1154,9 @@ async def test_send_stages_external_media_as_signed_url(monkeypatch, tmp_path) -
         return ws_media if channel == "websocket" else media_root
 
     monkeypatch.setattr("nanobot.webui.media_gateway.get_media_dir", fake_media_dir)
-    channel = WebSocketChannel({"enabled": True, "allowFrom": ["*"]}, bus, gateway=_basic_handler(bus))
+    channel = WebSocketChannel(
+        {"enabled": True, "allowFrom": ["*"]}, bus, gateway=_basic_handler(bus)
+    )
     mock_ws = AsyncMock()
     channel._attach(mock_ws, "chat-1")
 
@@ -1145,7 +1179,9 @@ async def test_send_stages_external_media_as_signed_url(monkeypatch, tmp_path) -
 @pytest.mark.asyncio
 async def test_send_missing_connection_is_noop_without_error() -> None:
     bus = MagicMock()
-    channel = WebSocketChannel({"enabled": True, "allowFrom": ["*"]}, bus, gateway=_basic_handler(bus))
+    channel = WebSocketChannel(
+        {"enabled": True, "allowFrom": ["*"]}, bus, gateway=_basic_handler(bus)
+    )
     msg = OutboundMessage(channel="websocket", chat_id="missing", content="x")
     await channel.send(msg)
     assert channel._subs == {}
@@ -1154,7 +1190,9 @@ async def test_send_missing_connection_is_noop_without_error() -> None:
 @pytest.mark.asyncio
 async def test_send_removes_connection_on_connection_closed() -> None:
     bus = MagicMock()
-    channel = WebSocketChannel({"enabled": True, "allowFrom": ["*"]}, bus, gateway=_basic_handler(bus))
+    channel = WebSocketChannel(
+        {"enabled": True, "allowFrom": ["*"]}, bus, gateway=_basic_handler(bus)
+    )
     mock_ws = AsyncMock()
     mock_ws.send.side_effect = ConnectionClosed(Close(1006, ""), Close(1006, ""), True)
     channel._attach(mock_ws, "chat-1")
@@ -1169,35 +1207,39 @@ async def test_send_removes_connection_on_connection_closed() -> None:
 @pytest.mark.asyncio
 async def test_send_progress_includes_structured_tool_events() -> None:
     bus = MagicMock()
-    channel = WebSocketChannel({"enabled": True, "allowFrom": ["*"]}, bus, gateway=_basic_handler(bus))
+    channel = WebSocketChannel(
+        {"enabled": True, "allowFrom": ["*"]}, bus, gateway=_basic_handler(bus)
+    )
     mock_ws = AsyncMock()
     channel._attach(mock_ws, "chat-1")
 
-    await channel.send(OutboundMessage(
-        channel="websocket",
-        chat_id="chat-1",
-        content='search "hermes"',
-        event=ProgressEvent(
+    await channel.send(
+        OutboundMessage(
+            channel="websocket",
+            chat_id="chat-1",
             content='search "hermes"',
-            tool_hint=True,
-            tool_events=[
-                {
-                    "version": 1,
-                    "phase": "start",
-                    "call_id": "call-1",
-                    "name": "web_search",
-                    "arguments": {"query": "hermes", "count": 8},
-                    "result": None,
-                    "error": None,
-                    "files": [],
-                    "embeds": [],
-                }
-            ],
-        ),
-        metadata={
-            "webui_turn_id": "turn-1",
-        },
-    ))
+            event=ProgressEvent(
+                content='search "hermes"',
+                tool_hint=True,
+                tool_events=[
+                    {
+                        "version": 1,
+                        "phase": "start",
+                        "call_id": "call-1",
+                        "name": "web_search",
+                        "arguments": {"query": "hermes", "count": 8},
+                        "result": None,
+                        "error": None,
+                        "files": [],
+                        "embeds": [],
+                    }
+                ],
+            ),
+            metadata={
+                "webui_turn_id": "turn-1",
+            },
+        )
+    )
 
     payload = json.loads(mock_ws.send.await_args.args[0])
     assert payload["event"] == "message"
@@ -1223,30 +1265,34 @@ async def test_send_progress_includes_structured_tool_events() -> None:
 @pytest.mark.asyncio
 async def test_send_file_edit_progress_uses_file_edit_event() -> None:
     bus = MagicMock()
-    channel = WebSocketChannel({"enabled": True, "allowFrom": ["*"]}, bus, gateway=_basic_handler(bus))
+    channel = WebSocketChannel(
+        {"enabled": True, "allowFrom": ["*"]}, bus, gateway=_basic_handler(bus)
+    )
     mock_ws = AsyncMock()
     channel._attach(mock_ws, "chat-1")
 
-    await channel.send(OutboundMessage(
-        channel="websocket",
-        chat_id="chat-1",
-        content="",
-        event=ProgressEvent(
-            file_edit_events=[
-                {
-                    "version": 1,
-                    "phase": "start",
-                    "call_id": "call-1",
-                    "tool": "write_file",
-                    "path": "src/app.py",
-                    "added": 12,
-                    "deleted": 2,
-                    "approximate": True,
-                    "status": "editing",
-                }
-            ],
-        ),
-    ))
+    await channel.send(
+        OutboundMessage(
+            channel="websocket",
+            chat_id="chat-1",
+            content="",
+            event=ProgressEvent(
+                file_edit_events=[
+                    {
+                        "version": 1,
+                        "phase": "start",
+                        "call_id": "call-1",
+                        "tool": "write_file",
+                        "path": "src/app.py",
+                        "added": 12,
+                        "deleted": 2,
+                        "approximate": True,
+                        "status": "editing",
+                    }
+                ],
+            ),
+        )
+    )
 
     payload = json.loads(mock_ws.send.await_args.args[0])
     assert payload == {
@@ -1271,7 +1317,9 @@ async def test_send_file_edit_progress_uses_file_edit_event() -> None:
 @pytest.mark.asyncio
 async def test_send_progress_includes_agent_ui_blob() -> None:
     bus = MagicMock()
-    channel = WebSocketChannel({"enabled": True, "allowFrom": ["*"]}, bus, gateway=_basic_handler(bus))
+    channel = WebSocketChannel(
+        {"enabled": True, "allowFrom": ["*"]}, bus, gateway=_basic_handler(bus)
+    )
     mock_ws = AsyncMock()
     channel._attach(mock_ws, "chat-1")
 
@@ -1279,13 +1327,15 @@ async def test_send_progress_includes_agent_ui_blob() -> None:
         "kind": "panel",
         "data": {"version": 1, "event": "tick", "id": "r1"},
     }
-    await channel.send(OutboundMessage(
-        channel="websocket",
-        chat_id="chat-1",
-        content="progress · panel",
-        event=ProgressEvent(content="progress · panel"),
-        metadata={OUTBOUND_META_AGENT_UI: blob},
-    ))
+    await channel.send(
+        OutboundMessage(
+            channel="websocket",
+            chat_id="chat-1",
+            content="progress · panel",
+            event=ProgressEvent(content="progress · panel"),
+            metadata={OUTBOUND_META_AGENT_UI: blob},
+        )
+    )
 
     payload = json.loads(mock_ws.send.await_args.args[0])
     assert payload["event"] == "message"
@@ -1296,7 +1346,9 @@ async def test_send_progress_includes_agent_ui_blob() -> None:
 @pytest.mark.asyncio
 async def test_send_delta_removes_connection_on_connection_closed() -> None:
     bus = MagicMock()
-    channel = WebSocketChannel({"enabled": True, "allowFrom": ["*"], "streaming": True}, bus, gateway=_basic_handler(bus))
+    channel = WebSocketChannel(
+        {"enabled": True, "allowFrom": ["*"], "streaming": True}, bus, gateway=_basic_handler(bus)
+    )
     mock_ws = AsyncMock()
     mock_ws.send.side_effect = ConnectionClosed(Close(1006, ""), Close(1006, ""), True)
     channel._attach(mock_ws, "chat-1")
@@ -1310,7 +1362,9 @@ async def test_send_delta_removes_connection_on_connection_closed() -> None:
 @pytest.mark.asyncio
 async def test_send_delta_emits_delta_and_stream_end() -> None:
     bus = MagicMock()
-    channel = WebSocketChannel({"enabled": True, "allowFrom": ["*"], "streaming": True}, bus, gateway=_basic_handler(bus))
+    channel = WebSocketChannel(
+        {"enabled": True, "allowFrom": ["*"], "streaming": True}, bus, gateway=_basic_handler(bus)
+    )
     mock_ws = AsyncMock()
     channel._attach(mock_ws, "chat-1")
 
@@ -1333,7 +1387,9 @@ async def test_send_delta_emits_delta_and_stream_end() -> None:
 @pytest.mark.asyncio
 async def test_send_delta_marks_resuming_stream_end() -> None:
     bus = MagicMock()
-    channel = WebSocketChannel({"enabled": True, "allowFrom": ["*"], "streaming": True}, bus, gateway=_basic_handler(bus))
+    channel = WebSocketChannel(
+        {"enabled": True, "allowFrom": ["*"], "streaming": True}, bus, gateway=_basic_handler(bus)
+    )
     mock_ws = AsyncMock()
     channel._attach(mock_ws, "chat-1")
 
@@ -1353,7 +1409,9 @@ async def test_send_delta_marks_resuming_stream_end() -> None:
 @pytest.mark.asyncio
 async def test_send_delta_stream_end_includes_inline_final_text() -> None:
     bus = MagicMock()
-    channel = WebSocketChannel({"enabled": True, "allowFrom": ["*"], "streaming": True}, bus, gateway=_basic_handler(bus))
+    channel = WebSocketChannel(
+        {"enabled": True, "allowFrom": ["*"], "streaming": True}, bus, gateway=_basic_handler(bus)
+    )
     mock_ws = AsyncMock()
     channel._attach(mock_ws, "chat-1")
 
@@ -1442,7 +1500,9 @@ async def test_send_delta_stream_end_rewrites_inline_final_text(monkeypatch, tmp
 @pytest.mark.asyncio
 async def test_send_reasoning_delta_emits_streaming_frame() -> None:
     bus = MagicMock()
-    channel = WebSocketChannel({"enabled": True, "allowFrom": ["*"]}, bus, gateway=_basic_handler(bus))
+    channel = WebSocketChannel(
+        {"enabled": True, "allowFrom": ["*"]}, bus, gateway=_basic_handler(bus)
+    )
     mock_ws = AsyncMock()
     channel._attach(mock_ws, "chat-1")
 
@@ -1463,7 +1523,9 @@ async def test_send_reasoning_delta_emits_streaming_frame() -> None:
 @pytest.mark.asyncio
 async def test_send_reasoning_end_emits_close_frame() -> None:
     bus = MagicMock()
-    channel = WebSocketChannel({"enabled": True, "allowFrom": ["*"]}, bus, gateway=_basic_handler(bus))
+    channel = WebSocketChannel(
+        {"enabled": True, "allowFrom": ["*"]}, bus, gateway=_basic_handler(bus)
+    )
     mock_ws = AsyncMock()
     channel._attach(mock_ws, "chat-1")
 
@@ -1477,16 +1539,20 @@ async def test_send_reasoning_end_emits_close_frame() -> None:
 async def test_send_reasoning_one_shot_expands_to_delta_plus_end() -> None:
     """``send_reasoning`` produces one delta and one end."""
     bus = MagicMock()
-    channel = WebSocketChannel({"enabled": True, "allowFrom": ["*"]}, bus, gateway=_basic_handler(bus))
+    channel = WebSocketChannel(
+        {"enabled": True, "allowFrom": ["*"]}, bus, gateway=_basic_handler(bus)
+    )
     mock_ws = AsyncMock()
     channel._attach(mock_ws, "chat-1")
 
-    await channel.send_reasoning(OutboundMessage(
-        channel="websocket",
-        chat_id="chat-1",
-        content="thinking",
-        event=ProgressEvent(content="thinking", reasoning=True),
-    ))
+    await channel.send_reasoning(
+        OutboundMessage(
+            channel="websocket",
+            chat_id="chat-1",
+            content="thinking",
+            event=ProgressEvent(content="thinking", reasoning=True),
+        )
+    )
 
     assert mock_ws.send.await_count == 2
     first = json.loads(mock_ws.send.call_args_list[0][0][0])
@@ -1499,7 +1565,9 @@ async def test_send_reasoning_one_shot_expands_to_delta_plus_end() -> None:
 @pytest.mark.asyncio
 async def test_send_reasoning_delta_drops_empty_chunks() -> None:
     bus = MagicMock()
-    channel = WebSocketChannel({"enabled": True, "allowFrom": ["*"]}, bus, gateway=_basic_handler(bus))
+    channel = WebSocketChannel(
+        {"enabled": True, "allowFrom": ["*"]}, bus, gateway=_basic_handler(bus)
+    )
     mock_ws = AsyncMock()
     channel._attach(mock_ws, "chat-1")
 
@@ -1511,7 +1579,9 @@ async def test_send_reasoning_delta_drops_empty_chunks() -> None:
 @pytest.mark.asyncio
 async def test_send_reasoning_without_subscribers_is_noop() -> None:
     bus = MagicMock()
-    channel = WebSocketChannel({"enabled": True, "allowFrom": ["*"]}, bus, gateway=_basic_handler(bus))
+    channel = WebSocketChannel(
+        {"enabled": True, "allowFrom": ["*"]}, bus, gateway=_basic_handler(bus)
+    )
 
     await channel.send_reasoning_delta("unattached", "thinking", None)
     await channel.send_reasoning_end("unattached", None)
@@ -1532,12 +1602,14 @@ async def test_stream_transcript_persists_without_subscribers() -> None:
     await channel.send_delta("chat-1", "hello", stream_id="s1")
     await channel.send_delta("chat-1", " world", stream_id="s1")
     await channel.send_delta("chat-1", "", stream_id="s1", stream_end=True)
-    await channel.send(OutboundMessage(
-        channel="websocket",
-        chat_id="chat-1",
-        content="",
-        event=TurnEndEvent(latency_ms=42),
-    ))
+    await channel.send(
+        OutboundMessage(
+            channel="websocket",
+            chat_id="chat-1",
+            content="",
+            event=TurnEndEvent(latency_ms=42),
+        )
+    )
 
     assert channel._subs == {}
     lines = read_transcript_lines("websocket:chat-1")
@@ -1552,16 +1624,20 @@ async def test_stream_transcript_persists_without_subscribers() -> None:
 @pytest.mark.asyncio
 async def test_send_turn_end_emits_turn_end_event() -> None:
     bus = MagicMock()
-    channel = WebSocketChannel({"enabled": True, "allowFrom": ["*"]}, bus, gateway=_basic_handler(bus))
+    channel = WebSocketChannel(
+        {"enabled": True, "allowFrom": ["*"]}, bus, gateway=_basic_handler(bus)
+    )
     mock_ws = AsyncMock()
     channel._attach(mock_ws, "chat-1")
 
-    await channel.send(OutboundMessage(
-        channel="websocket",
-        chat_id="chat-1",
-        content="",
-        event=TurnEndEvent(),
-    ))
+    await channel.send(
+        OutboundMessage(
+            channel="websocket",
+            chat_id="chat-1",
+            content="",
+            event=TurnEndEvent(),
+        )
+    )
 
     assert _sent_ws_payloads(mock_ws) == [
         {"event": "turn_end", "chat_id": "chat-1"},
@@ -1572,16 +1648,20 @@ async def test_send_turn_end_emits_turn_end_event() -> None:
 @pytest.mark.asyncio
 async def test_send_turn_end_includes_latency_ms_when_present() -> None:
     bus = MagicMock()
-    channel = WebSocketChannel({"enabled": True, "allowFrom": ["*"]}, bus, gateway=_basic_handler(bus))
+    channel = WebSocketChannel(
+        {"enabled": True, "allowFrom": ["*"]}, bus, gateway=_basic_handler(bus)
+    )
     mock_ws = AsyncMock()
     channel._attach(mock_ws, "chat-1")
 
-    await channel.send(OutboundMessage(
-        channel="websocket",
-        chat_id="chat-1",
-        content="",
-        event=TurnEndEvent(latency_ms=1500),
-    ))
+    await channel.send(
+        OutboundMessage(
+            channel="websocket",
+            chat_id="chat-1",
+            content="",
+            event=TurnEndEvent(latency_ms=1500),
+        )
+    )
 
     assert _sent_ws_payloads(mock_ws) == [
         {"event": "turn_end", "chat_id": "chat-1", "latency_ms": 1500},
@@ -1592,17 +1672,21 @@ async def test_send_turn_end_includes_latency_ms_when_present() -> None:
 @pytest.mark.asyncio
 async def test_send_turn_end_includes_goal_state_when_present() -> None:
     bus = MagicMock()
-    channel = WebSocketChannel({"enabled": True, "allowFrom": ["*"]}, bus, gateway=_basic_handler(bus))
+    channel = WebSocketChannel(
+        {"enabled": True, "allowFrom": ["*"]}, bus, gateway=_basic_handler(bus)
+    )
     mock_ws = AsyncMock()
     channel._attach(mock_ws, "chat-1")
 
     blob = {"active": True, "ui_summary": "Explore codebase"}
-    await channel.send(OutboundMessage(
-        channel="websocket",
-        chat_id="chat-1",
-        content="",
-        event=TurnEndEvent(goal_state=blob),
-    ))
+    await channel.send(
+        OutboundMessage(
+            channel="websocket",
+            chat_id="chat-1",
+            content="",
+            event=TurnEndEvent(goal_state=blob),
+        )
+    )
 
     assert _sent_ws_payloads(mock_ws) == [
         {"event": "turn_end", "chat_id": "chat-1", "goal_state": blob},
@@ -1613,16 +1697,20 @@ async def test_send_turn_end_includes_goal_state_when_present() -> None:
 @pytest.mark.asyncio
 async def test_send_goal_status_running_emits_event_with_started_at() -> None:
     bus = MagicMock()
-    channel = WebSocketChannel({"enabled": True, "allowFrom": ["*"]}, bus, gateway=_basic_handler(bus))
+    channel = WebSocketChannel(
+        {"enabled": True, "allowFrom": ["*"]}, bus, gateway=_basic_handler(bus)
+    )
     mock_ws = AsyncMock()
     channel._attach(mock_ws, "chat-1")
 
-    await channel.send(OutboundMessage(
-        channel="websocket",
-        chat_id="chat-1",
-        content="",
-        event=GoalStatusEvent(status="running", started_at=1_700_000_000.5),
-    ))
+    await channel.send(
+        OutboundMessage(
+            channel="websocket",
+            chat_id="chat-1",
+            content="",
+            event=GoalStatusEvent(status="running", started_at=1_700_000_000.5),
+        )
+    )
 
     mock_ws.send.assert_awaited_once()
     body = json.loads(mock_ws.send.await_args.args[0])
@@ -1637,16 +1725,20 @@ async def test_send_goal_status_running_emits_event_with_started_at() -> None:
 @pytest.mark.asyncio
 async def test_send_goal_status_idle_omits_started_at() -> None:
     bus = MagicMock()
-    channel = WebSocketChannel({"enabled": True, "allowFrom": ["*"]}, bus, gateway=_basic_handler(bus))
+    channel = WebSocketChannel(
+        {"enabled": True, "allowFrom": ["*"]}, bus, gateway=_basic_handler(bus)
+    )
     mock_ws = AsyncMock()
     channel._attach(mock_ws, "chat-1")
 
-    await channel.send(OutboundMessage(
-        channel="websocket",
-        chat_id="chat-1",
-        content="",
-        event=GoalStatusEvent(status="idle", started_at=99.0),
-    ))
+    await channel.send(
+        OutboundMessage(
+            channel="websocket",
+            chat_id="chat-1",
+            content="",
+            event=GoalStatusEvent(status="idle", started_at=99.0),
+        )
+    )
 
     mock_ws.send.assert_awaited_once()
     body = json.loads(mock_ws.send.await_args.args[0])
@@ -1656,18 +1748,22 @@ async def test_send_goal_status_idle_omits_started_at() -> None:
 @pytest.mark.asyncio
 async def test_send_goal_state_emits_blob_per_chat() -> None:
     bus = MagicMock()
-    channel = WebSocketChannel({"enabled": True, "allowFrom": ["*"]}, bus, gateway=_basic_handler(bus))
+    channel = WebSocketChannel(
+        {"enabled": True, "allowFrom": ["*"]}, bus, gateway=_basic_handler(bus)
+    )
     mock_a = AsyncMock()
     mock_b = AsyncMock()
     channel._attach(mock_a, "chat-a")
     channel._attach(mock_b, "chat-b")
 
-    await channel.send(OutboundMessage(
-        channel="websocket",
-        chat_id="chat-a",
-        content="",
-        event=GoalStateSyncEvent(goal_state={"active": True, "ui_summary": "A"}),
-    ))
+    await channel.send(
+        OutboundMessage(
+            channel="websocket",
+            chat_id="chat-a",
+            content="",
+            event=GoalStateSyncEvent(goal_state={"active": True, "ui_summary": "A"}),
+        )
+    )
 
     mock_a.send.assert_awaited_once()
     mock_b.send.assert_not_called()
@@ -1682,7 +1778,9 @@ async def test_send_goal_state_emits_blob_per_chat() -> None:
 @pytest.mark.asyncio
 async def test_maybe_push_active_goal_state_noop_without_session_manager() -> None:
     bus = MagicMock()
-    channel = WebSocketChannel({"enabled": True, "allowFrom": ["*"]}, bus, gateway=_basic_handler(bus))
+    channel = WebSocketChannel(
+        {"enabled": True, "allowFrom": ["*"]}, bus, gateway=_basic_handler(bus)
+    )
     mock_ws = AsyncMock()
     channel._attach(mock_ws, "chat-1")
     await channel._maybe_push_active_goal_state("chat-1")
@@ -1739,7 +1837,9 @@ async def test_maybe_push_active_goal_state_notifies_when_goal_active_on_disk() 
 @pytest.mark.asyncio
 async def test_maybe_push_turn_run_wall_clock_skips_when_no_active_turn() -> None:
     bus = MagicMock()
-    channel = WebSocketChannel({"enabled": True, "allowFrom": ["*"]}, bus, gateway=_basic_handler(bus))
+    channel = WebSocketChannel(
+        {"enabled": True, "allowFrom": ["*"]}, bus, gateway=_basic_handler(bus)
+    )
     mock_ws = AsyncMock()
     channel._attach(mock_ws, "chat-1")
     from nanobot.session import webui_turns as wth
@@ -1752,7 +1852,9 @@ async def test_maybe_push_turn_run_wall_clock_skips_when_no_active_turn() -> Non
 @pytest.mark.asyncio
 async def test_maybe_push_turn_run_wall_clock_replays_running() -> None:
     bus = MagicMock()
-    channel = WebSocketChannel({"enabled": True, "allowFrom": ["*"]}, bus, gateway=_basic_handler(bus))
+    channel = WebSocketChannel(
+        {"enabled": True, "allowFrom": ["*"]}, bus, gateway=_basic_handler(bus)
+    )
     mock_ws = AsyncMock()
     channel._attach(mock_ws, "chat-1")
     from nanobot.session import webui_turns as wth
@@ -1777,16 +1879,20 @@ async def test_maybe_push_turn_run_wall_clock_replays_running() -> None:
 @pytest.mark.asyncio
 async def test_send_session_updated_emits_session_updated_event() -> None:
     bus = MagicMock()
-    channel = WebSocketChannel({"enabled": True, "allowFrom": ["*"]}, bus, gateway=_basic_handler(bus))
+    channel = WebSocketChannel(
+        {"enabled": True, "allowFrom": ["*"]}, bus, gateway=_basic_handler(bus)
+    )
     mock_ws = AsyncMock()
     channel._attach(mock_ws, "chat-1")
 
-    await channel.send(OutboundMessage(
-        channel="websocket",
-        chat_id="chat-1",
-        content="",
-        event=SessionUpdatedEvent(),
-    ))
+    await channel.send(
+        OutboundMessage(
+            channel="websocket",
+            chat_id="chat-1",
+            content="",
+            event=SessionUpdatedEvent(),
+        )
+    )
 
     mock_ws.send.assert_awaited_once()
     body = json.loads(mock_ws.send.await_args.args[0])
@@ -1796,16 +1902,20 @@ async def test_send_session_updated_emits_session_updated_event() -> None:
 @pytest.mark.asyncio
 async def test_send_session_updated_includes_scope_when_present() -> None:
     bus = MagicMock()
-    channel = WebSocketChannel({"enabled": True, "allowFrom": ["*"]}, bus, gateway=_basic_handler(bus))
+    channel = WebSocketChannel(
+        {"enabled": True, "allowFrom": ["*"]}, bus, gateway=_basic_handler(bus)
+    )
     mock_ws = AsyncMock()
     channel._attach(mock_ws, "chat-1")
 
-    await channel.send(OutboundMessage(
-        channel="websocket",
-        chat_id="chat-1",
-        content="",
-        event=SessionUpdatedEvent(scope="metadata"),
-    ))
+    await channel.send(
+        OutboundMessage(
+            channel="websocket",
+            chat_id="chat-1",
+            content="",
+            event=SessionUpdatedEvent(scope="metadata"),
+        )
+    )
 
     mock_ws.send.assert_awaited_once()
     body = json.loads(mock_ws.send.await_args.args[0])
@@ -1815,7 +1925,9 @@ async def test_send_session_updated_includes_scope_when_present() -> None:
 @pytest.mark.asyncio
 async def test_send_non_connection_closed_exception_is_raised() -> None:
     bus = MagicMock()
-    channel = WebSocketChannel({"enabled": True, "allowFrom": ["*"]}, bus, gateway=_basic_handler(bus))
+    channel = WebSocketChannel(
+        {"enabled": True, "allowFrom": ["*"]}, bus, gateway=_basic_handler(bus)
+    )
     mock_ws = AsyncMock()
     mock_ws.send.side_effect = RuntimeError("unexpected")
     channel._attach(mock_ws, "chat-1")
@@ -1828,7 +1940,9 @@ async def test_send_non_connection_closed_exception_is_raised() -> None:
 @pytest.mark.asyncio
 async def test_send_delta_missing_connection_is_noop() -> None:
     bus = MagicMock()
-    channel = WebSocketChannel({"enabled": True, "allowFrom": ["*"], "streaming": True}, bus, gateway=_basic_handler(bus))
+    channel = WebSocketChannel(
+        {"enabled": True, "allowFrom": ["*"], "streaming": True}, bus, gateway=_basic_handler(bus)
+    )
     # No exception, no error — just a no-op
     await channel.send_delta("nonexistent", "chunk", stream_id="s1")
     assert channel._subs == {}
@@ -1837,7 +1951,9 @@ async def test_send_delta_missing_connection_is_noop() -> None:
 @pytest.mark.asyncio
 async def test_stop_is_idempotent() -> None:
     bus = MagicMock()
-    channel = WebSocketChannel({"enabled": True, "allowFrom": ["*"]}, bus, gateway=_basic_handler(bus))
+    channel = WebSocketChannel(
+        {"enabled": True, "allowFrom": ["*"]}, bus, gateway=_basic_handler(bus)
+    )
     # stop() before start() should not raise
     await channel.stop()
     await channel.stop()
@@ -1927,7 +2043,8 @@ def test_registry_discovers_websocket_channel() -> None:
 async def test_http_route_issues_token_then_websocket_requires_it(bus: MagicMock) -> None:
     port = 29879
     channel = _ch(
-        bus, port=port,
+        bus,
+        port=port,
         tokenIssuePath="/auth/token",
         tokenIssueSecret="route-secret",
         websocketRequiresToken=True,
@@ -2034,7 +2151,9 @@ async def test_settings_api_returns_safe_subset_and_updates_whitelist(
         providers = {provider["name"]: provider for provider in body["providers"]}
         assert providers["openai"]["configured"] is True
         assert providers["openai"]["api_key_hint"] == "secr••••-key"
-        assert providers["azure_openai"]["api_key_required"] is False  # AAD auth supported; no static key required
+        assert (
+            providers["azure_openai"]["api_key_required"] is False
+        )  # AAD auth supported; no static key required
         assert providers["openrouter"]["configured"] is False
         assert providers["openrouter"]["api_key_required"] is True
         assert providers["skywork"]["label"] == "Skywork"
@@ -2051,7 +2170,9 @@ async def test_settings_api_returns_safe_subset_and_updates_whitelist(
         assert body["web_search"]["api_key_hint"] == "brav••••cret"
         assert body["web_search"]["max_results"] == 5
         assert body["web"]["fetch"]["use_jina_reader"] is True
-        search_providers = {provider["name"]: provider for provider in body["web_search"]["providers"]}
+        search_providers = {
+            provider["name"]: provider for provider in body["web_search"]["providers"]
+        }
         assert search_providers["duckduckgo"]["credential"] == "none"
         assert search_providers["exa"]["credential"] == "api_key"
         assert search_providers["bocha"]["credential"] == "api_key"
@@ -2063,8 +2184,7 @@ async def test_settings_api_returns_safe_subset_and_updates_whitelist(
         assert body["image_generation"]["provider_configured"] is False
         assert body["image_generation"]["default_aspect_ratio"] == "1:1"
         image_providers = {
-            provider["name"]: provider
-            for provider in body["image_generation"]["providers"]
+            provider["name"]: provider for provider in body["image_generation"]["providers"]
         }
         assert image_providers["openrouter"]["label"] == "OpenRouter"
         assert image_providers["openrouter"]["configured"] is False
@@ -2168,16 +2288,14 @@ async def test_settings_api_returns_safe_subset_and_updates_whitelist(
         assert updated_body["restart_required_sections"] == ["runtime"]
 
         preset_updated = await _http_get(
-            "http://127.0.0.1:"
-            f"{port}/api/settings/update?model_preset=deep",
+            f"http://127.0.0.1:{port}/api/settings/update?model_preset=deep",
             headers={"Authorization": "Bearer tok"},
         )
         assert preset_updated.status_code == 200
         assert preset_updated.json()["agent"]["model"] == "anthropic/claude-opus-4-5"
 
         bad_preset = await _http_get(
-            "http://127.0.0.1:"
-            f"{port}/api/settings/update?model_preset=missing",
+            f"http://127.0.0.1:{port}/api/settings/update?model_preset=missing",
             headers={"Authorization": "Bearer tok"},
         )
         assert bad_preset.status_code == 400
@@ -2194,9 +2312,7 @@ async def test_settings_api_returns_safe_subset_and_updates_whitelist(
         assert created_body["agent"]["model_preset"] == "deep"
         assert created_body["agent"]["model"] == "anthropic/claude-opus-4-5"
         assert created_body["model_call_order"] == ["deep"]
-        created_presets = {
-            preset["name"]: preset for preset in created_body["model_presets"]
-        }
+        created_presets = {preset["name"]: preset for preset in created_body["model_presets"]}
         assert created_presets["fast-writing"]["label"] == "Fast writing"
         assert created_presets["fast-writing"]["provider"] == "openai"
 
@@ -2303,8 +2419,7 @@ async def test_settings_api_returns_safe_subset_and_updates_whitelist(
         assert bad_web.status_code == 400
 
         bad_image = await _http_get(
-            "http://127.0.0.1:"
-            f"{port}/api/settings/image-generation/update?provider=missing",
+            f"http://127.0.0.1:{port}/api/settings/image-generation/update?provider=missing",
             headers={"Authorization": "Bearer tok"},
         )
         assert bad_image.status_code == 400
@@ -2582,11 +2697,13 @@ def test_update_provider_settings_ignores_api_type_for_non_openai(monkeypatch, t
     save_config(Config(), config_path)
     monkeypatch.setattr("nanobot.config.loader._current_config_path", config_path)
 
-    body = update_provider_settings({
-        "provider": ["custom"],
-        "api_base": ["https://example.test/v1"],
-        "api_type": ["responses"],
-    })
+    body = update_provider_settings(
+        {
+            "provider": ["custom"],
+            "api_base": ["https://example.test/v1"],
+            "api_type": ["responses"],
+        }
+    )
 
     assert body["providers"]
     config = load_config(config_path)
@@ -2603,21 +2720,17 @@ async def test_end_to_end_server_pushes_streaming_deltas_to_client(bus: MagicMoc
     await asyncio.sleep(0.3)
 
     try:
-        async with websockets.connect(f"ws://127.0.0.1:{port}/ws?client_id=stream-tester") as client:
+        async with websockets.connect(
+            f"ws://127.0.0.1:{port}/ws?client_id=stream-tester"
+        ) as client:
             ready_raw = await client.recv()
             ready = json.loads(ready_raw)
             chat_id = ready["chat_id"]
 
             # Server pushes deltas directly
-            await channel.send_delta(
-                chat_id, "Hello ", stream_id="s1"
-            )
-            await channel.send_delta(
-                chat_id, "world", stream_id="s1"
-            )
-            await channel.send_delta(
-                chat_id, "", stream_id="s1", stream_end=True
-            )
+            await channel.send_delta(chat_id, "Hello ", stream_id="s1")
+            await channel.send_delta(chat_id, "world", stream_id="s1")
+            await channel.send_delta(chat_id, "", stream_id="s1", stream_end=True)
 
             delta1 = json.loads(await client.recv())
             assert delta1["event"] == "delta"
@@ -2633,12 +2746,14 @@ async def test_end_to_end_server_pushes_streaming_deltas_to_client(bus: MagicMoc
             assert end["event"] == "stream_end"
             assert end["stream_id"] == "s1"
 
-            await channel.send(OutboundMessage(
-                channel="websocket",
-                chat_id=chat_id,
-                content="",
-                event=TurnEndEvent(),
-            ))
+            await channel.send(
+                OutboundMessage(
+                    channel="websocket",
+                    chat_id=chat_id,
+                    content="",
+                    event=TurnEndEvent(),
+                )
+            )
 
             turn_end = json.loads(await client.recv())
             assert turn_end == {"event": "turn_end", "chat_id": chat_id}
@@ -2736,7 +2851,8 @@ async def test_non_utf8_binary_frame_ignored(bus: MagicMock) -> None:
 async def test_static_token_accepts_issued_token_as_fallback(bus: MagicMock) -> None:
     port = 29885
     channel = _ch(
-        bus, port=port,
+        bus,
+        port=port,
         token="static-secret",
         tokenIssuePath="/auth/token",
         tokenIssueSecret="route-secret",
@@ -2755,7 +2871,9 @@ async def test_static_token_accepts_issued_token_as_fallback(bus: MagicMock) -> 
         issued_token = resp.json()["token"]
 
         # Connect using issued token (not the static one)
-        async with websockets.connect(f"ws://127.0.0.1:{port}/ws?token={issued_token}&client_id=caller") as client:
+        async with websockets.connect(
+            f"ws://127.0.0.1:{port}/ws?token={issued_token}&client_id=caller"
+        ) as client:
             ready = json.loads(await client.recv())
             assert ready["event"] == "ready"
     finally:
@@ -2880,9 +2998,7 @@ async def test_multiplex_new_chat_roundtrip(bus: MagicMock) -> None:
             assert inbound.content == "hi on new"
 
             # Server pushes a message back; chat_id must match
-            await channel.send(
-                OutboundMessage(channel="websocket", chat_id=new_chat, content="ok")
-            )
+            await channel.send(OutboundMessage(channel="websocket", chat_id=new_chat, content="ok"))
             reply = json.loads(await client.recv())
             if reply["event"] == "session_updated":
                 reply = json.loads(await client.recv())
@@ -2945,6 +3061,7 @@ async def test_fork_chat_copies_only_prefix_session_and_transcript(
     assert all(line.get("chat_id") == fork_id for line in fork_lines)
     assert "future" not in json.dumps(saved, ensure_ascii=False)
     bus.publish_inbound.assert_not_awaited()
+
 
 @pytest.mark.asyncio
 async def test_webui_message_envelope_appends_user_transcript(
@@ -3728,9 +3845,7 @@ async def test_subscribe_subagent_pushes_current_snapshot(bus) -> None:
             pass
 
     calls = fake_connection.send.call_args_list
-    assert any(
-        "subagent_subscribed" in c.args[0] for c in calls
-    )
+    assert any("subagent_subscribed" in c.args[0] for c in calls)
     update_calls = [c for c in calls if "subagent_update" in c.args[0]]
     assert len(update_calls) == 1
     payload = json.loads(update_calls[0].args[0])

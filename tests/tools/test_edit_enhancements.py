@@ -10,6 +10,7 @@ from nanobot.agent.tools.filesystem import EditFileTool, ReadFileTool
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 @pytest.fixture(autouse=True)
 def _clear_file_state():
     """Reset global read-state between tests."""
@@ -21,6 +22,7 @@ def _clear_file_state():
 # ---------------------------------------------------------------------------
 # Read-before-edit tracking
 # ---------------------------------------------------------------------------
+
 
 class TestEditReadTracking:
     """edit_file should warn when file hasn't been read first."""
@@ -73,6 +75,7 @@ class TestEditReadTracking:
 # Create-file semantics
 # ---------------------------------------------------------------------------
 
+
 class TestEditCreateFile:
     """edit_file with old_text='' creates new file if not exists."""
 
@@ -110,6 +113,7 @@ class TestEditCreateFile:
 # .ipynb editing
 # ---------------------------------------------------------------------------
 
+
 class TestEditIpynbFiles:
     """edit_file edits notebooks as normal JSON files."""
 
@@ -134,6 +138,7 @@ class TestEditIpynbFiles:
 # Path suggestion on not-found
 # ---------------------------------------------------------------------------
 
+
 class TestEditPathSuggestion:
     """edit_file should suggest similar paths on not-found."""
 
@@ -147,7 +152,9 @@ class TestEditPathSuggestion:
         f.write_text("x = 1", encoding="utf-8")
         # Typo: conifg.py
         result = await tool.execute(
-            path=str(tmp_path / "conifg.py"), old_text="x = 1", new_text="x = 2",
+            path=str(tmp_path / "conifg.py"),
+            old_text="x = 1",
+            new_text="x = 2",
         )
         assert "Error" in result
         assert "config.py" in result
@@ -155,6 +162,8 @@ class TestEditPathSuggestion:
     @pytest.mark.asyncio
     async def test_shows_cwd_in_error(self, tool, tmp_path):
         result = await tool.execute(
-            path=str(tmp_path / "nonexistent.py"), old_text="a", new_text="b",
+            path=str(tmp_path / "nonexistent.py"),
+            old_text="a",
+            new_text="b",
         )
         assert "Error" in result

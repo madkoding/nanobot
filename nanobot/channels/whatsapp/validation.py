@@ -10,7 +10,9 @@ def validate(values: dict[str, Any], _context: ChannelValidationContext) -> dict
     checks: list[dict[str, Any]] = []
     if enabled(values) or string_value(values.get("databasePath")):
         checks.append(
-            check("local_state", "Local login state", "pass", "Saved local login state was detected.")
+            check(
+                "local_state", "Local login state", "pass", "Saved local login state was detected."
+            )
         )
         return payload("whatsapp", "configured", checks, can_enable=True)
     checks.append(

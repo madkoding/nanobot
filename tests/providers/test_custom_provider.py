@@ -32,17 +32,21 @@ def test_custom_provider_parse_accepts_dict_response() -> None:
     with patch("nanobot.providers.openai_compat_provider.AsyncOpenAI"):
         provider = OpenAICompatProvider()
 
-    result = provider._parse({
-        "choices": [{
-            "message": {"content": "hello from dict"},
-            "finish_reason": "stop",
-        }],
-        "usage": {
-            "prompt_tokens": 1,
-            "completion_tokens": 2,
-            "total_tokens": 3,
-        },
-    })
+    result = provider._parse(
+        {
+            "choices": [
+                {
+                    "message": {"content": "hello from dict"},
+                    "finish_reason": "stop",
+                }
+            ],
+            "usage": {
+                "prompt_tokens": 1,
+                "completion_tokens": 2,
+                "total_tokens": 3,
+            },
+        }
+    )
 
     assert result.finish_reason == "stop"
     assert result.content == "hello from dict"
@@ -53,18 +57,22 @@ def test_custom_provider_parse_normalizes_text_tool_call() -> None:
     with patch("nanobot.providers.openai_compat_provider.AsyncOpenAI"):
         provider = OpenAICompatProvider()
 
-    result = provider._parse({
-        "choices": [{
-            "message": {
-                "content": (
-                    "I'll inspect it.\n"
-                    '<tool_call>{"name":"read_file","arguments":{"path":"README.md"}}'
-                    "</tool_call>"
-                ),
-            },
-            "finish_reason": "stop",
-        }],
-    })
+    result = provider._parse(
+        {
+            "choices": [
+                {
+                    "message": {
+                        "content": (
+                            "I'll inspect it.\n"
+                            '<tool_call>{"name":"read_file","arguments":{"path":"README.md"}}'
+                            "</tool_call>"
+                        ),
+                    },
+                    "finish_reason": "stop",
+                }
+            ],
+        }
+    )
 
     assert result.content == "I'll inspect it."
     assert len(result.tool_calls) == 1
@@ -76,18 +84,24 @@ def test_custom_provider_parse_keeps_structured_tool_call_over_text_markup() -> 
     with patch("nanobot.providers.openai_compat_provider.AsyncOpenAI"):
         provider = OpenAICompatProvider()
 
-    result = provider._parse({
-        "choices": [{
-            "message": {
-                "content": '<tool_call>{"name":"ignored","arguments":{}}</tool_call>',
-                "tool_calls": [{
-                    "id": "call_structured",
-                    "function": {"name": "list_dir", "arguments": '{"path":"."}'},
-                }],
-            },
-            "finish_reason": "tool_calls",
-        }],
-    })
+    result = provider._parse(
+        {
+            "choices": [
+                {
+                    "message": {
+                        "content": '<tool_call>{"name":"ignored","arguments":{}}</tool_call>',
+                        "tool_calls": [
+                            {
+                                "id": "call_structured",
+                                "function": {"name": "list_dir", "arguments": '{"path":"."}'},
+                            }
+                        ],
+                    },
+                    "finish_reason": "tool_calls",
+                }
+            ],
+        }
+    )
 
     assert len(result.tool_calls) == 1
     assert result.tool_calls[0].id == "call_structured"
@@ -121,17 +135,21 @@ def test_custom_provider_parse_normalizes_gemma4_tool_call() -> None:
     with patch("nanobot.providers.openai_compat_provider.AsyncOpenAI"):
         provider = OpenAICompatProvider()
 
-    result = provider._parse({
-        "choices": [{
-            "message": {
-                "content": (
-                    "I'll run the check.\n"
-                    '<|tool_call>call:web_search{query:<|"|>claude status<|"|>,top_n:3}<tool_call|>'
-                ),
-            },
-            "finish_reason": "stop",
-        }],
-    })
+    result = provider._parse(
+        {
+            "choices": [
+                {
+                    "message": {
+                        "content": (
+                            "I'll run the check.\n"
+                            '<|tool_call>call:web_search{query:<|"|>claude status<|"|>,top_n:3}<tool_call|>'
+                        ),
+                    },
+                    "finish_reason": "stop",
+                }
+            ],
+        }
+    )
 
     assert result.content == "I'll run the check."
     assert len(result.tool_calls) == 1
@@ -143,16 +161,20 @@ def test_custom_provider_parse_normalizes_gemma4_tool_call_with_quoted_args() ->
     with patch("nanobot.providers.openai_compat_provider.AsyncOpenAI"):
         provider = OpenAICompatProvider()
 
-    result = provider._parse({
-        "choices": [{
-            "message": {
-                "content": (
-                    "<|tool_call>call:read_file{path:<|\"|>/tmp/foo.txt<|\"|>}<tool_call|>"
-                ),
-            },
-            "finish_reason": "stop",
-        }],
-    })
+    result = provider._parse(
+        {
+            "choices": [
+                {
+                    "message": {
+                        "content": (
+                            '<|tool_call>call:read_file{path:<|"|>/tmp/foo.txt<|"|>}<tool_call|>'
+                        ),
+                    },
+                    "finish_reason": "stop",
+                }
+            ],
+        }
+    )
 
     assert result.content is None
     assert len(result.tool_calls) == 1
@@ -164,18 +186,22 @@ def test_custom_provider_parse_extracts_gemma4_channel_reasoning() -> None:
     with patch("nanobot.providers.openai_compat_provider.AsyncOpenAI"):
         provider = OpenAICompatProvider()
 
-    result = provider._parse({
-        "choices": [{
-            "message": {
-                "content": (
-                    "Answer is 42."
-                    "<|channel>thought\nI need to double-check the docs."
-                    "<channel|>Let me verify first."
-                ),
-            },
-            "finish_reason": "stop",
-        }],
-    })
+    result = provider._parse(
+        {
+            "choices": [
+                {
+                    "message": {
+                        "content": (
+                            "Answer is 42."
+                            "<|channel>thought\nI need to double-check the docs."
+                            "<channel|>Let me verify first."
+                        ),
+                    },
+                    "finish_reason": "stop",
+                }
+            ],
+        }
+    )
 
     assert result.content == "Answer is 42.Let me verify first."
     assert result.reasoning_content == "I need to double-check the docs."
@@ -185,7 +211,7 @@ def test_custom_provider_parse_chunks_normalizes_gemma4_tool_call() -> None:
     chunks = [
         {"choices": [{"delta": {"content": "Sure. "}}]},
         {"choices": [{"delta": {"content": '<|tool_call>call:list_dir{path:<|"|>'}}]},
-        {"choices": [{"delta": {"content": '.}<tool_call|>'}}]},
+        {"choices": [{"delta": {"content": ".}<tool_call|>"}}]},
         {"choices": [{"finish_reason": "stop", "delta": {}}]},
     ]
 
@@ -198,25 +224,29 @@ def test_custom_provider_parse_chunks_normalizes_gemma4_tool_call() -> None:
 
 
 def test_custom_provider_parse_chunks_deduplicates_parallel_tool_call_ids() -> None:
-    chunks = [{
-        "choices": [{
-            "finish_reason": "tool_calls",
-            "delta": {
-                "tool_calls": [
-                    {
-                        "index": 0,
-                        "id": "call_dup",
-                        "function": {"name": "read_file", "arguments": '{"path":"a.txt"}'},
+    chunks = [
+        {
+            "choices": [
+                {
+                    "finish_reason": "tool_calls",
+                    "delta": {
+                        "tool_calls": [
+                            {
+                                "index": 0,
+                                "id": "call_dup",
+                                "function": {"name": "read_file", "arguments": '{"path":"a.txt"}'},
+                            },
+                            {
+                                "index": 1,
+                                "id": "call_dup",
+                                "function": {"name": "read_file", "arguments": '{"path":"b.txt"}'},
+                            },
+                        ],
                     },
-                    {
-                        "index": 1,
-                        "id": "call_dup",
-                        "function": {"name": "read_file", "arguments": '{"path":"b.txt"}'},
-                    },
-                ],
-            },
-        }],
-    }]
+                }
+            ],
+        }
+    ]
 
     result = OpenAICompatProvider._parse_chunks(chunks)
     ids = [tool_call.id for tool_call in result.tool_calls or []]

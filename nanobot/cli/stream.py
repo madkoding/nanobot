@@ -157,6 +157,7 @@ class StreamRenderer:
 
     def pause_spinner(self):
         """Context manager: temporarily stop transient output for clean trace lines."""
+
         @contextmanager
         def _pause():
             live_was_active = self._live is not None

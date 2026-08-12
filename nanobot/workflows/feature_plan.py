@@ -13,7 +13,9 @@ PHASES = ["design", "plan", "risk"]
 async def run(args: dict, ctx):
     feature = str(args.get("feature") or "").strip()
     if not feature:
-        return AgentResult(text="No feature provided. Usage: /workflow feature_plan feature=<feature>")
+        return AgentResult(
+            text="No feature provided. Usage: /workflow feature_plan feature=<feature>"
+        )
     focus = str(args.get("path") or "").strip()
     focus_note = f"\nFocus area: {focus}" if focus else ""
 

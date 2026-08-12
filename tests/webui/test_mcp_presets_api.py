@@ -19,7 +19,9 @@ def _use_config(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr("nanobot.config.loader._current_config_path", tmp_path / "config.json")
 
 
-def test_mcp_presets_payload_lists_supported_cards(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_mcp_presets_payload_lists_supported_cards(
+    tmp_path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     _use_config(tmp_path, monkeypatch)
 
     payload = mcp_presets_payload()
@@ -202,7 +204,9 @@ def test_remove_mcp_preset_updates_config(tmp_path, monkeypatch: pytest.MonkeyPa
     assert "playwright" not in config.tools.mcp_servers
 
 
-def test_remove_custom_mcp_server_preserves_user_cwd(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_remove_custom_mcp_server_preserves_user_cwd(
+    tmp_path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     _use_config(tmp_path, monkeypatch)
     user_cwd = tmp_path / "user-cwd"
     user_cwd.mkdir()
@@ -285,7 +289,9 @@ def test_test_mcp_preset_scrubs_connection_errors(
     )
 
     async def fake_connect(_servers, _registry):
-        raise RuntimeError("failed https://mcp.browserbase.com/mcp?browserbaseApiKey=bb_live_secret")
+        raise RuntimeError(
+            "failed https://mcp.browserbase.com/mcp?browserbaseApiKey=bb_live_secret"
+        )
 
     monkeypatch.setattr("nanobot.agent.tools.mcp.connect_mcp_servers", fake_connect)
 
@@ -296,7 +302,9 @@ def test_test_mcp_preset_scrubs_connection_errors(
     assert "<redacted>" in payload["last_action"]["error"]
 
 
-def test_unlisted_oauth_placeholder_is_not_enabled(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_unlisted_oauth_placeholder_is_not_enabled(
+    tmp_path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     _use_config(tmp_path, monkeypatch)
 
     with pytest.raises(McpPresetError) as exc:
@@ -306,25 +314,29 @@ def test_unlisted_oauth_placeholder_is_not_enabled(tmp_path, monkeypatch: pytest
 
 
 def test_normalize_mcp_preset_mentions_keeps_known_presets_only() -> None:
-    payload = normalize_mcp_preset_mentions([
+    payload = normalize_mcp_preset_mentions(
+        [
+            {
+                "name": "browserbase",
+                "display_name": "Browserbase",
+                "transport": "streamableHttp",
+                "configured": True,
+                "logo_url": "https://example.invalid/logo.svg",
+            },
+            {"name": "totally-unknown"},
+            "bad",
+        ]
+    )
+
+    assert payload == [
         {
             "name": "browserbase",
             "display_name": "Browserbase",
             "transport": "streamableHttp",
             "configured": True,
             "logo_url": "https://example.invalid/logo.svg",
-        },
-        {"name": "totally-unknown"},
-        "bad",
-    ])
-
-    assert payload == [{
-        "name": "browserbase",
-        "display_name": "Browserbase",
-        "transport": "streamableHttp",
-        "configured": True,
-        "logo_url": "https://example.invalid/logo.svg",
-    }]
+        }
+    ]
 
 
 def test_custom_mcp_server_writes_config_and_catalog_row(
@@ -374,7 +386,7 @@ def test_import_mcp_config_and_tool_allowlist(
                     '{"mcpServers":{'
                     '"docs":{"command":"npx","args":["-y","docs-mcp"],"env":{"API_KEY":"config-secret-value"}},'
                     '"remote-docs":{"transport":"sse","url":"https://example.com/sse"}'
-                    '}}'
+                    "}}"
                 )
             ],
         },
@@ -428,8 +440,10 @@ def test_normalize_mcp_preset_mentions_accepts_configured_custom_server(
         },
     )
 
-    payload = normalize_mcp_preset_mentions([
-        {"name": "docs", "display_name": "Docs", "transport": "streamableHttp"},
-    ])
+    payload = normalize_mcp_preset_mentions(
+        [
+            {"name": "docs", "display_name": "Docs", "transport": "streamableHttp"},
+        ]
+    )
 
     assert payload == [{"name": "docs", "display_name": "Docs", "transport": "streamableHttp"}]

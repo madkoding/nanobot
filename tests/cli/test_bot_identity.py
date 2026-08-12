@@ -16,9 +16,7 @@ def test_bot_name_and_icon_defaults_preserve_current_branding() -> None:
 
 def test_bot_name_and_icon_can_be_overridden_via_config() -> None:
     """camelCase keys (as used in config.json) bind to the new fields."""
-    config = Config.model_validate(
-        {"agents": {"defaults": {"botName": "mybot", "botIcon": "🤖"}}}
-    )
+    config = Config.model_validate({"agents": {"defaults": {"botName": "mybot", "botIcon": "🤖"}}})
 
     assert config.agents.defaults.bot_name == "mybot"
     assert config.agents.defaults.bot_icon == "🤖"
@@ -26,9 +24,7 @@ def test_bot_name_and_icon_can_be_overridden_via_config() -> None:
 
 def test_bot_icon_accepts_empty_string_to_omit() -> None:
     """Empty bot_icon is valid and lets users opt out of the leading icon."""
-    config = Config.model_validate(
-        {"agents": {"defaults": {"botIcon": ""}}}
-    )
+    config = Config.model_validate({"agents": {"defaults": {"botIcon": ""}}})
 
     assert config.agents.defaults.bot_icon == ""
 
@@ -59,8 +55,6 @@ def test_stream_renderer_empty_icon_omits_leading_space() -> None:
 
     # Replicate the header construction used in on_delta to assert the contract.
     header = (
-        f"{renderer._bot_icon} {renderer._bot_name}"
-        if renderer._bot_icon
-        else renderer._bot_name
+        f"{renderer._bot_icon} {renderer._bot_name}" if renderer._bot_icon else renderer._bot_name
     )
     assert header == "mybot"

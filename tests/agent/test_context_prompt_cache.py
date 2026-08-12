@@ -99,9 +99,9 @@ def test_execution_rules_in_system_prompt(tmp_path) -> None:
 def test_execution_rules_reach_existing_workspace_soul(tmp_path) -> None:
     """An untouched legacy SOUL is upgraded in memory without overwriting the file."""
     workspace = _make_workspace(tmp_path)
-    legacy_soul = (
-        pkg_files("nanobot") / "templates" / "legacy" / "SOUL.md"
-    ).read_text(encoding="utf-8")
+    legacy_soul = (pkg_files("nanobot") / "templates" / "legacy" / "SOUL.md").read_text(
+        encoding="utf-8"
+    )
     legacy_rule = "For multi-step tasks, outline the plan first and wait for user confirmation."
     soul_path = workspace / "SOUL.md"
     soul_path.write_text(legacy_soul, encoding="utf-8")
@@ -140,9 +140,9 @@ def test_system_prompt_does_not_warn_about_message_time_markers(tmp_path) -> Non
 def test_default_soul_template_keeps_execution_policy_in_tool_contract() -> None:
     """SOUL owns personality while the always-injected contract owns execution policy."""
     soul = (pkg_files("nanobot") / "templates" / "SOUL.md").read_text(encoding="utf-8")
-    contract = (
-        pkg_files("nanobot") / "templates" / "agent" / "tool_contract.md"
-    ).read_text(encoding="utf-8")
+    contract = (pkg_files("nanobot") / "templates" / "agent" / "tool_contract.md").read_text(
+        encoding="utf-8"
+    )
 
     assert "## Execution Rules" not in soul
     assert "clear user request" not in soul
@@ -189,8 +189,10 @@ def test_build_messages_passes_channel_to_system_prompt(tmp_path) -> None:
     builder = ContextBuilder(workspace)
 
     messages = builder.build_messages(
-        history=[], current_message="hi",
-        channel="telegram", chat_id="123",
+        history=[],
+        current_message="hi",
+        channel="telegram",
+        chat_id="123",
     )
     system = messages[0]["content"]
     assert "Format Hint" in system
@@ -258,6 +260,7 @@ def test_template_memory_md_is_skipped(tmp_path) -> None:
     """MEMORY.md matching the bundled template should not inject the Memory section."""
     workspace = _make_workspace(tmp_path)
     from nanobot.utils.helpers import sync_workspace_templates
+
     sync_workspace_templates(workspace, silent=True)
 
     builder = ContextBuilder(workspace)
@@ -272,6 +275,7 @@ def test_customized_memory_md_is_injected(tmp_path) -> None:
     """A Dream-populated MEMORY.md should be injected normally."""
     workspace = _make_workspace(tmp_path)
     from nanobot.utils.helpers import sync_workspace_templates
+
     sync_workspace_templates(workspace, silent=True)
 
     (workspace / "memory" / "MEMORY.md").write_text(

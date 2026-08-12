@@ -26,16 +26,17 @@ def _make_loop():
     workspace = MagicMock()
     workspace.__truediv__ = MagicMock(return_value=MagicMock())
 
-    with patch("nanobot.agent.loop.ContextBuilder"), \
-         patch("nanobot.agent.loop.SessionManager"), \
-         patch("nanobot.agent.loop.SubagentManager") as mock_sub_mgr:
+    with (
+        patch("nanobot.agent.loop.ContextBuilder"),
+        patch("nanobot.agent.loop.SessionManager"),
+        patch("nanobot.agent.loop.SubagentManager") as mock_sub_mgr,
+    ):
         mock_sub_mgr.return_value.close = AsyncMock()
         loop = AgentLoop(bus=bus, provider=provider, workspace=workspace)
     return loop, bus
 
 
 class TestRestartCommand:
-
     @pytest.mark.asyncio
     async def test_restart_sends_message_and_calls_execv(self):
         from nanobot.command.builtin import cmd_restart
@@ -66,9 +67,11 @@ class TestRestartCommand:
             create_task=_capture_task,
         )
 
-        with patch.dict(os.environ, {}, clear=False), \
-             patch("nanobot.command.builtin.asyncio", new=fake_asyncio), \
-             patch("nanobot.command.builtin.os.execv") as mock_execv:
+        with (
+            patch.dict(os.environ, {}, clear=False),
+            patch("nanobot.command.builtin.asyncio", new=fake_asyncio),
+            patch("nanobot.command.builtin.os.execv") as mock_execv,
+        ):
             out = await cmd_restart(ctx)
             assert "Restarting" in out.content
             assert os.environ.get(RESTART_NOTIFY_CHANNEL_ENV) == "cli"
@@ -97,12 +100,14 @@ class TestRestartCommand:
             create_task=lambda coro: scheduled.append(asyncio.create_task(coro)) or scheduled[-1],
         )
 
-        with patch("nanobot.command.builtin.asyncio", new=fake_asyncio), \
-             patch("nanobot.command.builtin.sys.platform", "win32"), \
-             patch("nanobot.command.builtin.subprocess.CREATE_NEW_PROCESS_GROUP", 512, create=True), \
-             patch("nanobot.command.builtin.subprocess.Popen") as mock_popen, \
-             patch("nanobot.command.builtin.os._exit") as mock_exit, \
-             patch("nanobot.command.builtin.os.execv") as mock_execv:
+        with (
+            patch("nanobot.command.builtin.asyncio", new=fake_asyncio),
+            patch("nanobot.command.builtin.sys.platform", "win32"),
+            patch("nanobot.command.builtin.subprocess.CREATE_NEW_PROCESS_GROUP", 512, create=True),
+            patch("nanobot.command.builtin.subprocess.Popen") as mock_popen,
+            patch("nanobot.command.builtin.os._exit") as mock_exit,
+            patch("nanobot.command.builtin.os.execv") as mock_execv,
+        ):
             await cmd_restart(ctx)
             await scheduled[0]
 
@@ -132,10 +137,12 @@ class TestRestartCommand:
             create_task=lambda coro: scheduled.append(asyncio.create_task(coro)) or scheduled[-1],
         )
 
-        with patch("nanobot.command.builtin.asyncio", new=fake_asyncio), \
-             patch("nanobot.command.builtin.subprocess.Popen") as mock_popen, \
-             patch("nanobot.command.builtin.os._exit") as mock_exit, \
-             patch("nanobot.command.builtin.os.execv") as mock_execv:
+        with (
+            patch("nanobot.command.builtin.asyncio", new=fake_asyncio),
+            patch("nanobot.command.builtin.subprocess.Popen") as mock_popen,
+            patch("nanobot.command.builtin.os._exit") as mock_exit,
+            patch("nanobot.command.builtin.os.execv") as mock_execv,
+        ):
             await cmd_restart(ctx)
             await scheduled[0]
 
@@ -165,9 +172,11 @@ class TestRestartCommand:
             create_task=_capture_task,
         )
 
-        with patch.object(loop, "_dispatch", new_callable=AsyncMock) as mock_dispatch, \
-             patch("nanobot.command.builtin.asyncio", new=fake_asyncio), \
-             patch("nanobot.command.builtin.os.execv"):
+        with (
+            patch.object(loop, "_dispatch", new_callable=AsyncMock) as mock_dispatch,
+            patch("nanobot.command.builtin.asyncio", new=fake_asyncio),
+            patch("nanobot.command.builtin.os.execv"),
+        ):
             await bus.publish_inbound(msg)
 
             loop._running = True
@@ -221,9 +230,11 @@ class TestRestartCommand:
         def _fake_execv(_path: str, _argv: list[str]) -> None:
             execv_calls.append((_path, _argv))
 
-        with patch.object(loop, "_dispatch", new_callable=AsyncMock) as mock_dispatch, \
-             patch("nanobot.command.builtin.asyncio", new=fake_asyncio), \
-             patch("nanobot.command.builtin.os.execv", new=_fake_execv):
+        with (
+            patch.object(loop, "_dispatch", new_callable=AsyncMock) as mock_dispatch,
+            patch("nanobot.command.builtin.asyncio", new=fake_asyncio),
+            patch("nanobot.command.builtin.os.execv", new=_fake_execv),
+        ):
             await bus.publish_inbound(msg)
 
             loop._running = True
@@ -366,10 +377,12 @@ class TestRestartCommand:
             "nanobot.agent.runner.estimate_message_tokens",
             lambda _message: 7,
         )
-        loop.provider.chat_with_retry = AsyncMock(side_effect=[
-            LLMResponse(content="first", usage={"prompt_tokens": 9, "completion_tokens": 4}),
-            LLMResponse(content="second", usage={}),
-        ])
+        loop.provider.chat_with_retry = AsyncMock(
+            side_effect=[
+                LLMResponse(content="first", usage={"prompt_tokens": 9, "completion_tokens": 4}),
+                LLMResponse(content="second", usage={}),
+            ]
+        )
 
         await loop._run_agent_loop([], runtime=loop.llm_runtime())
         assert loop._last_usage["prompt_tokens"] == 9
@@ -387,9 +400,7 @@ class TestRestartCommand:
         session.get_history.return_value = [{"role": "user"}]
         loop.sessions.get_or_create.return_value = session
         loop._last_usage = {"prompt_tokens": 1200, "completion_tokens": 34}
-        loop.consolidator.estimate_session_prompt_tokens = MagicMock(
-            return_value=(0, "none")
-        )
+        loop.consolidator.estimate_session_prompt_tokens = MagicMock(return_value=(0, "none"))
         loop.subagents.get_running_count_by_session.return_value = 0
 
         response = await loop._process_message(
@@ -456,7 +467,9 @@ class TestRestartCommand:
         ]
         loop.sessions.get_or_create.return_value = session
 
-        msg = InboundMessage(channel="telegram", sender_id="u1", chat_id="c1", content="/history 999")
+        msg = InboundMessage(
+            channel="telegram", sender_id="u1", chat_id="c1", content="/history 999"
+        )
         response = await loop._process_message(msg)
 
         assert response is not None
@@ -469,7 +482,9 @@ class TestRestartCommand:
     async def test_history_invalid_count_returns_usage(self):
         loop, _bus = _make_loop()
 
-        msg = InboundMessage(channel="telegram", sender_id="u1", chat_id="c1", content="/history nope")
+        msg = InboundMessage(
+            channel="telegram", sender_id="u1", chat_id="c1", content="/history nope"
+        )
         response = await loop._process_message(msg)
 
         assert response is not None

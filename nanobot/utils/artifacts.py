@@ -22,6 +22,7 @@ _MIME_EXTENSIONS = {
     "image/gif": ".gif",
 }
 
+
 class ArtifactError(ValueError):
     """Raised when an artifact cannot be safely decoded or stored."""
 

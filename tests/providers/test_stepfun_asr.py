@@ -146,7 +146,7 @@ async def test_sse_ignores_non_data_lines(audio_file: Path) -> None:
         {"type": "transcript.text.done", "session_id": "s1", "text": "result"},
     ]
     raw_lines = [
-        "",                    # empty line
+        "",  # empty line
         "event: session.start",  # non-data event
         f"data: {json.dumps(events[0])}",
     ]
@@ -195,9 +195,7 @@ async def test_retries_on_503_then_succeeds(audio_file: Path) -> None:
     stream_cm = _make_stream_cm_sequence([503, success_lines])
 
     provider = StepFunTranscriptionProvider(api_key="sk-test")
-    with patch("httpx.AsyncClient.stream", stream_cm), patch(
-        "asyncio.sleep", AsyncMock()
-    ):
+    with patch("httpx.AsyncClient.stream", stream_cm), patch("asyncio.sleep", AsyncMock()):
         result = await provider.transcribe(audio_file)
 
     assert result == "ok"
@@ -210,9 +208,7 @@ async def test_gives_up_after_max_retries(audio_file: Path) -> None:
     stream_cm = _make_stream_cm_sequence(attempts)
 
     provider = StepFunTranscriptionProvider(api_key="sk-test")
-    with patch("httpx.AsyncClient.stream", stream_cm), patch(
-        "asyncio.sleep", AsyncMock()
-    ):
+    with patch("httpx.AsyncClient.stream", stream_cm), patch("asyncio.sleep", AsyncMock()):
         result = await provider.transcribe(audio_file)
 
     assert result == ""
@@ -229,9 +225,7 @@ async def test_sse_empty_text_done_returns_empty(audio_file: Path) -> None:
     provider = StepFunTranscriptionProvider(api_key="sk-test")
     stream_cm = _make_stream_cm(200, lines)
 
-    with patch("httpx.AsyncClient.stream", stream_cm), patch(
-        "asyncio.sleep", AsyncMock()
-    ):
+    with patch("httpx.AsyncClient.stream", stream_cm), patch("asyncio.sleep", AsyncMock()):
         result = await provider.transcribe(audio_file)
 
     assert result == ""
@@ -263,6 +257,7 @@ async def test_retries_on_connect_error(audio_file: Path) -> None:
     class FakeResponse:
         """Serves as both the async context manager returned by stream()
         and the response object bound in `async with ... as resp`."""
+
         status_code = 200
         reason_phrase = "OK"
 
@@ -286,9 +281,7 @@ async def test_retries_on_connect_error(audio_file: Path) -> None:
         return FakeResponse()
 
     provider = StepFunTranscriptionProvider(api_key="sk-test")
-    with patch("httpx.AsyncClient.stream", fake_stream), patch(
-        "asyncio.sleep", AsyncMock()
-    ):
+    with patch("httpx.AsyncClient.stream", fake_stream), patch("asyncio.sleep", AsyncMock()):
         result = await provider.transcribe(audio_file)
 
     assert result == "ok"

@@ -141,7 +141,6 @@ PROVIDERS: tuple[ProviderSpec, ...] = (
         backend="openai_compat",
         is_direct=True,
     ),
-
     # === Azure OpenAI (direct API calls with API version 2024-10-21) =====
     ProviderSpec(
         name="azure_openai",
@@ -278,7 +277,6 @@ PROVIDERS: tuple[ProviderSpec, ...] = (
         detect_by_base_keyword="siliconflow",
         default_api_base="https://api.siliconflow.cn/v1",
     ),
-
     # Novita AI: OpenAI-compatible gateway for hosted model APIs.
     ProviderSpec(
         name="novita",
@@ -290,7 +288,6 @@ PROVIDERS: tuple[ProviderSpec, ...] = (
         detect_by_base_keyword="novita",
         default_api_base="https://api.novita.ai/openai",
     ),
-
     # VolcEngine (火山引擎): OpenAI-compatible gateway, pay-per-use models
     ProviderSpec(
         name="volcengine",
@@ -304,7 +301,6 @@ PROVIDERS: tuple[ProviderSpec, ...] = (
         thinking_style="thinking_type",
         supports_max_completion_tokens=True,
     ),
-
     # VolcEngine Coding Plan (火山引擎 Coding Plan): same key as volcengine
     ProviderSpec(
         name="volcengine_coding_plan",
@@ -318,7 +314,6 @@ PROVIDERS: tuple[ProviderSpec, ...] = (
         thinking_style="thinking_type",
         supports_max_completion_tokens=True,
     ),
-
     # BytePlus: VolcEngine international, pay-per-use models
     ProviderSpec(
         name="byteplus",
@@ -332,7 +327,6 @@ PROVIDERS: tuple[ProviderSpec, ...] = (
         strip_model_prefix=True,
         thinking_style="thinking_type",
     ),
-
     # BytePlus Coding Plan: same key as byteplus
     ProviderSpec(
         name="byteplus_coding_plan",
@@ -345,8 +339,6 @@ PROVIDERS: tuple[ProviderSpec, ...] = (
         strip_model_prefix=True,
         thinking_style="thinking_type",
     ),
-
-
     # === Standard providers (matched by model-name keywords) ===============
     # Anthropic: native Anthropic SDK
     ProviderSpec(
@@ -706,7 +698,7 @@ PROVIDERS: tuple[ProviderSpec, ...] = (
         env_key="QIANFAN_API_KEY",
         display_name="Qianfan",
         backend="openai_compat",
-        default_api_base="https://qianfan.baidubce.com/v2"
+        default_api_base="https://qianfan.baidubce.com/v2",
     ),
 )
 

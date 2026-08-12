@@ -18,11 +18,7 @@ CRON_HISTORY_META = "_cron_turn"
 
 def _cron_history_text(trigger: Mapping[str, Any]) -> str | None:
     persist_content = trigger.get("persist_content")
-    return (
-        persist_content
-        if isinstance(persist_content, str) and persist_content.strip()
-        else None
-    )
+    return persist_content if isinstance(persist_content, str) and persist_content.strip() else None
 
 
 CRON_AUTOMATION_SPEC = AutomationTurnSpec(
@@ -49,10 +45,7 @@ def is_cron_turn(metadata: Mapping[str, Any] | None) -> bool:
 
 
 def defer_cron_until_session_idle(metadata: Mapping[str, Any] | None) -> bool:
-    return bool(
-        is_cron_turn(metadata)
-        and (metadata or {}).get(CRON_DEFER_UNTIL_IDLE_META) is True
-    )
+    return bool(is_cron_turn(metadata) and (metadata or {}).get(CRON_DEFER_UNTIL_IDLE_META) is True)
 
 
 def cron_run_id(metadata: Mapping[str, Any] | None) -> str | None:
@@ -78,9 +71,4 @@ def is_bound_cron_job(job: CronJob) -> bool:
         or not payload.origin_chat_id
     ):
         return False
-    return not (
-        payload.deliver
-        or payload.channel
-        or payload.to
-        or payload.channel_meta
-    )
+    return not (payload.deliver or payload.channel or payload.to or payload.channel_meta)

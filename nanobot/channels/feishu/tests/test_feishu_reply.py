@@ -1,4 +1,5 @@
 """Tests for Feishu message reply (quote) feature."""
+
 import asyncio
 import json
 from pathlib import Path
@@ -10,6 +11,7 @@ import pytest
 # Check optional Feishu dependencies before running tests
 try:
     from nanobot.channels.feishu import runtime as feishu
+
     FEISHU_AVAILABLE = getattr(feishu, "FEISHU_AVAILABLE", False)
 except ImportError:
     FEISHU_AVAILABLE = False
@@ -25,6 +27,7 @@ from nanobot.channels.feishu.runtime import FeishuChannel, FeishuConfig
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _make_feishu_channel(
     reply_to_message: bool = False,
@@ -94,6 +97,7 @@ def _make_get_message_response(text: str, msg_type: str = "text", success: bool 
 # Config tests
 # ---------------------------------------------------------------------------
 
+
 def test_feishu_config_reply_to_message_defaults_false() -> None:
     assert FeishuConfig().reply_to_message is False
 
@@ -120,6 +124,7 @@ def test_feishu_config_topic_isolation_accepts_camel_case() -> None:
 # ---------------------------------------------------------------------------
 # _get_message_content_sync tests
 # ---------------------------------------------------------------------------
+
 
 def test_get_message_content_sync_returns_reply_prefix() -> None:
     channel = _make_feishu_channel()
@@ -183,6 +188,7 @@ def test_get_message_content_sync_returns_none_when_empty_text() -> None:
 # ---------------------------------------------------------------------------
 # _reply_message_sync tests
 # ---------------------------------------------------------------------------
+
 
 def test_reply_message_sync_returns_true_on_success() -> None:
     channel = _make_feishu_channel()
@@ -270,8 +276,9 @@ async def test_send_uses_expected_feishu_msg_type_for_uploaded_files(
         send_calls.append((receive_id_type, receive_id, msg_type, content))
         return "om_test"
 
-    with patch.object(channel, "_upload_file_sync", return_value="file-key"), patch.object(
-        channel, "_send_message_sync", side_effect=_record_send
+    with (
+        patch.object(channel, "_upload_file_sync", return_value="file-key"),
+        patch.object(channel, "_send_message_sync", side_effect=_record_send),
     ):
         await channel.send(
             OutboundMessage(
@@ -295,6 +302,7 @@ async def test_send_uses_expected_feishu_msg_type_for_uploaded_files(
 # send() — reply routing tests
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.asyncio
 async def test_send_uses_reply_api_when_configured() -> None:
     channel = _make_feishu_channel(reply_to_message=True)
@@ -303,12 +311,14 @@ async def test_send_uses_reply_api_when_configured() -> None:
     reply_resp.success.return_value = True
     channel._client.im.v1.message.reply.return_value = reply_resp
 
-    await channel.send(OutboundMessage(
-        channel="feishu",
-        chat_id="oc_abc",
-        content="hello",
-        metadata={"message_id": "om_001"},
-    ))
+    await channel.send(
+        OutboundMessage(
+            channel="feishu",
+            chat_id="oc_abc",
+            content="hello",
+            metadata={"message_id": "om_001"},
+        )
+    )
 
     channel._client.im.v1.message.reply.assert_called_once()
     channel._client.im.v1.message.create.assert_not_called()
@@ -322,12 +332,14 @@ async def test_send_uses_create_api_when_reply_disabled() -> None:
     create_resp.success.return_value = True
     channel._client.im.v1.message.create.return_value = create_resp
 
-    await channel.send(OutboundMessage(
-        channel="feishu",
-        chat_id="oc_abc",
-        content="hello",
-        metadata={"message_id": "om_001"},
-    ))
+    await channel.send(
+        OutboundMessage(
+            channel="feishu",
+            chat_id="oc_abc",
+            content="hello",
+            metadata={"message_id": "om_001"},
+        )
+    )
 
     channel._client.im.v1.message.create.assert_called_once()
     channel._client.im.v1.message.reply.assert_not_called()
@@ -341,12 +353,14 @@ async def test_send_uses_create_api_when_no_message_id() -> None:
     create_resp.success.return_value = True
     channel._client.im.v1.message.create.return_value = create_resp
 
-    await channel.send(OutboundMessage(
-        channel="feishu",
-        chat_id="oc_abc",
-        content="hello",
-        metadata={},
-    ))
+    await channel.send(
+        OutboundMessage(
+            channel="feishu",
+            chat_id="oc_abc",
+            content="hello",
+            metadata={},
+        )
+    )
 
     channel._client.im.v1.message.create.assert_called_once()
     channel._client.im.v1.message.reply.assert_not_called()
@@ -360,13 +374,15 @@ async def test_send_skips_reply_for_progress_messages() -> None:
     create_resp.success.return_value = True
     channel._client.im.v1.message.create.return_value = create_resp
 
-    await channel.send(OutboundMessage(
-        channel="feishu",
-        chat_id="oc_abc",
-        content="thinking...",
-        event=ProgressEvent(content="thinking..."),
-        metadata={"message_id": "om_001"},
-    ))
+    await channel.send(
+        OutboundMessage(
+            channel="feishu",
+            chat_id="oc_abc",
+            content="thinking...",
+            event=ProgressEvent(content="thinking..."),
+            metadata={"message_id": "om_001"},
+        )
+    )
 
     channel._client.im.v1.message.create.assert_called_once()
     channel._client.im.v1.message.reply.assert_not_called()
@@ -387,12 +403,14 @@ async def test_send_fallback_to_create_when_reply_fails() -> None:
     create_resp.success.return_value = True
     channel._client.im.v1.message.create.return_value = create_resp
 
-    await channel.send(OutboundMessage(
-        channel="feishu",
-        chat_id="oc_abc",
-        content="hello",
-        metadata={"message_id": "om_001"},
-    ))
+    await channel.send(
+        OutboundMessage(
+            channel="feishu",
+            chat_id="oc_abc",
+            content="hello",
+            metadata={"message_id": "om_001"},
+        )
+    )
 
     # reply attempted first, then falls back to create
     channel._client.im.v1.message.reply.assert_called_once()
@@ -467,21 +485,25 @@ async def test_send_multiple_messages_all_use_reply_when_in_topic(tmp_path: Path
         create_calls.append((args, kwargs))
         return "msg_id"
 
-    with patch.object(channel, "_upload_file_sync", return_value="file-key"), \
-         patch.object(channel, "_upload_image_sync", return_value="image-key"), \
-         patch.object(channel, "_reply_message_sync", side_effect=_mock_reply), \
-         patch.object(channel, "_send_message_sync", side_effect=_mock_create):
-        await channel.send(OutboundMessage(
-            channel="feishu",
-            chat_id="oc_abc",
-            content="hello",
-            media=[str(file1), str(file2)],
-            metadata={
-                "message_id": "om_001",
-                "thread_id": "om_thread",
-                "chat_type": "group",
-            },
-        ))
+    with (
+        patch.object(channel, "_upload_file_sync", return_value="file-key"),
+        patch.object(channel, "_upload_image_sync", return_value="image-key"),
+        patch.object(channel, "_reply_message_sync", side_effect=_mock_reply),
+        patch.object(channel, "_send_message_sync", side_effect=_mock_create),
+    ):
+        await channel.send(
+            OutboundMessage(
+                channel="feishu",
+                chat_id="oc_abc",
+                content="hello",
+                media=[str(file1), str(file2)],
+                metadata={
+                    "message_id": "om_001",
+                    "thread_id": "om_thread",
+                    "chat_type": "group",
+                },
+            )
+        )
 
     # All 3 sends (text + 2 images) should use reply
     assert len(reply_calls) == 3
@@ -489,7 +511,9 @@ async def test_send_multiple_messages_all_use_reply_when_in_topic(tmp_path: Path
 
 
 @pytest.mark.asyncio
-async def test_send_multiple_messages_only_first_uses_reply_when_reply_to_message(tmp_path: Path) -> None:
+async def test_send_multiple_messages_only_first_uses_reply_when_reply_to_message(
+    tmp_path: Path,
+) -> None:
     """When reply_to_message is enabled but not in topic, only first message uses reply."""
     channel = _make_feishu_channel(reply_to_message=True)
 
@@ -509,20 +533,24 @@ async def test_send_multiple_messages_only_first_uses_reply_when_reply_to_messag
         create_calls.append((args, kwargs))
         return "msg_id"
 
-    with patch.object(channel, "_upload_file_sync", return_value="file-key"), \
-         patch.object(channel, "_upload_image_sync", return_value="image-key"), \
-         patch.object(channel, "_reply_message_sync", side_effect=_mock_reply), \
-         patch.object(channel, "_send_message_sync", side_effect=_mock_create):
-        await channel.send(OutboundMessage(
-            channel="feishu",
-            chat_id="oc_abc",
-            content="hello",
-            media=[str(file1), str(file2)],
-            metadata={
-                "message_id": "om_001",
-                "chat_type": "group",
-            },
-        ))
+    with (
+        patch.object(channel, "_upload_file_sync", return_value="file-key"),
+        patch.object(channel, "_upload_image_sync", return_value="image-key"),
+        patch.object(channel, "_reply_message_sync", side_effect=_mock_reply),
+        patch.object(channel, "_send_message_sync", side_effect=_mock_create),
+    ):
+        await channel.send(
+            OutboundMessage(
+                channel="feishu",
+                chat_id="oc_abc",
+                content="hello",
+                media=[str(file1), str(file2)],
+                metadata={
+                    "message_id": "om_001",
+                    "chat_type": "group",
+                },
+            )
+        )
 
     # Only first send uses reply, rest use create
     assert len(reply_calls) == 1
@@ -532,6 +560,7 @@ async def test_send_multiple_messages_only_first_uses_reply_when_reply_to_messag
 # ---------------------------------------------------------------------------
 # _on_message — parent_id / root_id metadata tests
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.asyncio
 async def test_on_message_captures_parent_and_root_id_in_metadata() -> None:
@@ -628,10 +657,13 @@ async def test_on_message_no_extra_api_call_when_no_parent_id() -> None:
     assert len(captured) == 1
 
 
-@pytest.mark.parametrize(("chat_type", "group_policy", "should_send"), [
-    ("p2p", "mention", True),
-    ("group", "open", False),
-])
+@pytest.mark.parametrize(
+    ("chat_type", "group_policy", "should_send"),
+    [
+        ("p2p", "mention", True),
+        ("group", "open", False),
+    ],
+)
 @pytest.mark.asyncio
 async def test_on_message_new_system_divider_only_in_p2p(
     chat_type: str,
@@ -644,10 +676,12 @@ async def test_on_message_new_system_divider_only_in_p2p(
     channel._handle_message = AsyncMock()
 
     with patch.object(channel, "_add_reaction", return_value=None):
-        await channel._on_message(_make_feishu_event(
-            chat_type=chat_type,
-            content='{"text": "/new"}',
-        ))
+        await channel._on_message(
+            _make_feishu_event(
+                chat_type=chat_type,
+                content='{"text": "/new"}',
+            )
+        )
 
     channel._handle_message.assert_awaited_once()
     assert channel._handle_message.call_args.kwargs["content"] == "/new"
@@ -665,22 +699,26 @@ async def test_send_new_session_text_suppressed_in_p2p_only() -> None:
     p2p = _make_feishu_channel()
     p2p._send_message_sync = MagicMock()
 
-    await p2p.send(OutboundMessage(
-        channel="feishu",
-        chat_id="ou_alice",
-        content="New session started.",
-        metadata={"chat_type": "p2p"},
-    ))
+    await p2p.send(
+        OutboundMessage(
+            channel="feishu",
+            chat_id="ou_alice",
+            content="New session started.",
+            metadata={"chat_type": "p2p"},
+        )
+    )
 
     group = _make_feishu_channel()
     group._send_message_sync = MagicMock(return_value="om_text")
 
-    await group.send(OutboundMessage(
-        channel="feishu",
-        chat_id="oc_group",
-        content="New session started.",
-        metadata={"chat_type": "group"},
-    ))
+    await group.send(
+        OutboundMessage(
+            channel="feishu",
+            chat_id="oc_group",
+            content="New session started.",
+            metadata={"chat_type": "group"},
+        )
+    )
 
     p2p._send_message_sync.assert_not_called()
     assert group._send_message_sync.call_args.args[2] == "text"
@@ -782,14 +820,18 @@ async def test_on_message_audio_publishes_downloaded_path_and_transcription() ->
     channel._download_and_save_media.assert_awaited_once_with(
         "audio", {"file_key": "audio_key", "duration": 1000}, "om_audio"
     )
-    channel.transcribe_audio.assert_awaited_once_with(r"C:\\Users\\dodre\\.nanobot\\media\\feishu\\voice.ogg")
+    channel.transcribe_audio.assert_awaited_once_with(
+        r"C:\\Users\\dodre\\.nanobot\\media\\feishu\\voice.ogg"
+    )
     assert len(captured) == 1
     assert captured[0].media == [r"C:\\Users\\dodre\\.nanobot\\media\\feishu\\voice.ogg"]
     assert captured[0].content == "[transcription: hello from voice]"
 
 
 @pytest.mark.asyncio
-async def test_download_and_save_media_returns_absolute_path_in_content(monkeypatch, tmp_path) -> None:
+async def test_download_and_save_media_returns_absolute_path_in_content(
+    monkeypatch, tmp_path
+) -> None:
     channel = _make_feishu_channel()
     monkeypatch.setattr(feishu, "get_media_dir", lambda _channel: tmp_path)
     channel._download_file_sync = MagicMock(return_value=(b"voice-bytes", None))
@@ -936,12 +978,14 @@ async def test_reply_uses_reply_in_thread_when_enabled() -> None:
     reply_resp.success.return_value = True
     channel._client.im.v1.message.reply.return_value = reply_resp
 
-    await channel.send(OutboundMessage(
-        channel="feishu",
-        chat_id="oc_abc",
-        content="hello",
-        metadata={"message_id": "om_001"},
-    ))
+    await channel.send(
+        OutboundMessage(
+            channel="feishu",
+            chat_id="oc_abc",
+            content="hello",
+            metadata={"message_id": "om_001"},
+        )
+    )
 
     channel._client.im.v1.message.reply.assert_called_once()
     call_args = channel._client.im.v1.message.reply.call_args
@@ -958,11 +1002,13 @@ async def test_reply_without_reply_in_thread_when_disabled() -> None:
     create_resp.success.return_value = True
     channel._client.im.v1.message.create.return_value = create_resp
 
-    await channel.send(OutboundMessage(
-        channel="feishu",
-        chat_id="oc_abc",
-        content="hello",
-    ))
+    await channel.send(
+        OutboundMessage(
+            channel="feishu",
+            chat_id="oc_abc",
+            content="hello",
+        )
+    )
 
     # No message_id in metadata → no reply attempt, direct create
     channel._client.im.v1.message.create.assert_called_once()
@@ -977,16 +1023,18 @@ async def test_topic_reply_does_not_force_reply_in_thread_when_disabled() -> Non
     reply_resp.success.return_value = True
     channel._client.im.v1.message.reply.return_value = reply_resp
 
-    await channel.send(OutboundMessage(
-        channel="feishu",
-        chat_id="oc_abc",
-        content="hello",
-        metadata={
-            "message_id": "om_child456",
-            "chat_type": "group",
-            "thread_id": "om_root123",
-        },
-    ))
+    await channel.send(
+        OutboundMessage(
+            channel="feishu",
+            chat_id="oc_abc",
+            content="hello",
+            metadata={
+                "message_id": "om_child456",
+                "chat_type": "group",
+                "thread_id": "om_root123",
+            },
+        )
+    )
 
     channel._client.im.v1.message.reply.assert_called_once()
     call_args = channel._client.im.v1.message.reply.call_args
@@ -1009,12 +1057,14 @@ async def test_reply_keeps_fallback_when_reply_fails() -> None:
     create_resp.success.return_value = True
     channel._client.im.v1.message.create.return_value = create_resp
 
-    await channel.send(OutboundMessage(
-        channel="feishu",
-        chat_id="oc_abc",
-        content="hello",
-        metadata={"message_id": "om_001"},
-    ))
+    await channel.send(
+        OutboundMessage(
+            channel="feishu",
+            chat_id="oc_abc",
+            content="hello",
+            metadata={"message_id": "om_001"},
+        )
+    )
 
     channel._client.im.v1.message.reply.assert_called()
     channel._client.im.v1.message.create.assert_called()
@@ -1029,12 +1079,14 @@ async def test_reply_no_reply_in_thread_for_p2p_chat() -> None:
     reply_resp.success.return_value = True
     channel._client.im.v1.message.reply.return_value = reply_resp
 
-    await channel.send(OutboundMessage(
-        channel="feishu",
-        chat_id="oc_abc",  # p2p chats also use oc_ prefix
-        content="hello",
-        metadata={"message_id": "om_001", "chat_type": "p2p"},
-    ))
+    await channel.send(
+        OutboundMessage(
+            channel="feishu",
+            chat_id="oc_abc",  # p2p chats also use oc_ prefix
+            content="hello",
+            metadata={"message_id": "om_001", "chat_type": "p2p"},
+        )
+    )
 
     channel._client.im.v1.message.reply.assert_called_once()
     call_args = channel._client.im.v1.message.reply.call_args
@@ -1051,12 +1103,14 @@ async def test_reply_uses_reply_in_thread_for_group_chat() -> None:
     reply_resp.success.return_value = True
     channel._client.im.v1.message.reply.return_value = reply_resp
 
-    await channel.send(OutboundMessage(
-        channel="feishu",
-        chat_id="oc_abc",
-        content="hello",
-        metadata={"message_id": "om_001", "chat_type": "group"},
-    ))
+    await channel.send(
+        OutboundMessage(
+            channel="feishu",
+            chat_id="oc_abc",
+            content="hello",
+            metadata={"message_id": "om_001", "chat_type": "group"},
+        )
+    )
 
     channel._client.im.v1.message.reply.assert_called_once()
     call_args = channel._client.im.v1.message.reply.call_args
@@ -1076,16 +1130,18 @@ async def test_reply_targets_message_id_when_in_topic() -> None:
     reply_resp.success.return_value = True
     channel._client.im.v1.message.reply.return_value = reply_resp
 
-    await channel.send(OutboundMessage(
-        channel="feishu",
-        chat_id="oc_abc",
-        content="hello",
-        metadata={
-            "message_id": "om_child456",
-            "chat_type": "group",
-            "root_id": "om_root123",
-        },
-    ))
+    await channel.send(
+        OutboundMessage(
+            channel="feishu",
+            chat_id="oc_abc",
+            content="hello",
+            metadata={
+                "message_id": "om_child456",
+                "chat_type": "group",
+                "root_id": "om_root123",
+            },
+        )
+    )
 
     channel._client.im.v1.message.reply.assert_called_once()
     call_args = channel._client.im.v1.message.reply.call_args
@@ -1128,6 +1184,7 @@ def test_on_background_task_done_removes_from_set() -> None:
     channel = _make_feishu_channel()
     loop = asyncio.new_event_loop()
     try:
+
         async def _fail():
             raise RuntimeError("test failure")
 

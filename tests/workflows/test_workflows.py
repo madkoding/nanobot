@@ -54,7 +54,7 @@ def _write_workflow(base: Path, name: str, source: str) -> Path:
     return path
 
 
-DEMO_SOURCE = '''
+DEMO_SOURCE = """
 from nanobot.workflows.runner import AgentResult
 
 async def run(args, ctx):
@@ -69,7 +69,7 @@ async def run(args, ctx):
         lambda prev: ctx.agent(agent="gen", prompt=f"pipe {prev}"),
     ], initial="start")
     return AgentResult(text="|".join([a.text, b.text, c.text, d.text]))
-'''
+"""
 
 
 def _runner(tmp_path: Path) -> WorkflowRunner:
@@ -137,7 +137,9 @@ def test_loader_disabled_and_override(tmp_path: Path) -> None:
     _write_workflow(tmp_path, "demo", DEMO_SOURCE)
     empty_builtin = tmp_path / "empty_builtin"
     empty_builtin.mkdir(exist_ok=True)
-    loader = WorkflowLoader(tmp_path, builtin_workflows_dir=empty_builtin, disabled_workflows={"demo"})
+    loader = WorkflowLoader(
+        tmp_path, builtin_workflows_dir=empty_builtin, disabled_workflows={"demo"}
+    )
     assert loader.list_workflows() == []
 
     # Workspace workflow shadows builtin of the same name.
@@ -167,7 +169,13 @@ def test_loader_skips_invalid_module(tmp_path: Path) -> None:
 def test_builtin_workflows_load(tmp_path: Path) -> None:
     loader = WorkflowLoader(tmp_path / "missing")
     names = [entry["name"] for entry in loader.list_workflows()]
-    assert names == ["code_review", "debug_issue", "feature_plan", "generate_tests", "research_plan"]
+    assert names == [
+        "code_review",
+        "debug_issue",
+        "feature_plan",
+        "generate_tests",
+        "research_plan",
+    ]
     for name in names:
         module = loader.load(name)
         assert module is not None
@@ -236,7 +244,11 @@ async def test_runner_announces_failure(tmp_path: Path) -> None:
 
 @pytest.mark.asyncio
 async def test_cancel_by_session(tmp_path: Path) -> None:
-    _write_workflow(tmp_path, "slow", "async def run(args, ctx):\n    import asyncio\n    await asyncio.sleep(3600)")
+    _write_workflow(
+        tmp_path,
+        "slow",
+        "async def run(args, ctx):\n    import asyncio\n    await asyncio.sleep(3600)",
+    )
     runner = _runner(tmp_path)
     runtime = MagicMock()
 
@@ -295,7 +307,9 @@ async def test_cmd_workflow_lists(tmp_path: Path) -> None:
     (tmp_path / "workflows").mkdir(exist_ok=True)
     (tmp_path / "workflows" / "demo.py").write_text(DEMO_SOURCE, encoding="utf-8")
     msg = InboundMessage(channel="cli", sender_id="user", chat_id="direct", content="/workflow")
-    ctx = CommandContext(msg=msg, session=None, key=msg.session_key, raw="/workflow", args="", loop=loop)
+    ctx = CommandContext(
+        msg=msg, session=None, key=msg.session_key, raw="/workflow", args="", loop=loop
+    )
     out = await cmd_workflow(ctx)
     assert isinstance(out, OutboundMessage)
     assert "**demo**" in out.content
@@ -307,7 +321,9 @@ async def test_workflow_command_registered_on_router(tmp_path: Path) -> None:
     register_builtin_commands(router)
     loop = _make_loop(tmp_path)
     msg = InboundMessage(channel="cli", sender_id="user", chat_id="direct", content="/workflow")
-    ctx = CommandContext(msg=msg, session=None, key=msg.session_key, raw="/workflow", args="", loop=loop)
+    ctx = CommandContext(
+        msg=msg, session=None, key=msg.session_key, raw="/workflow", args="", loop=loop
+    )
     out = await router.dispatch(ctx)
     assert out is not None
     assert "Available workflows" in out.content or "No workflows available." in out.content

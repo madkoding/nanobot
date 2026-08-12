@@ -92,9 +92,7 @@ def _fake_media_dir(root: Path):
 # ---------------------------------------------------------------------------
 
 
-def test_sign_media_path_rejects_paths_outside_media_root(
-    bus: MagicMock, tmp_path: Path
-) -> None:
+def test_sign_media_path_rejects_paths_outside_media_root(bus: MagicMock, tmp_path: Path) -> None:
     """Paths that resolve outside ``get_media_dir()`` must not be signed.
 
     This is the single most important invariant of the whole scheme:
@@ -114,9 +112,7 @@ def test_sign_media_path_rejects_paths_outside_media_root(
         assert channel.gateway.media.sign_media_path(media / ".." / "secrets" / "cred.txt") is None
 
 
-def test_sign_media_path_round_trips_via_hmac(
-    bus: MagicMock, tmp_path: Path
-) -> None:
+def test_sign_media_path_round_trips_via_hmac(bus: MagicMock, tmp_path: Path) -> None:
     """The signature embeds exactly ``HMAC-SHA256(secret, payload)[:16]``."""
     media = tmp_path / "media"
     media.mkdir()
@@ -126,7 +122,7 @@ def test_sign_media_path_round_trips_via_hmac(
         url = channel.gateway.media.sign_media_path(media / "a.png")
     assert url is not None
     assert url.startswith("/api/media/")
-    sig, payload = url[len("/api/media/"):].split("/", 1)
+    sig, payload = url[len("/api/media/") :].split("/", 1)
     expected = hmac.new(
         channel.gateway.media.secret, payload.encode("ascii"), hashlib.sha256
     ).digest()[:16]
@@ -202,9 +198,7 @@ def test_local_markdown_image_rejects_workspace_escape(
 
 
 @pytest.mark.asyncio
-async def test_media_route_serves_signed_file(
-    bus: MagicMock, tmp_path: Path
-) -> None:
+async def test_media_route_serves_signed_file(bus: MagicMock, tmp_path: Path) -> None:
     """Valid signature + existing file => 200 with correct bytes + MIME."""
     media = tmp_path / "media"
     media.mkdir()
@@ -234,9 +228,7 @@ async def test_media_route_serves_signed_file(
 
 
 @pytest.mark.asyncio
-async def test_media_route_serves_video_byte_ranges(
-    bus: MagicMock, tmp_path: Path
-) -> None:
+async def test_media_route_serves_video_byte_ranges(bus: MagicMock, tmp_path: Path) -> None:
     """MP4 playback needs HTTP Range support for mid-stream reads and seeking."""
     media = tmp_path / "media"
     media.mkdir()
@@ -266,9 +258,7 @@ async def test_media_route_serves_video_byte_ranges(
 
 
 @pytest.mark.asyncio
-async def test_media_route_serves_suffix_video_byte_ranges(
-    bus: MagicMock, tmp_path: Path
-) -> None:
+async def test_media_route_serves_suffix_video_byte_ranges(bus: MagicMock, tmp_path: Path) -> None:
     media = tmp_path / "media"
     media.mkdir()
     target = media / "clip.mp4"
@@ -294,9 +284,7 @@ async def test_media_route_serves_suffix_video_byte_ranges(
 
 
 @pytest.mark.asyncio
-async def test_media_route_rejects_unsatisfiable_byte_range(
-    bus: MagicMock, tmp_path: Path
-) -> None:
+async def test_media_route_rejects_unsatisfiable_byte_range(bus: MagicMock, tmp_path: Path) -> None:
     media = tmp_path / "media"
     media.mkdir()
     target = media / "clip.mp4"
@@ -322,9 +310,7 @@ async def test_media_route_rejects_unsatisfiable_byte_range(
 
 
 @pytest.mark.asyncio
-async def test_media_route_rejects_bad_signature(
-    bus: MagicMock, tmp_path: Path
-) -> None:
+async def test_media_route_rejects_bad_signature(bus: MagicMock, tmp_path: Path) -> None:
     """A payload re-signed with a different secret must 401.
 
     Protects against a restart: old URLs baked into a stale tab become
@@ -338,11 +324,9 @@ async def test_media_route_rejects_bad_signature(
     with patch("nanobot.webui.media_gateway.get_media_dir", return_value=media):
         good = channel.gateway.media.sign_media_path(media / "f.png")
         assert good is not None
-        _, payload = good[len("/api/media/"):].split("/", 1)
+        _, payload = good[len("/api/media/") :].split("/", 1)
         # Forge a sig with a *different* secret.
-        forged_mac = hmac.new(
-            b"\x00" * 32, payload.encode("ascii"), hashlib.sha256
-        ).digest()[:16]
+        forged_mac = hmac.new(b"\x00" * 32, payload.encode("ascii"), hashlib.sha256).digest()[:16]
         forged = f"/api/media/{b64url_encode(forged_mac)}/{payload}"
 
         server_task = asyncio.create_task(channel.start())
@@ -355,9 +339,7 @@ async def test_media_route_rejects_bad_signature(
 
 
 @pytest.mark.asyncio
-async def test_media_route_rejects_path_traversal_payload(
-    bus: MagicMock, tmp_path: Path
-) -> None:
+async def test_media_route_rejects_path_traversal_payload(bus: MagicMock, tmp_path: Path) -> None:
     """Even a validly-signed ``..`` payload must not escape the media root.
 
     The signer never *emits* such payloads, but an attacker who somehow
@@ -372,9 +354,9 @@ async def test_media_route_rejects_path_traversal_payload(
     channel = _ch(bus, port=29922)
     # Hand-craft a traversal payload the legit signer would refuse to mint.
     payload = b64url_encode(b"../secret.txt")
-    mac = hmac.new(
-        channel.gateway.media.secret, payload.encode("ascii"), hashlib.sha256
-    ).digest()[:16]
+    mac = hmac.new(channel.gateway.media.secret, payload.encode("ascii"), hashlib.sha256).digest()[
+        :16
+    ]
     url = f"/api/media/{b64url_encode(mac)}/{payload}"
 
     with patch("nanobot.webui.media_gateway.get_media_dir", return_value=media):
@@ -389,9 +371,7 @@ async def test_media_route_rejects_path_traversal_payload(
 
 
 @pytest.mark.asyncio
-async def test_media_route_404s_missing_file(
-    bus: MagicMock, tmp_path: Path
-) -> None:
+async def test_media_route_404s_missing_file(bus: MagicMock, tmp_path: Path) -> None:
     """A signed URL for a file that no longer exists degrades to 404 so the
     client can fall back to the placeholder tile instead of breaking."""
     media = tmp_path / "media"
@@ -447,9 +427,7 @@ async def test_media_route_degrades_non_image_to_octet_stream(
 
 
 @pytest.mark.asyncio
-async def test_media_route_serves_svg_with_strict_csp(
-    bus: MagicMock, tmp_path: Path
-) -> None:
+async def test_media_route_serves_svg_with_strict_csp(bus: MagicMock, tmp_path: Path) -> None:
     """Generated SVG can preview as an image without becoming executable HTML."""
     media = tmp_path / "media"
     media.mkdir()
@@ -480,9 +458,7 @@ async def test_media_route_serves_svg_with_strict_csp(
 
 
 @pytest.mark.asyncio
-async def test_session_messages_exposes_signed_media_urls(
-    bus: MagicMock, tmp_path: Path
-) -> None:
+async def test_session_messages_exposes_signed_media_urls(bus: MagicMock, tmp_path: Path) -> None:
     """The read path must map persisted ``media`` paths onto signed URLs
     and strip the raw path — the client never learns the server's layout."""
     media = tmp_path / "media"
@@ -526,9 +502,7 @@ async def test_session_messages_exposes_signed_media_urls(
 
 
 @pytest.mark.asyncio
-async def test_session_messages_skips_vanished_media(
-    bus: MagicMock, tmp_path: Path
-) -> None:
+async def test_session_messages_skips_vanished_media(bus: MagicMock, tmp_path: Path) -> None:
     """Paths that no longer resolve inside the media root produce no URL —
     the message is still delivered, just without the preview."""
     media = tmp_path / "media"

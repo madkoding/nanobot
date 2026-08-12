@@ -35,15 +35,20 @@ def test_loaded_corrupt_offset_keeps_messages(tmp_path: Path):
         path.parent.mkdir(parents=True, exist_ok=True)
         message = {"role": "user", "content": f"survived {name}"}
         path.write_text(
-            "\n".join([
-                json.dumps({
-                    "_type": "metadata",
-                    "key": "chan:chat",
-                    "metadata": {},
-                    "last_consolidated": offset,
-                }),
-                json.dumps(message),
-            ]) + "\n",
+            "\n".join(
+                [
+                    json.dumps(
+                        {
+                            "_type": "metadata",
+                            "key": "chan:chat",
+                            "metadata": {},
+                            "last_consolidated": offset,
+                        }
+                    ),
+                    json.dumps(message),
+                ]
+            )
+            + "\n",
             encoding="utf-8",
         )
 
@@ -66,14 +71,17 @@ def test_loaded_null_metadata_becomes_empty_dict(tmp_path: Path):
     path = manager._get_session_path("chan:chat")
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(
-        json.dumps({
-            "_type": "metadata",
-            "key": "chan:chat",
-            "created_at": "2026-01-01T00:00:00",
-            "updated_at": "2026-01-01T00:00:00",
-            "metadata": None,
-            "last_consolidated": 0,
-        }) + "\n",
+        json.dumps(
+            {
+                "_type": "metadata",
+                "key": "chan:chat",
+                "created_at": "2026-01-01T00:00:00",
+                "updated_at": "2026-01-01T00:00:00",
+                "metadata": None,
+                "last_consolidated": 0,
+            }
+        )
+        + "\n",
         encoding="utf-8",
     )
     session = manager.get_or_create("chan:chat")

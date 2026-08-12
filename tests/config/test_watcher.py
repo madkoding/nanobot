@@ -39,9 +39,7 @@ async def test_watch_config_file_observes_atomic_replace(tmp_path: Path) -> None
     config_path = tmp_path / "config.json"
     config_path.write_text("{}", encoding="utf-8")
     changed = asyncio.Event()
-    task = asyncio.create_task(
-        config_watcher.watch_config_file(config_path, changed.set)
-    )
+    task = asyncio.create_task(config_watcher.watch_config_file(config_path, changed.set))
 
     try:
         for attempt in range(10):

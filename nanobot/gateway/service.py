@@ -55,7 +55,9 @@ class GatewayServiceInstaller:
         self._subprocess_run = subprocess_run
         self.home = home or Path.home()
 
-    def install(self, options: GatewayServiceOptions, *, dry_run: bool = False) -> GatewayServiceResult:
+    def install(
+        self, options: GatewayServiceOptions, *, dry_run: bool = False
+    ) -> GatewayServiceResult:
         manager = self._resolve_manager(options.manager)
         if manager == "systemd":
             return self._install_systemd(options, dry_run=dry_run)
@@ -75,7 +77,9 @@ class GatewayServiceInstaller:
             return self._uninstall_systemd(name=name, dry_run=dry_run)
         if resolved == "launchd":
             return self._uninstall_launchd(name=name, dry_run=dry_run)
-        return GatewayServiceResult(False, f"unsupported_service_manager:{resolved}", resolved, None)
+        return GatewayServiceResult(
+            False, f"unsupported_service_manager:{resolved}", resolved, None
+        )
 
     def _install_systemd(
         self,
@@ -97,14 +101,18 @@ class GatewayServiceInstaller:
         if options.start_now:
             commands.append(("systemctl", "--user", "restart", unit_name))
         if dry_run:
-            return GatewayServiceResult(True, "service_install_dry_run", "systemd", path, tuple(commands), content)
+            return GatewayServiceResult(
+                True, "service_install_dry_run", "systemd", path, tuple(commands), content
+            )
 
         _working_directory(options.start).mkdir(parents=True, exist_ok=True)
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(content, encoding="utf-8")
         for command_args in commands:
             self._subprocess_run(list(command_args), check=True)
-        return GatewayServiceResult(True, "service_installed", "systemd", path, tuple(commands), content)
+        return GatewayServiceResult(
+            True, "service_installed", "systemd", path, tuple(commands), content
+        )
 
     def _uninstall_systemd(
         self,
@@ -119,7 +127,9 @@ class GatewayServiceInstaller:
             ("systemctl", "--user", "daemon-reload"),
         )
         if dry_run:
-            return GatewayServiceResult(True, "service_uninstall_dry_run", "systemd", path, commands)
+            return GatewayServiceResult(
+                True, "service_uninstall_dry_run", "systemd", path, commands
+            )
 
         self._run_best_effort(commands[0])
         path.unlink(missing_ok=True)
@@ -156,7 +166,9 @@ class GatewayServiceInstaller:
         if options.start_now:
             commands.append(("launchctl", "kickstart", "-k", f"{domain}/{label}"))
         if dry_run:
-            return GatewayServiceResult(True, "service_install_dry_run", "launchd", path, tuple(commands), content)
+            return GatewayServiceResult(
+                True, "service_install_dry_run", "launchd", path, tuple(commands), content
+            )
 
         _working_directory(options.start).mkdir(parents=True, exist_ok=True)
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -166,7 +178,9 @@ class GatewayServiceInstaller:
             self._run_best_effort(("launchctl", "bootout", domain, str(path)))
         for command_args in commands:
             self._subprocess_run(list(command_args), check=True)
-        return GatewayServiceResult(True, "service_installed", "launchd", path, tuple(commands), content)
+        return GatewayServiceResult(
+            True, "service_installed", "launchd", path, tuple(commands), content
+        )
 
     def _uninstall_launchd(
         self,
@@ -182,7 +196,9 @@ class GatewayServiceInstaller:
             ("launchctl", "disable", f"{domain}/{label}"),
         )
         if dry_run:
-            return GatewayServiceResult(True, "service_uninstall_dry_run", "launchd", path, commands)
+            return GatewayServiceResult(
+                True, "service_uninstall_dry_run", "launchd", path, commands
+            )
 
         for command_args in commands:
             self._run_best_effort(command_args)
@@ -199,7 +215,9 @@ class GatewayServiceInstaller:
         return self.platform_name.lower()
 
     def _run_best_effort(self, command_args: tuple[str, ...]) -> None:
-        self._subprocess_run(list(command_args), check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        self._subprocess_run(
+            list(command_args), check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+        )
 
 
 def _platform_name() -> str:

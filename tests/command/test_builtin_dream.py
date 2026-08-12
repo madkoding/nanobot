@@ -87,7 +87,11 @@ class _FakeGit:
         message_prefix: str | None = None,
     ):
         result = self._diff_map.get(sha)
-        if result and message_prefix is not None and not result[0].message.startswith(message_prefix):
+        if (
+            result
+            and message_prefix is not None
+            and not result[0].message.startswith(message_prefix)
+        ):
             return None
         return result
 
@@ -107,7 +111,9 @@ class _FakeBus:
         self.outbound.append(message)
 
 
-def _make_ctx(raw: str, git: _FakeGit, *, args: str = "", last_dream_cursor: int = 1) -> CommandContext:
+def _make_ctx(
+    raw: str, git: _FakeGit, *, args: str = "", last_dream_cursor: int = 1
+) -> CommandContext:
     msg = InboundMessage(channel="cli", sender_id="u1", chat_id="direct", content=raw)
     store = _FakeStore(git, last_dream_cursor=last_dream_cursor)
     loop = SimpleNamespace(consolidator=SimpleNamespace(store=store))
@@ -125,7 +131,9 @@ def _make_dream_ctx(tmp_path) -> tuple[CommandContext, _FakeBus]:
         context=SimpleNamespace(memory=store, timezone="UTC"),
         sessions=SimpleNamespace(sessions_dir=sessions_dir),
     )
-    ctx = CommandContext(msg=msg, session=None, key=msg.session_key, raw="/dream", args="", loop=loop)
+    ctx = CommandContext(
+        msg=msg, session=None, key=msg.session_key, raw="/dream", args="", loop=loop
+    )
     return ctx, bus
 
 
@@ -177,7 +185,9 @@ async def test_dream_internal_run_silences_progress(tmp_path) -> None:
         sessions=SimpleNamespace(sessions_dir=sessions_dir),
         process_direct=process_direct,
     )
-    ctx = CommandContext(msg=msg, session=None, key=msg.session_key, raw="/dream", args="", loop=loop)
+    ctx = CommandContext(
+        msg=msg, session=None, key=msg.session_key, raw="/dream", args="", loop=loop
+    )
 
     await cmd_dream(ctx)
     await asyncio.sleep(0)
@@ -207,11 +217,13 @@ def _build_runnable_dream(
         if tool_error:
             await kwargs["on_progress"](
                 "",
-                tool_events=[{
-                    "phase": "error",
-                    "name": "edit_file",
-                    "error": "edit failed",
-                }],
+                tool_events=[
+                    {
+                        "phase": "error",
+                        "name": "edit_file",
+                        "error": "edit failed",
+                    }
+                ],
             )
         return OutboundMessage(
             channel="cli",
@@ -229,7 +241,9 @@ def _build_runnable_dream(
         sessions=SimpleNamespace(sessions_dir=sessions_dir),
         process_direct=process_direct,
     )
-    ctx = CommandContext(msg=msg, session=None, key=msg.session_key, raw="/dream", args="", loop=loop)
+    ctx = CommandContext(
+        msg=msg, session=None, key=msg.session_key, raw="/dream", args="", loop=loop
+    )
     return ctx, store
 
 
@@ -284,15 +298,10 @@ async def test_dream_keeps_cursor_when_completed_after_tool_error(tmp_path) -> N
 
 @pytest.mark.asyncio
 async def test_dream_log_latest_is_more_user_friendly() -> None:
-    commit = CommitInfo(sha="abcd1234", message="dream: 2026-04-04, 2 change(s)", timestamp="2026-04-04 12:00")
-    diff = (
-        "diff --git a/SOUL.md b/SOUL.md\n"
-        "--- a/SOUL.md\n"
-        "+++ b/SOUL.md\n"
-        "@@ -1 +1 @@\n"
-        "-old\n"
-        "+new\n"
+    commit = CommitInfo(
+        sha="abcd1234", message="dream: 2026-04-04, 2 change(s)", timestamp="2026-04-04 12:00"
     )
+    diff = "diff --git a/SOUL.md b/SOUL.md\n--- a/SOUL.md\n+++ b/SOUL.md\n@@ -1 +1 @@\n-old\n+new\n"
     git = _FakeGit(commits=[commit], diff_map={commit.sha: (commit, diff)})
 
     out = await cmd_dream_log(_make_ctx("/dream-log", git))
@@ -308,10 +317,14 @@ async def test_dream_log_latest_is_more_user_friendly() -> None:
 @pytest.mark.asyncio
 async def test_dream_log_latest_skips_non_dream_commit() -> None:
     backup = CommitInfo(
-        sha="bbbb2222", message="backup: workspace snapshot", timestamp="2026-04-04 13:00",
+        sha="bbbb2222",
+        message="backup: workspace snapshot",
+        timestamp="2026-04-04 13:00",
     )
     dream = CommitInfo(
-        sha="abcd1234", message="dream: latest", timestamp="2026-04-04 12:00",
+        sha="abcd1234",
+        message="dream: latest",
+        timestamp="2026-04-04 12:00",
     )
     diff = "diff --git a/SOUL.md b/SOUL.md\n"
     git = _FakeGit(
@@ -472,7 +485,9 @@ async def test_dream_restore_success_mentions_files_and_followup() -> None:
 @pytest.mark.asyncio
 async def test_dream_restore_rejects_non_dream_commit_clearly() -> None:
     commit = CommitInfo(
-        sha="cccc3333", message="backup: workspace", timestamp="2026-04-04 10:00",
+        sha="cccc3333",
+        message="backup: workspace",
+        timestamp="2026-04-04 10:00",
     )
     git = _FakeGit(
         diff_map={commit.sha: (commit, "unrelated diff")},

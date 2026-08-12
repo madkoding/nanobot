@@ -373,9 +373,7 @@ async def test_on_message_unauthorized_dm_sends_pairing_code(monkeypatch) -> Non
     channel._client = client
     channel._running = True
     monkeypatch.setattr("nanobot.channels.base.is_approved", lambda _ch, _sid: False)
-    monkeypatch.setattr(
-        "nanobot.channels.base.generate_code", lambda _ch, _sid: "ABCD-EFGH"
-    )
+    monkeypatch.setattr("nanobot.channels.base.generate_code", lambda _ch, _sid: "ABCD-EFGH")
 
     await channel._on_message(message)
 
@@ -1299,6 +1297,7 @@ async def test_start_no_proxy_auth_when_only_password(monkeypatch) -> None:
 # ---------------------------------------------------------------------------
 # Tests for the send() exception propagation fix
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.asyncio
 async def test_send_re_raises_network_error() -> None:

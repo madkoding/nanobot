@@ -47,6 +47,7 @@ _LAZY_EXPORTS = {
     "STREAM_EVENT_TYPES": ".nanobot",
     "StreamEvent": ".nanobot",
     "StreamEventType": ".nanobot",
+    "ValidationError": ".nanobot",
 }
 
 
@@ -55,6 +56,7 @@ def __getattr__(name: str):
     if module_path is None:
         raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
     from importlib import import_module
+
     mod = import_module(module_path, __name__)
     val = getattr(mod, name)
     globals()[name] = val
@@ -80,4 +82,5 @@ __all__ = [
     "STREAM_EVENT_TYPES",
     "StreamEvent",
     "StreamEventType",
+    "ValidationError",
 ]

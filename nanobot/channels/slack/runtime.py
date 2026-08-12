@@ -174,7 +174,9 @@ class SlackChannel(BaseChannel):
                 chunks = split_message(mrkdwn, SLACK_MAX_MESSAGE_LEN)
                 for index, chunk in enumerate(chunks):
                     kwargs: dict[str, Any] = dict(
-                        channel=target_chat_id, text=chunk, thread_ts=thread_ts_param,
+                        channel=target_chat_id,
+                        text=chunk,
+                        thread_ts=thread_ts_param,
                     )
                     if buttons and index == len(chunks) - 1:
                         kwargs["blocks"] = self._build_button_blocks(chunk, buttons)
@@ -308,7 +310,9 @@ class SlackChannel(BaseChannel):
             str(profile.get("real_name") or ""),
             str(profile.get("real_name_normalized") or ""),
         }
-        return normalized in {cls._normalize_target_name(candidate) for candidate in candidates if candidate}
+        return normalized in {
+            cls._normalize_target_name(candidate) for candidate in candidates if candidate
+        }
 
     async def _on_socket_request(
         self,
@@ -323,9 +327,7 @@ class SlackChannel(BaseChannel):
             return
 
         # Acknowledge right away
-        await client.send_socket_mode_response(
-            SocketModeResponse(envelope_id=req.envelope_id)
-        )
+        await client.send_socket_mode_response(SocketModeResponse(envelope_id=req.envelope_id))
 
         payload = req.payload or {}
         event = payload.get("event") or {}
@@ -388,11 +390,7 @@ class SlackChannel(BaseChannel):
         # In DMs we don't auto-open a thread on top-level messages (it would
         # bury replies under "1 reply"). But if the user explicitly opened a
         # thread inside the DM, raw_thread_ts is set and we honor it.
-        if (
-            self.config.reply_in_thread
-            and not thread_ts
-            and channel_type != "im"
-        ):
+        if self.config.reply_in_thread and not thread_ts and channel_type != "im":
             thread_ts = event_ts
         # Add :eyes: reaction to the triggering message (best-effort)
         try:
@@ -408,9 +406,7 @@ class SlackChannel(BaseChannel):
         # Thread-scoped session key whenever the user is in a real thread
         # (raw_thread_ts is set). DM threads get their own session, separate
         # from the DM root, so context doesn't bleed across thread boundaries.
-        session_key = (
-            f"slack:{chat_id}:{thread_ts}" if thread_ts and raw_thread_ts else None
-        )
+        session_key = f"slack:{chat_id}:{thread_ts}" if thread_ts and raw_thread_ts else None
         media_paths: list[str] = []
         file_markers: list[str] = []
         for file_info in event.get("files") or []:
@@ -423,13 +419,17 @@ class SlackChannel(BaseChannel):
                 file_markers.append(marker)
 
         is_slash = text.strip().startswith("/")
-        content = text if is_slash else await self._with_thread_context(
-            text,
-            chat_id=chat_id,
-            channel_type=channel_type,
-            thread_ts=thread_ts,
-            raw_thread_ts=raw_thread_ts,
-            current_ts=event_ts,
+        content = (
+            text
+            if is_slash
+            else await self._with_thread_context(
+                text,
+                chat_id=chat_id,
+                channel_type=channel_type,
+                thread_ts=thread_ts,
+                raw_thread_ts=raw_thread_ts,
+                current_ts=event_ts,
+            )
         )
         if file_markers:
             content = "\n".join(part for part in [content, *file_markers] if part)
@@ -458,12 +458,11 @@ class SlackChannel(BaseChannel):
         """Download a Slack private file to the local media directory."""
         file_id = str(file_info.get("id") or "file")
         name = str(
-            file_info.get("name")
-            or file_info.get("title")
-            or file_info.get("id")
-            or "slack-file"
+            file_info.get("name") or file_info.get("title") or file_info.get("id") or "slack-file"
         )
-        marker_type = "image" if str(file_info.get("mimetype") or "").startswith("image/") else "file"
+        marker_type = (
+            "image" if str(file_info.get("mimetype") or "").startswith("image/") else "file"
+        )
         marker = f"[{marker_type}: {name}]"
         url = str(file_info.get("url_private_download") or file_info.get("url_private") or "")
         if not url:
@@ -474,7 +473,9 @@ class SlackChannel(BaseChannel):
         filename = safe_filename(f"{file_id}_{name}")
         path = Path(get_media_dir("slack")) / filename
         try:
-            async with httpx.AsyncClient(timeout=SLACK_DOWNLOAD_TIMEOUT, follow_redirects=True) as client:
+            async with httpx.AsyncClient(
+                timeout=SLACK_DOWNLOAD_TIMEOUT, follow_redirects=True
+            ) as client:
                 response = await client.get(
                     url,
                     headers={"Authorization": f"Bearer {self.config.bot_token}"},
@@ -578,9 +579,15 @@ class SlackChannel(BaseChannel):
         )
         if not lines:
             return text
-        return "Slack thread context before this mention:\n" + "\n".join(lines) + f"\n\nCurrent message:\n{text}"
+        return (
+            "Slack thread context before this mention:\n"
+            + "\n".join(lines)
+            + f"\n\nCurrent message:\n{text}"
+        )
 
-    def _format_thread_context(self, messages: list[dict[str, Any]], *, current_ts: str | None) -> list[str]:
+    def _format_thread_context(
+        self, messages: list[dict[str, Any]], *, current_ts: str | None
+    ) -> list[str]:
         lines: list[str] = []
         for item in messages:
             if item.get("ts") == current_ts:
@@ -608,12 +615,14 @@ class SlackChannel(BaseChannel):
         elements = []
         for row in buttons:
             for label in row:
-                elements.append({
-                    "type": "button",
-                    "text": {"type": "plain_text", "text": label[:75]},
-                    "value": label[:75],
-                    "action_id": f"btn_{label[:50]}",
-                })
+                elements.append(
+                    {
+                        "type": "button",
+                        "text": {"type": "plain_text", "text": label[:75]},
+                        "value": label[:75],
+                        "action_id": f"btn_{label[:50]}",
+                    }
+                )
         if elements:
             blocks.append({"type": "actions", "elements": elements[:25]})
         return blocks

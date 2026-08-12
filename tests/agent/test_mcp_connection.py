@@ -139,7 +139,9 @@ async def test_owned_mcp_connection_closes_from_its_owner_task():
 
 
 @pytest.mark.asyncio
-async def test_connect_mcp_retries_when_no_servers_connect(tmp_path, monkeypatch: pytest.MonkeyPatch):
+async def test_connect_mcp_retries_when_no_servers_connect(
+    tmp_path, monkeypatch: pytest.MonkeyPatch
+):
     loop = _make_loop(tmp_path)
     attempts = 0
 
@@ -394,7 +396,9 @@ async def test_reload_mcp_servers_retries_configured_server_without_live_stack(
         return stacks
 
     monkeypatch.setattr("nanobot.agent.tools.mcp.connect_mcp_servers", _fake_connect)
-    loop = _make_loop(tmp_path, mcp_servers={"browserbase": config.tools.mcp_servers["browserbase"]})
+    loop = _make_loop(
+        tmp_path, mcp_servers={"browserbase": config.tools.mcp_servers["browserbase"]}
+    )
 
     result = await mcp_runtime.reload_servers(loop, loop.tools)
 
@@ -429,9 +433,7 @@ async def test_mcp_tool_reconnects_after_session_terminated(
             assert arguments == {"symbol": "AAPL"}
             if self.index == 1:
                 raise McpError(ErrorData(code=-32000, message="Session terminated"))
-            return SimpleNamespace(
-                content=[mcp_types.TextContent(type="text", text="recovered")]
-            )
+            return SimpleNamespace(content=[mcp_types.TextContent(type="text", text="recovered")])
 
     async def _fake_connect(servers, registry):
         nonlocal connect_count
@@ -485,9 +487,7 @@ async def test_mcp_reconnect_handler_uses_sanitized_server_prefix(
             assert arguments == {}
             if self.index == 1:
                 raise McpError(ErrorData(code=-32000, message="Session terminated"))
-            return SimpleNamespace(
-                content=[mcp_types.TextContent(type="text", text="recovered")]
-            )
+            return SimpleNamespace(content=[mcp_types.TextContent(type="text", text="recovered")])
 
     async def _fake_connect(servers, registry):
         nonlocal connect_count

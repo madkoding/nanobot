@@ -96,6 +96,7 @@ _BOOL_CAMEL_ALIASES: dict[str, str] = {
     "show_reasoning": "showReasoning",
 }
 
+
 def _default_channel_config(name: str) -> dict[str, Any] | None:
     from nanobot.channels.registry import load_channel_plugin
 
@@ -226,13 +227,19 @@ class ChannelManager:
         if runtime_name and runtime_name != channel.name:
             channel.name = runtime_name
         channel.send_progress = self._resolve_bool_override(
-            section, "send_progress", self.config.channels.send_progress,
+            section,
+            "send_progress",
+            self.config.channels.send_progress,
         )
         channel.send_tool_hints = self._resolve_bool_override(
-            section, "send_tool_hints", self.config.channels.send_tool_hints,
+            section,
+            "send_tool_hints",
+            self.config.channels.send_tool_hints,
         )
         channel.show_reasoning = self._resolve_bool_override(
-            section, "show_reasoning", self.config.channels.show_reasoning,
+            section,
+            "show_reasoning",
+            self.config.channels.show_reasoning,
         )
         return channel
 
@@ -291,8 +298,7 @@ class ChannelManager:
                 channel_setup_spec(name, plugin=plugin)
                 specs = channel_instance_specs(plugin, section)
                 runtime_specs = [
-                    (channel_runtime_name(plugin, spec.instance_id), spec)
-                    for spec in specs
+                    (channel_runtime_name(plugin, spec.instance_id), spec) for spec in specs
                 ]
             except Exception as exc:
                 logger.warning("Could not inspect {} channel activation: {}", name, exc)
@@ -353,8 +359,10 @@ class ChannelManager:
         self._mark_runtime_error(
             (
                 runtime_name
-                for runtime_name, (runtime_owner, _instance_id)
-                in self._channel_runtime_specs.items()
+                for runtime_name, (
+                    runtime_owner,
+                    _instance_id,
+                ) in self._channel_runtime_specs.items()
                 if runtime_owner == owner
             ),
             message,
@@ -489,11 +497,7 @@ class ChannelManager:
 
         if action == "disable":
             runtime_name = channel_runtime_name(plugin, instance_id)
-            runtime_names = (
-                [runtime_name]
-                if self._channel_owners.get(runtime_name) == name
-                else []
-            )
+            runtime_names = [runtime_name] if self._channel_owners.get(runtime_name) == name else []
             stopped = False
             for runtime_name in runtime_names:
                 stopped = await self._stop_channel(runtime_name) or stopped
@@ -521,17 +525,11 @@ class ChannelManager:
                 "message": f"{name} channel config was not enabled.",
             }
 
-        runtime_specs = [
-            (channel_runtime_name(plugin, spec.instance_id), spec)
-            for spec in specs
-        ]
+        runtime_specs = [(channel_runtime_name(plugin, spec.instance_id), spec) for spec in specs]
         collisions = [
             runtime_name
             for runtime_name, _spec in runtime_specs
-            if (
-                runtime_name in self.channels
-                and self._channel_owners.get(runtime_name) != name
-            )
+            if (runtime_name in self.channels and self._channel_owners.get(runtime_name) != name)
         ]
         if collisions:
             return {
@@ -605,9 +603,7 @@ class ChannelManager:
         if self._started:
             await asyncio.sleep(0)
         failed = [
-            runtime_name
-            for runtime_name, _channel in built
-            if runtime_name in self._channel_errors
+            runtime_name for runtime_name, _channel in built if runtime_name in self._channel_errors
         ]
         return {
             "handled": True,
@@ -648,6 +644,7 @@ class ChannelManager:
     async def _watchdog_loop(self) -> None:
         """Periodically restart channels that are 'live but silent'."""
         import time as _time
+
         started_at = _time.monotonic()
         while True:
             try:
@@ -668,7 +665,8 @@ class ChannelManager:
                     continue
                 logger.warning(
                     "Channel {} is live but silent for {:.0f}s; forcing restart.",
-                    name, now - last,
+                    name,
+                    now - last,
                 )
                 try:
                     await self._stop_channel(name)
@@ -776,10 +774,7 @@ class ChannelManager:
                 if pending:
                     msg = pending.pop(0)
                 else:
-                    msg = await asyncio.wait_for(
-                        self.bus.consume_outbound(),
-                        timeout=1.0
-                    )
+                    msg = await asyncio.wait_for(self.bus.consume_outbound(), timeout=1.0)
 
                 event = outbound_event_from_message(msg)
                 progress_event = event if isinstance(event, ProgressEvent) else None
@@ -801,12 +796,14 @@ class ChannelManager:
 
                 if progress_event:
                     if progress_event.tool_hint and not self._should_send_progress(
-                        msg.channel, tool_hint=True,
+                        msg.channel,
+                        tool_hint=True,
                     ):
                         await self.bus.ack_outbound(msg)
                         continue
                     if not progress_event.tool_hint and not self._should_send_progress(
-                        msg.channel, tool_hint=False,
+                        msg.channel,
+                        tool_hint=False,
                     ):
                         await self.bus.ack_outbound(msg)
                         continue
@@ -834,14 +831,16 @@ class ChannelManager:
                 if channel:
                     # Duplicate suppression is scoped to a known source message
                     # so repeated content from separate turns is still delivered.
-                    if (
-                        not isinstance(
-                            event,
-                            StreamDeltaEvent | StreamEndEvent | StreamedResponseEvent,
-                        )
+                    if not isinstance(
+                        event,
+                        StreamDeltaEvent | StreamEndEvent | StreamedResponseEvent,
                     ):
                         if self._should_suppress_outbound(msg):
-                            logger.info("Suppressing duplicate outbound message to {}:{}", msg.channel, msg.chat_id)
+                            logger.info(
+                                "Suppressing duplicate outbound message to {}:{}",
+                                msg.channel,
+                                msg.chat_id,
+                            )
                             await self.bus.ack_outbound(msg)
                             continue
                     await self._send_with_retry(channel, msg)
@@ -857,7 +856,9 @@ class ChannelManager:
             except asyncio.CancelledError:
                 break
             except Exception:
-                logger.exception("Failed to dispatch outbound message to {}:{}", msg.channel, msg.chat_id)
+                logger.exception(
+                    "Failed to dispatch outbound message to {}:{}", msg.channel, msg.chat_id
+                )
                 await self.bus.nack_outbound(msg)
 
     @staticmethod
@@ -937,7 +938,9 @@ class ChannelManager:
             tuple of (merged_message, list_of_non_matching_messages)
         """
         first_event = outbound_event_from_message(first_msg)
-        first_stream_id = first_event.stream_id if isinstance(first_event, StreamDeltaEvent) else None
+        first_stream_id = (
+            first_event.stream_id if isinstance(first_event, StreamDeltaEvent) else None
+        )
         target_key = (first_msg.channel, first_msg.chat_id, first_stream_id)
         combined_content = first_msg.content
         final_event: StreamDeltaEvent | StreamEndEvent = (
@@ -1020,20 +1023,19 @@ class ChannelManager:
                 if _is_non_retriable_send_error(e):
                     logger.error(
                         "Send to {} failed with non-retriable {}: {}; not retrying.",
-                        msg.channel, type(e).__name__, e,
+                        msg.channel,
+                        type(e).__name__,
+                        e,
                     )
                     return
 
                 loop = asyncio.get_running_loop()
-                exhausted = (
-                    attempt >= max_attempts
-                    if deadline is None
-                    else loop.time() >= deadline
-                )
+                exhausted = attempt >= max_attempts if deadline is None else loop.time() >= deadline
                 if exhausted:
                     logger.exception(
                         "Failed to send to {} after {} attempts",
-                        msg.channel, attempt,
+                        msg.channel,
+                        attempt,
                     )
                     return
                 delay = _SEND_RETRY_DELAYS[min(attempt - 1, len(_SEND_RETRY_DELAYS) - 1)]
@@ -1044,7 +1046,10 @@ class ChannelManager:
                     attempt_label = f"{attempt}/{max_attempts}"
                 logger.warning(
                     "Send to {} failed (attempt {}): {}, retrying in {}s",
-                    msg.channel, attempt_label, type(e).__name__, delay,
+                    msg.channel,
+                    attempt_label,
+                    type(e).__name__,
+                    delay,
                 )
                 try:
                     await asyncio.sleep(delay)

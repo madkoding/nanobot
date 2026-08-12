@@ -38,19 +38,21 @@ def app_manifest(
     docs_url: str | None = None,
 ) -> dict[str, Any]:
     """Build a stable app manifest dictionary."""
-    return compact_dict({
-        "schema": APP_PROTOCOL_SCHEMA,
-        "id": app_id,
-        "display_name": display_name,
-        "version": version,
-        "description": description,
-        "category": category,
-        "source": source,
-        "logo_url": logo_url,
-        "brand_color": brand_color,
-        "docs_url": docs_url,
-        "capabilities": capabilities,
-        "install": install,
-        "remove": remove,
-        "trust": trust,
-    })
+    return compact_dict(
+        {
+            "schema": APP_PROTOCOL_SCHEMA,
+            "id": app_id,
+            "display_name": display_name,
+            "version": version,
+            "description": description,
+            "category": category,
+            "source": source,
+            "logo_url": logo_url,
+            "brand_color": brand_color,
+            "docs_url": docs_url,
+            "capabilities": capabilities,
+            "install": install,
+            "remove": remove,
+            "trust": trust,
+        }
+    )

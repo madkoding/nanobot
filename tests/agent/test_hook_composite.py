@@ -126,20 +126,34 @@ async def test_composite_fans_out_all_async_methods():
     await hook.on_finally(run_ctx)
 
     assert events == [
-        "before_run", "before_run",
-        "before_iteration", "before_iteration",
-        "emit_reasoning:thinking...", "emit_reasoning:thinking...",
-        "emit_reasoning_end", "emit_reasoning_end",
-        "on_stream:hi", "on_stream:hi",
-        "on_stream_end:True", "on_stream_end:True",
-        "before_execute_tools", "before_execute_tools",
-        "before_execute_tool", "before_execute_tool",
-        "after_execute_tool", "after_execute_tool",
-        "on_execute_tool_error", "on_execute_tool_error",
-        "after_iteration", "after_iteration",
-        "after_run", "after_run",
-        "on_error", "on_error",
-        "on_finally", "on_finally",
+        "before_run",
+        "before_run",
+        "before_iteration",
+        "before_iteration",
+        "emit_reasoning:thinking...",
+        "emit_reasoning:thinking...",
+        "emit_reasoning_end",
+        "emit_reasoning_end",
+        "on_stream:hi",
+        "on_stream:hi",
+        "on_stream_end:True",
+        "on_stream_end:True",
+        "before_execute_tools",
+        "before_execute_tools",
+        "before_execute_tool",
+        "before_execute_tool",
+        "after_execute_tool",
+        "after_execute_tool",
+        "on_execute_tool_error",
+        "on_execute_tool_error",
+        "after_iteration",
+        "after_iteration",
+        "after_run",
+        "after_run",
+        "on_error",
+        "on_error",
+        "on_finally",
+        "on_finally",
     ]
 
 
@@ -190,56 +204,80 @@ async def test_composite_error_isolation_all_async():
     class Bad(AgentHook):
         async def before_run(self, context):
             raise RuntimeError("err")
+
         async def emit_reasoning(self, reasoning_content):
             raise RuntimeError("err")
+
         async def emit_reasoning_end(self):
             raise RuntimeError("err")
+
         async def on_stream(self, context, delta):
             raise RuntimeError("err")
+
         async def on_stream_end(self, context, *, resuming):
             raise RuntimeError("err")
+
         async def before_execute_tools(self, context):
             raise RuntimeError("err")
+
         async def before_execute_tool(self, context, tool_call, tool, params):
             raise RuntimeError("err")
+
         async def after_execute_tool(self, context, tool_call, tool, params, result):
             raise RuntimeError("err")
+
         async def on_execute_tool_error(self, context, tool_call, tool, params, error):
             raise RuntimeError("err")
+
         async def after_iteration(self, context):
             raise RuntimeError("err")
+
         async def after_run(self, context):
             raise RuntimeError("err")
+
         async def on_error(self, context):
             raise RuntimeError("err")
+
         async def on_finally(self, context):
             raise RuntimeError("err")
 
     class Good(AgentHook):
         async def before_run(self, context):
             calls.append("before_run")
+
         async def emit_reasoning(self, reasoning_content):
             calls.append("emit_reasoning")
+
         async def emit_reasoning_end(self):
             calls.append("emit_reasoning_end")
+
         async def on_stream(self, context, delta):
             calls.append("on_stream")
+
         async def on_stream_end(self, context, *, resuming):
             calls.append("on_stream_end")
+
         async def before_execute_tools(self, context):
             calls.append("before_execute_tools")
+
         async def before_execute_tool(self, context, tool_call, tool, params):
             calls.append("before_execute_tool")
+
         async def after_execute_tool(self, context, tool_call, tool, params, result):
             calls.append("after_execute_tool")
+
         async def on_execute_tool_error(self, context, tool_call, tool, params, error):
             calls.append("on_execute_tool_error")
+
         async def after_iteration(self, context):
             calls.append("after_iteration")
+
         async def after_run(self, context):
             calls.append("after_run")
+
         async def on_error(self, context):
             calls.append("on_error")
+
         async def on_finally(self, context):
             calls.append("on_finally")
 
@@ -416,10 +454,12 @@ def _make_loop(tmp_path, hooks=None, hook_factories=None):
     provider.get_default_model.return_value = "test-model"
     provider.generation.max_tokens = 4096
 
-    with patch("nanobot.agent.loop.ContextBuilder"), \
-         patch("nanobot.agent.loop.SessionManager"), \
-         patch("nanobot.agent.loop.SubagentManager") as mock_sub_mgr, \
-         patch("nanobot.agent.loop.Consolidator"):
+    with (
+        patch("nanobot.agent.loop.ContextBuilder"),
+        patch("nanobot.agent.loop.SessionManager"),
+        patch("nanobot.agent.loop.SubagentManager") as mock_sub_mgr,
+        patch("nanobot.agent.loop.Consolidator"),
+    ):
         mock_sub_mgr.return_value.cancel_by_session = AsyncMock(return_value=0)
         loop = AgentLoop(
             bus=bus,
@@ -559,11 +599,13 @@ async def test_agent_loop_extra_hooks_do_not_swallow_loop_hook_errors(tmp_path):
     from nanobot.providers.base import LLMResponse, ToolCallRequest
 
     loop = _make_loop(tmp_path, hooks=[AgentHook()])
-    loop.provider.chat_with_retry = AsyncMock(return_value=LLMResponse(
-        content="working",
-        tool_calls=[ToolCallRequest(id="c1", name="list_dir", arguments={"path": "."})],
-        usage={},
-    ))
+    loop.provider.chat_with_retry = AsyncMock(
+        return_value=LLMResponse(
+            content="working",
+            tool_calls=[ToolCallRequest(id="c1", name="list_dir", arguments={"path": "."})],
+            usage={},
+        )
+    )
     loop.tools.get_definitions = MagicMock(return_value=[])
     loop.tools.execute = AsyncMock(return_value="ok")
 
@@ -571,9 +613,7 @@ async def test_agent_loop_extra_hooks_do_not_swallow_loop_hook_errors(tmp_path):
         raise RuntimeError("progress failed")
 
     with pytest.raises(RuntimeError, match="progress failed"):
-        await loop._run_agent_loop(
-            [], runtime=loop.llm_runtime(), on_progress=bad_progress
-        )
+        await loop._run_agent_loop([], runtime=loop.llm_runtime(), on_progress=bad_progress)
 
 
 @pytest.mark.asyncio
@@ -582,17 +622,17 @@ async def test_agent_loop_no_hooks_backward_compat(tmp_path):
     from nanobot.providers.base import LLMResponse, ToolCallRequest
 
     loop = _make_loop(tmp_path)
-    loop.provider.chat_with_retry = AsyncMock(return_value=LLMResponse(
-        content="working",
-        tool_calls=[ToolCallRequest(id="c1", name="list_dir", arguments={"path": "."})],
-    ))
+    loop.provider.chat_with_retry = AsyncMock(
+        return_value=LLMResponse(
+            content="working",
+            tool_calls=[ToolCallRequest(id="c1", name="list_dir", arguments={"path": "."})],
+        )
+    )
     loop.tools.get_definitions = MagicMock(return_value=[])
     loop.tools.execute = AsyncMock(return_value="ok")
     loop.max_iterations = 2
 
-    content, tools_used, _, _, _ = await loop._run_agent_loop(
-        [], runtime=loop.llm_runtime()
-    )
+    content, tools_used, _, _, _ = await loop._run_agent_loop([], runtime=loop.llm_runtime())
     assert content == (
         "I reached the maximum number of tool call iterations (2) "
         "without completing the task. You can try breaking the task into smaller steps."

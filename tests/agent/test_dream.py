@@ -393,7 +393,9 @@ class TestEphemeralDirect:
 
         with patch.object(loop.context.memory, "raw_archive") as mock_archive:
             await loop.process_direct(
-                "test", session_key="dream:test", ephemeral=True,
+                "test",
+                session_key="dream:test",
+                ephemeral=True,
             )
             mock_archive.assert_not_called()
 
@@ -422,7 +424,9 @@ class TestEphemeralDirect:
 
         with patch.object(loop, "_state_save", side_effect=patched_save):
             await loop.process_direct(
-                "test", session_key="dream:check", ephemeral=True,
+                "test",
+                session_key="dream:check",
+                ephemeral=True,
             )
 
         assert captured.get("ephemeral") is True
@@ -453,10 +457,13 @@ class TestEphemeralDirect:
         loop, store = _make_loop
 
         with patch.object(
-            loop.consolidator, "maybe_consolidate_by_tokens",
+            loop.consolidator,
+            "maybe_consolidate_by_tokens",
         ) as mock_consolidate:
             await loop.process_direct(
-                "test", session_key="dream:consolidate-test", ephemeral=True,
+                "test",
+                session_key="dream:consolidate-test",
+                ephemeral=True,
             )
             mock_consolidate.assert_not_called()
 
@@ -468,7 +475,9 @@ class TestEphemeralDirect:
         )
 
         resp = await loop.process_direct(
-            "test", session_key="dream:error", ephemeral=True,
+            "test",
+            session_key="dream:error",
+            ephemeral=True,
         )
 
         assert resp is not None
@@ -545,7 +554,10 @@ class TestEphemeralHooks:
         provider.generation = MagicMock(max_tokens=4096)
         provider.chat_with_retry = AsyncMock(
             return_value=MagicMock(
-                content="done", finish_reason="stop", tool_calls=[], usage={},
+                content="done",
+                finish_reason="stop",
+                tool_calls=[],
+                usage={},
             )
         )
 
@@ -576,7 +588,9 @@ class TestEphemeralHooks:
         loop, spy = _make_loop_with_spy
 
         await loop.process_direct(
-            "test", session_key="dream:hook-test", ephemeral=True,
+            "test",
+            session_key="dream:hook-test",
+            ephemeral=True,
         )
         spy.before_iteration.assert_not_called()
         spy.after_iteration.assert_not_called()
@@ -587,6 +601,7 @@ class TestEphemeralHooks:
 
         await loop.process_direct("test", session_key="cli:normal")
         spy.before_iteration.assert_called()
+
 
 class TestDreamCommitMessage:
     def test_commit_message_reflects_real_diff_not_narrative(self, tmp_path):
@@ -615,7 +630,8 @@ class TestDreamCommitMessage:
         assert lying not in diff_body
 
         msg = MemoryStore.build_dream_commit_message(
-            "dream: periodic memory consolidation", diff_body,
+            "dream: periodic memory consolidation",
+            diff_body,
         )
         assert lying not in msg
         assert "DMSO research notes" in msg
@@ -624,7 +640,8 @@ class TestDreamCommitMessage:
         assert sha is not None
         log = subprocess.check_output(
             ["git", "log", "-1", "--format=%B"],
-            cwd=str(tmp_path), text=True,
+            cwd=str(tmp_path),
+            text=True,
         ).strip()
         assert "dream: periodic memory consolidation" in log
         assert "DMSO research notes" in log
@@ -641,7 +658,8 @@ class TestDreamCommitMessage:
         # No edits at all.
         assert store.dream_content_diff() == ""
         msg = MemoryStore.build_dream_commit_message(
-            "dream: manual run", store.dream_content_diff(),
+            "dream: manual run",
+            store.dream_content_diff(),
         )
         assert msg == "dream: manual run"
 
@@ -675,8 +693,12 @@ class TestDreamContentDiff:
         global_config.touch()
         subprocess.run(
             [
-                "git", "config", "--file", str(system_config),
-                "core.autocrlf", "false",
+                "git",
+                "config",
+                "--file",
+                str(system_config),
+                "core.autocrlf",
+                "false",
             ],
             check=True,
             capture_output=True,

@@ -136,9 +136,7 @@ async def test_bind_missing_project_id_returns_400(runtime_dir: tuple[Path, Path
     handler, sessions, _ = _build_handler(workspace, data)
     key = await _make_chat(sessions)
     token = _issue_token(handler)
-    status, _ = await _get(
-        handler, token, f"/api/sessions/{key}/project/bind"
-    )
+    status, _ = await _get(handler, token, f"/api/sessions/{key}/project/bind")
     assert status == 400
 
 
@@ -165,4 +163,3 @@ async def test_unauthorized_without_token(runtime_dir: tuple[Path, Path]) -> Non
     response = await handler.dispatch(_HttpConnection(), request)
     assert response is not None
     assert response.status_code == 401
-

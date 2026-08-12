@@ -37,11 +37,13 @@ class _AsyncStream:
 class _AnthropicStream(_AsyncStream):
     def __init__(self, chunks: list[Any]) -> None:
         super().__init__(chunks)
-        self.get_final_message = AsyncMock(return_value=SimpleNamespace(
-            content=[SimpleNamespace(type="text", text="ok")],
-            stop_reason="end_turn",
-            usage=SimpleNamespace(input_tokens=1, output_tokens=1),
-        ))
+        self.get_final_message = AsyncMock(
+            return_value=SimpleNamespace(
+                content=[SimpleNamespace(type="text", text="ok")],
+                stop_reason="end_turn",
+                usage=SimpleNamespace(input_tokens=1, output_tokens=1),
+            )
+        )
 
     async def __aenter__(self) -> _AnthropicStream:
         return self
@@ -52,10 +54,14 @@ class _AnthropicStream(_AsyncStream):
 
 class _BedrockClient:
     def converse_stream(self, **_kwargs: Any) -> dict[str, Any]:
-        return {"stream": iter([
-            {"contentBlockDelta": {"contentBlockIndex": 0, "delta": {"text": "ok"}}},
-            {"messageStop": {"stopReason": "end_turn"}},
-        ])}
+        return {
+            "stream": iter(
+                [
+                    {"contentBlockDelta": {"contentBlockIndex": 0, "delta": {"text": "ok"}}},
+                    {"messageStop": {"stopReason": "end_turn"}},
+                ]
+            )
+        }
 
 
 def test_stream_idle_timeout_parser_rejects_invalid_values() -> None:
@@ -75,22 +81,26 @@ async def test_openai_compat_stream_ignores_invalid_idle_timeout_env(monkeypatch
     provider = OpenAICompatProvider(api_key="sk-test", api_base="https://example.com/v1")
 
     chunk = SimpleNamespace(
-        choices=[SimpleNamespace(
-            delta=SimpleNamespace(
-                content="ok",
-                reasoning_content=None,
-                reasoning=None,
-                tool_calls=None,
-                function_call=None,
-            ),
-            finish_reason="stop",
-        )],
+        choices=[
+            SimpleNamespace(
+                delta=SimpleNamespace(
+                    content="ok",
+                    reasoning_content=None,
+                    reasoning=None,
+                    tool_calls=None,
+                    function_call=None,
+                ),
+                finish_reason="stop",
+            )
+        ],
         usage=None,
     )
     provider._client = SimpleNamespace(
-        chat=SimpleNamespace(completions=SimpleNamespace(
-            create=AsyncMock(return_value=_AsyncStream([chunk])),
-        )),
+        chat=SimpleNamespace(
+            completions=SimpleNamespace(
+                create=AsyncMock(return_value=_AsyncStream([chunk])),
+            )
+        ),
     )
 
     result = await provider.chat_stream(messages=[{"role": "user", "content": "hi"}])

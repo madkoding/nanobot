@@ -53,9 +53,7 @@ class TestRegistryResolve:
     def test_ignores_non_group_keys(self, tmp_path):
         ws = tmp_path / "x"
         ws.mkdir()
-        registry = GroupWorkspaceRegistry(
-            {"5491155555555@s.whatsapp.net": str(ws)}
-        )
+        registry = GroupWorkspaceRegistry({"5491155555555@s.whatsapp.net": str(ws)})
         assert registry.known_jids() == ()
 
     def test_ignores_non_absolute_paths(self, tmp_path):
@@ -63,9 +61,7 @@ class TestRegistryResolve:
         assert registry.resolve("120363000@g.us") is None
 
     def test_ignores_missing_directories(self, tmp_path):
-        registry = GroupWorkspaceRegistry(
-            {"120363000@g.us": str(tmp_path / "nope")}
-        )
+        registry = GroupWorkspaceRegistry({"120363000@g.us": str(tmp_path / "nope")})
         assert registry.resolve("120363000@g.us") is None
 
     def test_empty_mapping_is_safe(self):

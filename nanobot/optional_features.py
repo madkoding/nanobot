@@ -1,4 +1,5 @@
 """Optional nanobot feature discovery and enablement."""
+
 from __future__ import annotations
 
 import json
@@ -152,8 +153,7 @@ def _extra_dependencies_installed(
 ) -> bool:
     normalized = canonicalize_name(requested_extra)
     provided = {
-        canonicalize_name(value)
-        for value in (dist.metadata.get_all("Provides-Extra") or [])
+        canonicalize_name(value) for value in (dist.metadata.get_all("Provides-Extra") or [])
     }
     if provided and normalized not in provided:
         return False
@@ -188,8 +188,12 @@ def run_install_command(argv: list[str]) -> subprocess.CompletedProcess[str]:
             timeout=_INSTALL_TIMEOUT_SECONDS,
         )
     except subprocess.TimeoutExpired as exc:
-        stdout = exc.stdout.decode(errors="replace") if isinstance(exc.stdout, bytes) else exc.stdout
-        stderr = exc.stderr.decode(errors="replace") if isinstance(exc.stderr, bytes) else exc.stderr
+        stdout = (
+            exc.stdout.decode(errors="replace") if isinstance(exc.stdout, bytes) else exc.stdout
+        )
+        stderr = (
+            exc.stderr.decode(errors="replace") if isinstance(exc.stderr, bytes) else exc.stderr
+        )
         message = f"Timed out after {_INSTALL_TIMEOUT_SECONDS}s"
         stderr = "\n".join(part for part in ((stderr or "").rstrip(), message) if part)
         return subprocess.CompletedProcess(argv, 124, stdout=stdout or "", stderr=stderr)
@@ -221,7 +225,9 @@ def install_extra(
     install_args, label = install_args_for_extra(extra, deps)
     pip_cmd = [sys.executable, "-m", "pip", "install", *install_args]
     if not install_args:
-        logger.info("Optional feature '{}' has no installable dependencies for this platform", extra)
+        logger.info(
+            "Optional feature '{}' has no installable dependencies for this platform", extra
+        )
         return InstallResult(True, label, pip_cmd)
 
     logger.info("Installing optional feature '{}': {}", extra, command_text(pip_cmd))
@@ -235,7 +241,9 @@ def install_extra(
     failed_proc = proc
     if missing_pip(proc):
         ensure_cmd = [sys.executable, "-m", "ensurepip", "--upgrade"]
-        logger.info("pip missing while installing '{}'; running {}", extra, command_text(ensure_cmd))
+        logger.info(
+            "pip missing while installing '{}'; running {}", extra, command_text(ensure_cmd)
+        )
         ensure_proc = runner(ensure_cmd)
         _log_completed_command(f"Optional feature '{extra}' ensurepip", ensure_proc)
         if ensure_proc.returncode == 0:
@@ -310,7 +318,9 @@ def channel_enabled(
 ) -> bool:
     section = getattr(config.channels, name, None)
     if default_enabled is None:
-        default_enabled = plugin.default_enabled if plugin is not None else channel_default_enabled(name)
+        default_enabled = (
+            plugin.default_enabled if plugin is not None else channel_default_enabled(name)
+        )
     if section is None:
         return default_enabled
     if plugin is None:
@@ -440,12 +450,14 @@ def optional_features_payload(
                 feature["webui"] = channel_plugin.webui
 
         if not is_channel:
-            feature.update({
-                "enabled": installed,
-                "configured": installed,
-                "ready": installed,
-                "status": "enabled" if installed else "missing_dependency",
-            })
+            feature.update(
+                {
+                    "enabled": installed,
+                    "configured": installed,
+                    "ready": installed,
+                    "status": "enabled" if installed else "missing_dependency",
+                }
+            )
             features.append(feature)
             continue
 
@@ -468,13 +480,17 @@ def optional_features_payload(
                 default_enabled=channel_plugin.default_enabled,
             )
             ready = bool(enabled and installed)
-            status = "enabled" if ready else "missing_dependency" if not installed else "not_enabled"
-            feature.update({
-                "enabled": enabled,
-                "configured": configured,
-                "ready": ready,
-                "status": status,
-            })
+            status = (
+                "enabled" if ready else "missing_dependency" if not installed else "not_enabled"
+            )
+            feature.update(
+                {
+                    "enabled": enabled,
+                    "configured": configured,
+                    "ready": ready,
+                    "status": status,
+                }
+            )
             config_values, configured_fields = _channel_config_snapshot(
                 getattr(config.channels, name, None),
                 name,
@@ -493,13 +509,15 @@ def optional_features_payload(
                 feature["instances"] = instances
         except Exception as exc:
             logger.warning("Could not inspect {} channel configuration: {}", name, exc)
-            feature.update({
-                "enabled": False,
-                "configured": False,
-                "ready": False,
-                "status": "invalid_config",
-                "error": "Channel configuration could not be inspected.",
-            })
+            feature.update(
+                {
+                    "enabled": False,
+                    "configured": False,
+                    "ready": False,
+                    "status": "invalid_config",
+                    "error": "Channel configuration could not be inspected.",
+                }
+            )
         features.append(feature)
 
     payload = {
@@ -534,17 +552,18 @@ def with_channel_runtime_status(
         desired_enabled = bool(feature.get("enabled"))
         owner_statuses = statuses_by_owner.get(str(feature.get("name")), [])
         if desired_enabled and not owner_statuses:
-            owner_statuses = [{
-                "state": "failed",
-                "running": False,
-                "error": "Enabled channel has no runtime. Check gateway logs.",
-            }]
+            owner_statuses = [
+                {
+                    "state": "failed",
+                    "running": False,
+                    "error": "Enabled channel has no runtime. Check gateway logs.",
+                }
+            ]
 
         instances = feature.get("instances")
         if isinstance(instances, list):
             by_instance = {
-                str(status.get("instance_id", "default")): status
-                for status in owner_statuses
+                str(status.get("instance_id", "default")): status for status in owner_statuses
             }
             decorated_instances = []
             for original_instance in instances:
@@ -572,11 +591,7 @@ def with_channel_runtime_status(
         feature["ready"] = state == "running"
         feature["status"] = "enabled" if state == "running" else state
         error = next(
-            (
-                str(status["error"])
-                for status in owner_statuses
-                if status.get("error")
-            ),
+            (str(status["error"]) for status in owner_statuses if status.get("error")),
             None,
         )
         if error:
@@ -588,11 +603,7 @@ def with_channel_runtime_status(
     decorated["enabled_count"] = sum(
         1
         for feature in features
-        if (
-            feature.get("running")
-            if feature.get("type") == "channel"
-            else feature.get("enabled")
-        )
+        if (feature.get("running") if feature.get("type") == "channel" else feature.get("enabled"))
     )
     return decorated
 
@@ -775,7 +786,7 @@ def disable_optional_feature(
     )
     payload = optional_features_payload(
         config=load_config(config_path),
-        last_action={"ok": True, "message": f"Disabled channel '{name}'", "enabled": False}
+        last_action={"ok": True, "message": f"Disabled channel '{name}'", "enabled": False},
     )
     payload["requires_restart"] = True
     return payload

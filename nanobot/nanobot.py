@@ -38,6 +38,14 @@ from nanobot.sdk.types import (
     result_from_response,
 )
 from nanobot.utils.llm_runtime import LLMRuntime
+from nanobot.utils.validation import (
+    sanitize_input,
+    validate_channel,
+    validate_chat_id,
+    validate_media_paths,
+    validate_sender_id,
+    validate_session_key,
+)
 
 __all__ = [
     "Nanobot",
@@ -58,7 +66,11 @@ __all__ = [
     "STREAM_EVENT_TYPES",
     "StreamEvent",
     "StreamEventType",
+    "ValidationError",
 ]
+
+# Re-export ValidationError from validation module
+from nanobot.utils.validation import ValidationError
 
 
 class Nanobot:
@@ -107,9 +119,7 @@ class Nanobot:
 
         config: Config = resolve_config_env_vars(load_config(resolved))
         if workspace is not None:
-            config.agents.defaults.workspace = str(
-                Path(workspace).expanduser().resolve()
-            )
+            config.agents.defaults.workspace = str(Path(workspace).expanduser().resolve())
         if model is not None:
             config.agents.defaults.model_preset = None
             config.agents.defaults.model = model
@@ -152,7 +162,18 @@ class Nanobot:
             hooks: Optional lifecycle hooks for this run.
             model: Override the model for this run only.
             model_preset: Override the model preset for this run only.
+
+        Raises:
+            ValidationError: If any input parameter fails validation.
         """
+        # Validate inputs
+        session_key = validate_session_key(session_key)
+        channel = validate_channel(channel)
+        chat_id = validate_chat_id(chat_id)
+        sender_id = validate_sender_id(sender_id)
+        message = sanitize_input(message)
+        media = validate_media_paths(media)
+
         capture = SDKCaptureHook()
         per_run_hooks = [capture, *(hooks or [])]
         runtime = self._loop.runtime_resolver.resolve_override(
@@ -192,7 +213,31 @@ class Nanobot:
         model: str | None = None,
         model_preset: str | None = None,
     ) -> RunStream:
-        """Start a streamed run and return a handle for events and final result."""
+        """Start a streamed run and return a handle for events and final result.
+
+        Args:
+            message: The user message to process.
+            session_key: Session identifier for conversation isolation.
+            channel: Logical channel label for runtime context.
+            chat_id: Logical chat identifier for runtime context.
+            sender_id: Logical sender identifier for runtime context.
+            media: Optional local media paths attached to the message.
+            ephemeral: If true, do not persist the turn or compact session history.
+            hooks: Optional lifecycle hooks for this run.
+            model: Override the model for this run only.
+            model_preset: Override the model preset for this run only.
+
+        Raises:
+            ValidationError: If any input parameter fails validation.
+        """
+        # Validate inputs
+        session_key = validate_session_key(session_key)
+        channel = validate_channel(channel)
+        chat_id = validate_chat_id(chat_id)
+        sender_id = validate_sender_id(sender_id)
+        message = sanitize_input(message)
+        media = validate_media_paths(media)
+
         override_runtime = self._loop.runtime_resolver.resolve_override(
             model=model,
             model_preset=model_preset,
@@ -218,14 +263,18 @@ class Nanobot:
                 "sender_id": sender_id,
             }
             if runtime is not None:
-                metadata.update({
-                    "model": runtime.model,
-                    "model_preset": runtime.model_preset,
-                })
-            await emitter.emit(StreamEvent(
-                type=STREAM_EVENT_RUN_STARTED,
-                metadata=metadata,
-            ))
+                metadata.update(
+                    {
+                        "model": runtime.model,
+                        "model_preset": runtime.model_preset,
+                    }
+                )
+            await emitter.emit(
+                StreamEvent(
+                    type=STREAM_EVENT_RUN_STARTED,
+                    metadata=metadata,
+                )
+            )
             run_started = True
 
         async def _on_stream(delta: str) -> None:
@@ -257,21 +306,25 @@ class Nanobot:
                 await _emit_run_started()
                 await emitter.text_completed(resuming=False, force=False)
                 result = result_from_response(response, capture)
-                await emitter.emit(StreamEvent(
-                    type=STREAM_EVENT_RUN_COMPLETED,
-                    content=result.content,
-                    result=result,
-                    usage=dict(result.usage),
-                    metadata=dict(result.metadata),
-                ))
+                await emitter.emit(
+                    StreamEvent(
+                        type=STREAM_EVENT_RUN_COMPLETED,
+                        content=result.content,
+                        result=result,
+                        usage=dict(result.usage),
+                        metadata=dict(result.metadata),
+                    )
+                )
                 return result
             except Exception as exc:
                 await _emit_run_started()
-                await emitter.emit(StreamEvent(
-                    type=STREAM_EVENT_RUN_FAILED,
-                    error=str(exc),
-                    metadata={"exception_type": type(exc).__name__},
-                ))
+                await emitter.emit(
+                    StreamEvent(
+                        type=STREAM_EVENT_RUN_FAILED,
+                        error=str(exc),
+                        metadata={"exception_type": type(exc).__name__},
+                    )
+                )
                 raise
             finally:
                 emitter.close()
@@ -293,7 +346,24 @@ class Nanobot:
         model: str | None = None,
         model_preset: str | None = None,
     ) -> AsyncIterator[StreamEvent]:
-        """Stream events for one agent turn."""
+        """Stream events for one agent turn.
+
+        Args:
+            message: The user message to process.
+            session_key: Session identifier for conversation isolation.
+            channel: Logical channel label for runtime context.
+            chat_id: Logical chat identifier for runtime context.
+            sender_id: Logical sender identifier for runtime context.
+            media: Optional local media paths attached to the message.
+            ephemeral: If true, do not persist the turn or compact session history.
+            hooks: Optional lifecycle hooks for this run.
+            model: Override the model for this run only.
+            model_preset: Override the model preset for this run only.
+
+        Raises:
+            ValidationError: If any input parameter fails validation.
+        """
+        # Validation is delegated to run_streamed
         run = await self.run_streamed(
             message,
             session_key=session_key,
@@ -319,7 +389,9 @@ class Nanobot:
         await self._loop.close_mcp()
 
     async def __aenter__(self) -> Nanobot:
+        """Async context manager entry."""
         return self
 
     async def __aexit__(self, *exc: object) -> None:
+        """Async context manager exit - releases resources."""
         await self.aclose()

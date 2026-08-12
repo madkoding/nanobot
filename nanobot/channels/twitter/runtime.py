@@ -31,13 +31,15 @@ TWITTER_MAX_TWEET_LEN = 280
 TWITTER_DEFAULT_INTERVAL = 900  # 15 min
 TWITTER_MIN_INTERVAL = 60
 TWITTER_RATE_LIMIT_BACKOFF_MAX = 900
-TWITTER_TWEET_FIELDS = ",".join([
-    "author_id",
-    "conversation_id",
-    "in_reply_to_user_id",
-    "created_at",
-    "text",
-])
+TWITTER_TWEET_FIELDS = ",".join(
+    [
+        "author_id",
+        "conversation_id",
+        "in_reply_to_user_id",
+        "created_at",
+        "text",
+    ]
+)
 TWITTER_USER_FIELDS = ",".join(["username", "name"])
 TWITTER_EXPANSIONS = "author_id"
 
@@ -85,7 +87,9 @@ def _oauth1_sign(
     """Build OAuth 1.0a Authorization header (user context)."""
     oauth_params = {
         "oauth_consumer_key": api_key,
-        "oauth_nonce": base64.urlsafe_b64encode(hashlib.sha1(str(time.time_ns()).encode()).digest())[:32].decode(),
+        "oauth_nonce": base64.urlsafe_b64encode(
+            hashlib.sha1(str(time.time_ns()).encode()).digest()
+        )[:32].decode(),
         "oauth_signature_method": "HMAC-SHA1",
         "oauth_timestamp": str(int(time.time())),
         "oauth_token": access_token,
@@ -95,11 +99,13 @@ def _oauth1_sign(
     param_str = "&".join(
         f"{_percent_encode(k)}={_percent_encode(v)}" for k, v in sorted(all_params.items())
     )
-    base_str = "&".join([
-        method.upper(),
-        _percent_encode(url.split("?", 1)[0]),
-        _percent_encode(param_str),
-    ])
+    base_str = "&".join(
+        [
+            method.upper(),
+            _percent_encode(url.split("?", 1)[0]),
+            _percent_encode(param_str),
+        ]
+    )
     signing_key = f"{_percent_encode(api_key_secret)}&{_percent_encode(access_token_secret)}"
     sig = base64.b64encode(
         hmac.new(signing_key.encode(), base_str.encode(), hashlib.sha1).digest()
@@ -225,10 +231,7 @@ class TwitterChannel(BaseChannel):
             return
         payload = resp.json()
         tweets = payload.get("data") or []
-        users_by_id = {
-            u["id"]: u
-            for u in (payload.get("includes") or {}).get("users", [])
-        }
+        users_by_id = {u["id"]: u for u in (payload.get("includes") or {}).get("users", [])}
         new_count = 0
         for tweet in tweets:
             tid = tweet.get("id")
@@ -314,7 +317,9 @@ class TwitterChannel(BaseChannel):
             access_token_secret=self.config.access_token_secret,
         )
         try:
-            resp = await self._http.get("/2/users/me", headers=headers, params={"user.fields": TWITTER_USER_FIELDS})
+            resp = await self._http.get(
+                "/2/users/me", headers=headers, params={"user.fields": TWITTER_USER_FIELDS}
+            )
         except Exception as exc:
             self.logger.error("Twitter auth probe failed: {}", exc)
             return None
@@ -340,9 +345,7 @@ class TwitterChannel(BaseChannel):
         if not cfg.bot_username:
             missing.append("botUsername")
         if missing:
-            self.logger.error(
-                "Twitter channel not configured, missing: {}", ", ".join(missing)
-            )
+            self.logger.error("Twitter channel not configured, missing: {}", ", ".join(missing))
             return False
         return True
 
@@ -398,6 +401,8 @@ class TwitterChannel(BaseChannel):
             self.logger.exception("Twitter POST /2/tweets transport error")
             raise
         if resp.status_code >= 400:
-            self.logger.error("Twitter POST /2/tweets failed: {} {}", resp.status_code, resp.text[:300])
+            self.logger.error(
+                "Twitter POST /2/tweets failed: {} {}", resp.status_code, resp.text[:300]
+            )
             raise RuntimeError(f"Twitter post failed: {resp.status_code}")
         self.logger.info("Twitter tweet posted ({} chars)", len(text))

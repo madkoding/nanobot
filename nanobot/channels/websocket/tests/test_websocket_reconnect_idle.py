@@ -27,7 +27,9 @@ async def test_hydrate_after_subscribe_is_quiet_when_no_turn_active():
     channel.send_goal_state = mock_send_goal_state
     channel.send_goal_status = mock_send_goal_status
 
-    with patch("nanobot.channels.websocket.runtime.websocket_turn_wall_started_at", return_value=None):
+    with patch(
+        "nanobot.channels.websocket.runtime.websocket_turn_wall_started_at", return_value=None
+    ):
         await channel._hydrate_after_subscribe("test-chat")
 
     assert sent_events == []
@@ -53,7 +55,10 @@ async def test_hydrate_after_subscribe_pushes_running_when_turn_active():
     channel.send_goal_state = mock_send_goal_state
     channel.send_goal_status = mock_send_goal_status
 
-    with patch("nanobot.channels.websocket.runtime.websocket_turn_wall_started_at", return_value=1234567890.0):
+    with patch(
+        "nanobot.channels.websocket.runtime.websocket_turn_wall_started_at",
+        return_value=1234567890.0,
+    ):
         await channel._hydrate_after_subscribe("test-chat")
 
     running_events = [e for e in sent_events if e[0] == "goal_status" and e[2] == "running"]

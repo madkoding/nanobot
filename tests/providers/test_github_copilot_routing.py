@@ -58,6 +58,7 @@ async def test_github_copilot_does_not_fall_back_from_responses_error():
 
     class _CompatError(Exception):
         """Looks like a fallback-eligible error on other providers."""
+
         status_code = 400
         body = "Unsupported parameter responses api"
 

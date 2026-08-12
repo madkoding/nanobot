@@ -80,8 +80,7 @@ class GitStore:
 
         if self._is_inside_git_repo():
             logger.warning(
-                "Workspace {} is already inside a git repo; "
-                "skipping nested repo initialization",
+                "Workspace {} is already inside a git repo; skipping nested repo initialization",
                 self._workspace,
             )
             return False
@@ -98,9 +97,7 @@ class GitStore:
                 existing = gitignore.read_text(encoding="utf-8")
                 existing_lines = set(existing.splitlines())
                 new_lines = [
-                    line
-                    for line in dream_entries.splitlines()
-                    if line not in existing_lines
+                    line for line in dream_entries.splitlines() if line not in existing_lines
                 ]
                 if new_lines:
                     merged = existing.rstrip("\n") + "\n" + "\n".join(new_lines) + "\n"
@@ -262,11 +259,13 @@ class GitStore:
                     )
                     msg = commit.message.decode("utf-8", errors="replace").strip()
                     if message_prefix is None or msg.startswith(message_prefix):
-                        entries.append(CommitInfo(
-                            sha=sha.hex()[:8],
-                            message=msg,
-                            timestamp=ts,
-                        ))
+                        entries.append(
+                            CommitInfo(
+                                sha=sha.hex()[:8],
+                                message=msg,
+                                timestamp=ts,
+                            )
+                        )
                     sha = commit.parents[0] if commit.parents else None
 
             return entries
@@ -375,11 +374,7 @@ class GitStore:
                         head_text = ""
                     wt_path = self._workspace / path
                     try:
-                        wt_text = (
-                            wt_path.read_bytes().decode("utf-8")
-                            if wt_path.exists()
-                            else ""
-                        )
+                        wt_text = wt_path.read_bytes().decode("utf-8") if wt_path.exists() else ""
                     except UnicodeDecodeError:
                         # Non-UTF-8 (binary/corrupt) working-tree file: record
                         # the change without a unified diff, which would
@@ -395,15 +390,21 @@ class GitStore:
                     head_lines = head_text.splitlines()
                     wt_lines = wt_text.splitlines()
                     changed += 1
-                    hunks = list(difflib.unified_diff(
-                        head_lines,
-                        wt_lines,
-                        fromfile=path,
-                        tofile=path,
-                        lineterm="",
-                    ))
-                    added = sum(1 for line in hunks if line.startswith("+") and not line.startswith("+++"))
-                    removed = sum(1 for line in hunks if line.startswith("-") and not line.startswith("---"))
+                    hunks = list(
+                        difflib.unified_diff(
+                            head_lines,
+                            wt_lines,
+                            fromfile=path,
+                            tofile=path,
+                            lineterm="",
+                        )
+                    )
+                    added = sum(
+                        1 for line in hunks if line.startswith("+") and not line.startswith("+++")
+                    )
+                    removed = sum(
+                        1 for line in hunks if line.startswith("-") and not line.startswith("---")
+                    )
                     total_added += added
                     total_removed += removed
                     summary_lines.append(f"{path}: +{added} -{removed}")

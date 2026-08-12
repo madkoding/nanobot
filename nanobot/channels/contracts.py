@@ -171,11 +171,7 @@ class ChannelSetupSpec:
 
     @property
     def route_field_types(self) -> dict[str, RouteFieldType]:
-        return {
-            name: field.route_type
-            for name, field in self.fields.items()
-            if field.writable
-        }
+        return {name: field.route_type for name, field in self.fields.items() if field.writable}
 
     @property
     def simple_required_fields(self) -> tuple[str, ...]:
@@ -253,8 +249,7 @@ class ChannelManagementSpec:
             ]
             if unexpected:
                 raise ValueError(
-                    "single-instance channel management cannot define "
-                    + ", ".join(unexpected)
+                    "single-instance channel management cannot define " + ", ".join(unexpected)
                 )
         if self.multi_instance and self.instance_specs is None:
             raise ValueError("multi-instance channel management requires instance_specs")
@@ -284,7 +279,9 @@ def channel_default_config(plugin: ChannelPlugin) -> dict[str, Any]:
         return defaults
     values = factory()
     if not isinstance(values, dict):
-        raise TypeError(f"ChannelPlugin.management.default_config for '{plugin.name}' must return a dict")
+        raise TypeError(
+            f"ChannelPlugin.management.default_config for '{plugin.name}' must return a dict"
+        )
     return merge_missing_defaults(values, defaults)
 
 
@@ -505,7 +502,9 @@ def _validate_runtime_name(plugin: ChannelPlugin, runtime_name: Any) -> None:
     if not channel_name:
         raise ValueError("ChannelPlugin.name must not be empty")
     if not isinstance(runtime_name, str) or not runtime_name.strip():
-        raise ValueError(f"ChannelPlugin.management for '{plugin.name}' returned an empty runtime name")
+        raise ValueError(
+            f"ChannelPlugin.management for '{plugin.name}' returned an empty runtime name"
+        )
     if runtime_name != channel_name and not runtime_name.startswith(f"{channel_name}."):
         raise ValueError(
             f"ChannelPlugin.management runtime name '{runtime_name}' must be scoped under "

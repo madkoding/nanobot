@@ -96,9 +96,7 @@ def test_validate_telegram_rejects_denied_tokens_without_exposing_them(
     assert result["status"] == "invalid"
     assert result["can_enable"] is False
     assert token not in str(result)
-    assert any(
-        f"HTTP {status_code}" in check.get("message", "") for check in result["checks"]
-    )
+    assert any(f"HTTP {status_code}" in check.get("message", "") for check in result["checks"])
 
 
 def test_validate_telegram_keeps_transient_http_failures_retryable(
@@ -136,9 +134,7 @@ def test_validate_telegram_marks_proxy_transport_failures_without_exposing_proxy
     proxy = "http://proxy-user:proxy-pass@127.0.0.1:7890"
     config_path = tmp_path / "config.json"
     save_config(
-        Config.model_validate(
-            {"channels": {"telegram": {"token": token, "proxy": proxy}}}
-        ),
+        Config.model_validate({"channels": {"telegram": {"token": token, "proxy": proxy}}}),
         config_path,
     )
     monkeypatch.setattr("nanobot.config.loader._current_config_path", config_path)
@@ -164,9 +160,7 @@ def test_validate_telegram_uses_saved_proxy_without_exposing_it(
     proxy = "socks5://proxy-user:proxy-pass@127.0.0.1:1080"
     config_path = tmp_path / "config.json"
     save_config(
-        Config.model_validate(
-            {"channels": {"telegram": {"token": token, "proxy": proxy}}}
-        ),
+        Config.model_validate({"channels": {"telegram": {"token": token, "proxy": proxy}}}),
         config_path,
     )
     monkeypatch.setattr("nanobot.config.loader._current_config_path", config_path)
@@ -197,9 +191,7 @@ def test_validate_telegram_resolves_saved_secret_env_refs_without_exposing_them(
     monkeypatch.setenv("TELEGRAM_PROXY_TEST", proxy)
     config_path = tmp_path / "config.json"
     save_config(
-        Config.model_validate(
-            {"channels": {"telegram": {"token": token_ref, "proxy": proxy_ref}}}
-        ),
+        Config.model_validate({"channels": {"telegram": {"token": token_ref, "proxy": proxy_ref}}}),
         config_path,
     )
     monkeypatch.setattr("nanobot.config.loader._current_config_path", config_path)
@@ -230,9 +222,7 @@ def test_validate_telegram_rejects_unset_proxy_env_ref_without_connecting(
     monkeypatch.delenv("TELEGRAM_MISSING_PROXY_TEST", raising=False)
     config_path = tmp_path / "config.json"
     save_config(
-        Config.model_validate(
-            {"channels": {"telegram": {"token": token, "proxy": proxy_ref}}}
-        ),
+        Config.model_validate({"channels": {"telegram": {"token": token, "proxy": proxy_ref}}}),
         config_path,
     )
     monkeypatch.setattr("nanobot.config.loader._current_config_path", config_path)

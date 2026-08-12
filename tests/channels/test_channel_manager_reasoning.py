@@ -165,16 +165,20 @@ async def test_dispatch_delivers_reasoning_when_channel_opts_in(manager):
     channel = manager.channels["mock"]
     channel.show_reasoning = True
     for chunk in ("first ", "second"):
-        await manager.bus.publish_outbound(outbound_message_for_event(
+        await manager.bus.publish_outbound(
+            outbound_message_for_event(
+                channel="mock",
+                chat_id="c1",
+                event=ProgressEvent(content=chunk, reasoning_delta=True, stream_id="r1"),
+            )
+        )
+    await manager.bus.publish_outbound(
+        outbound_message_for_event(
             channel="mock",
             chat_id="c1",
-            event=ProgressEvent(content=chunk, reasoning_delta=True, stream_id="r1"),
-        ))
-    await manager.bus.publish_outbound(outbound_message_for_event(
-        channel="mock",
-        chat_id="c1",
-        event=ProgressEvent(reasoning_end=True, stream_id="r1"),
-    ))
+            event=ProgressEvent(reasoning_end=True, stream_id="r1"),
+        )
+    )
 
     await _pump_one(manager)
 
@@ -218,9 +222,12 @@ async def test_base_channel_reasoning_primitives_are_noop_safe():
     assert await channel.send_reasoning_delta("c", "x") is None
     assert await channel.send_reasoning_end("c") is None
     # And the one-shot wrapper translates without raising.
-    assert await channel.send_reasoning(
-        OutboundMessage(channel="plain", chat_id="c", content="x", metadata={})
-    ) is None
+    assert (
+        await channel.send_reasoning(
+            OutboundMessage(channel="plain", chat_id="c", content="x", metadata={})
+        )
+        is None
+    )
 
 
 @pytest.mark.asyncio
@@ -235,9 +242,7 @@ async def test_file_edit_events_route_to_channel_capability(manager):
 
     await manager._send_once(channel, msg)
 
-    channel._file_edit_mock.assert_awaited_once_with(
-        "c1", edits, msg.metadata
-    )
+    channel._file_edit_mock.assert_awaited_once_with("c1", edits, msg.metadata)
     channel._send_mock.assert_not_awaited()
 
 
@@ -253,9 +258,7 @@ async def test_typed_file_edit_event_routes_to_channel_capability(manager):
 
     await manager._send_once(channel, msg)
 
-    channel._file_edit_mock.assert_awaited_once_with(
-        "c1", edits, msg.metadata
-    )
+    channel._file_edit_mock.assert_awaited_once_with("c1", edits, msg.metadata)
     channel._send_mock.assert_not_awaited()
 
 
@@ -285,11 +288,13 @@ async def test_reasoning_routing_does_not_consult_send_progress(manager):
     channel = manager.channels["mock"]
     channel.send_progress = False
     channel.show_reasoning = True
-    await manager.bus.publish_outbound(outbound_message_for_event(
-        channel="mock",
-        chat_id="c1",
-        event=ProgressEvent(content="still surfaces", reasoning_delta=True),
-    ))
+    await manager.bus.publish_outbound(
+        outbound_message_for_event(
+            channel="mock",
+            chat_id="c1",
+            event=ProgressEvent(content="still surfaces", reasoning_delta=True),
+        )
+    )
 
     await _pump_one(manager)
 
@@ -302,9 +307,7 @@ async def _pump_one(manager: ChannelManager) -> None:
     async def dispatch_one(msg: OutboundMessage) -> None:
         event = outbound_event_from_message(msg)
         if isinstance(event, ProgressEvent) and (
-            event.reasoning_delta
-            or event.reasoning_end
-            or event.reasoning
+            event.reasoning_delta or event.reasoning_end or event.reasoning
         ):
             channel = manager.channels.get(msg.channel)
             if channel is not None and channel.show_reasoning:

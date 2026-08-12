@@ -63,7 +63,6 @@ class _SetupChannel(_SingleChannel):
         }
 
 
-
 _SETUP_PLUGIN = ChannelPlugin(
     name=_SetupChannel.name,
     display_name=_SetupChannel.display_name,
@@ -263,9 +262,7 @@ def test_channel_instance_contract_round_trip(
         False,
         instance_id=target_id,
     )
-    assert target_id not in {
-        spec.instance_id for spec in channel_instance_specs(plugin, disabled)
-    }
+    assert target_id not in {spec.instance_id for spec in channel_instance_specs(plugin, disabled)}
 
     values = channel_instance_config(plugin, disabled, instance_id=target_id)
     values["contractMarker"] = "preserved"
@@ -275,11 +272,14 @@ def test_channel_instance_contract_round_trip(
         values,
         instance_id=target_id,
     )
-    assert channel_instance_config(
-        plugin,
-        updated,
-        instance_id=target_id,
-    )["contractMarker"] == "preserved"
+    assert (
+        channel_instance_config(
+            plugin,
+            updated,
+            instance_id=target_id,
+        )["contractMarker"]
+        == "preserved"
+    )
 
 
 def test_channel_feature_instances_use_generic_setup_snapshot() -> None:
@@ -307,12 +307,14 @@ def test_channel_feature_instances_use_generic_setup_snapshot() -> None:
             runtime_name=lambda name, instance_id: (
                 name if instance_id == "default" else f"{name}.{instance_id}"
             ),
-            feature_instances=lambda section, *, setup_spec=None: [{
-                "id": "product",
-                "display_name": "Catalog product helper",
-                "enabled": False,
-                "config_values": {"channels.feature_multi.token": "leaked"},
-            }],
+            feature_instances=lambda section, *, setup_spec=None: [
+                {
+                    "id": "product",
+                    "display_name": "Catalog product helper",
+                    "enabled": False,
+                    "config_values": {"channels.feature_multi.token": "leaked"},
+                }
+            ],
         ),
     )
     section = {
@@ -578,11 +580,13 @@ def test_channel_setup_contract_owns_fields_and_validation() -> None:
     assert spec.validator is not None
     assert spec.validator({"token": "saved"}, ChannelValidationContext())["status"] == "connected"
     assert spec.to_public_dict(_SetupChannel.name) == {
-        "fields": [{
-            "key": "channels.setup_contract.token",
-            "field": "token",
-            "kind": "secret",
-            "choices": [],
-            "required": True,
-        }],
+        "fields": [
+            {
+                "key": "channels.setup_contract.token",
+                "field": "token",
+                "kind": "secret",
+                "choices": [],
+                "required": True,
+            }
+        ],
     }

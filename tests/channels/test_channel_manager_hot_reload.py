@@ -42,6 +42,7 @@ class _MultiHotChannel(_HotChannel):
     name = "multi"
     display_name = "Multi"
 
+
 class _AliasHotChannel(_HotChannel):
     """Package descriptor alias that claims another channel's runtime namespace."""
 
@@ -111,18 +112,22 @@ def test_descriptor_rejects_runtime_class_owned_by_another_name():
 
 @pytest.mark.asyncio
 async def test_apply_channel_feature_action_starts_and_stops_channel(monkeypatch):
-    disabled = Config.model_validate({
-        "channels": {
-            "websocket": {"enabled": False},
-            "hot": {"enabled": False},
+    disabled = Config.model_validate(
+        {
+            "channels": {
+                "websocket": {"enabled": False},
+                "hot": {"enabled": False},
+            }
         }
-    })
-    enabled = Config.model_validate({
-        "channels": {
-            "websocket": {"enabled": False},
-            "hot": {"enabled": True},
+    )
+    enabled = Config.model_validate(
+        {
+            "channels": {
+                "websocket": {"enabled": False},
+                "hot": {"enabled": True},
+            }
         }
-    })
+    )
 
     configs = iter([enabled, disabled])
     _stub_registry(monkeypatch, _plugin(_HotChannel))
@@ -149,12 +154,14 @@ async def test_apply_channel_feature_action_starts_and_stops_channel(monkeypatch
 
 @pytest.mark.asyncio
 async def test_apply_channel_feature_action_keeps_running_channel_when_rebuild_fails(monkeypatch):
-    enabled = Config.model_validate({
-        "channels": {
-            "websocket": {"enabled": False},
-            "hot": {"enabled": True},
+    enabled = Config.model_validate(
+        {
+            "channels": {
+                "websocket": {"enabled": False},
+                "hot": {"enabled": True},
+            }
         }
-    })
+    )
 
     _stub_registry(monkeypatch, _plugin(_HotChannel))
     monkeypatch.setattr("nanobot.config.loader.load_config", lambda: enabled)
@@ -179,18 +186,20 @@ async def test_apply_channel_feature_action_keeps_running_channel_when_rebuild_f
 
 @pytest.mark.asyncio
 async def test_apply_channel_feature_action_uses_channel_runtime_name(monkeypatch):
-    config = Config.model_validate({
-        "channels": {
-            "websocket": {"enabled": False},
-            "multi": {
-                "enabled": True,
-                "instances": [
-                    {"id": "default", "enabled": True},
-                    {"id": "product", "enabled": True},
-                ]
-            },
+    config = Config.model_validate(
+        {
+            "channels": {
+                "websocket": {"enabled": False},
+                "multi": {
+                    "enabled": True,
+                    "instances": [
+                        {"id": "default", "enabled": True},
+                        {"id": "product", "enabled": True},
+                    ],
+                },
+            }
         }
-    })
+    )
 
     _stub_registry(monkeypatch, _plugin(_MultiHotChannel, multi_instance=True))
     monkeypatch.setattr("nanobot.config.loader.load_config", lambda: config)
@@ -209,42 +218,48 @@ async def test_apply_channel_feature_action_uses_channel_runtime_name(monkeypatc
 
 @pytest.mark.asyncio
 async def test_default_multi_channel_action_reconciles_only_default_runtime(monkeypatch):
-    initial = Config.model_validate({
-        "channels": {
-            "websocket": {"enabled": False},
-            "multi": {
-                "enabled": True,
-                "instances": [
-                    {"id": "default", "enabled": True},
-                    {"id": "product", "enabled": True},
-                ],
-            },
+    initial = Config.model_validate(
+        {
+            "channels": {
+                "websocket": {"enabled": False},
+                "multi": {
+                    "enabled": True,
+                    "instances": [
+                        {"id": "default", "enabled": True},
+                        {"id": "product", "enabled": True},
+                    ],
+                },
+            }
         }
-    })
-    disabled = Config.model_validate({
-        "channels": {
-            "websocket": {"enabled": False},
-            "multi": {
-                "enabled": True,
-                "instances": [
-                    {"id": "default", "enabled": False},
-                    {"id": "product", "enabled": True},
-                ],
-            },
+    )
+    disabled = Config.model_validate(
+        {
+            "channels": {
+                "websocket": {"enabled": False},
+                "multi": {
+                    "enabled": True,
+                    "instances": [
+                        {"id": "default", "enabled": False},
+                        {"id": "product", "enabled": True},
+                    ],
+                },
+            }
         }
-    })
-    enabled = Config.model_validate({
-        "channels": {
-            "websocket": {"enabled": False},
-            "multi": {
-                "enabled": True,
-                "instances": [
-                    {"id": "default", "enabled": True},
-                    {"id": "product", "enabled": True},
-                ],
-            },
+    )
+    enabled = Config.model_validate(
+        {
+            "channels": {
+                "websocket": {"enabled": False},
+                "multi": {
+                    "enabled": True,
+                    "instances": [
+                        {"id": "default", "enabled": True},
+                        {"id": "product", "enabled": True},
+                    ],
+                },
+            }
         }
-    })
+    )
 
     _stub_registry(monkeypatch, _plugin(_MultiHotChannel, multi_instance=True))
     configs = iter([disabled, enabled])

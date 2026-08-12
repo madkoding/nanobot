@@ -260,4 +260,6 @@ def test_folder_in_detail_payload(data_dir: Path) -> None:
     s = c.create_project("Demo", "")
     c.add_folder(s.id, "/tmp/alpha")
     detail = project_detail_payload(c, s.id)
-    assert detail["folders"] == [{"path": "/tmp/alpha", "created_at_ms": detail["folders"][0]["created_at_ms"]}]
+    assert detail["folders"] == [
+        {"path": "/tmp/alpha", "created_at_ms": detail["folders"][0]["created_at_ms"]}
+    ]

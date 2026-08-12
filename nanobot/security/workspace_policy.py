@@ -21,7 +21,9 @@ class WorkspaceBoundaryError(PermissionError):
     """Raised when a requested path escapes an allowed workspace boundary."""
 
 
-def resolve_path(path: str | Path, workspace: str | Path | None = None, *, strict: bool = False) -> Path:
+def resolve_path(
+    path: str | Path, workspace: str | Path | None = None, *, strict: bool = False
+) -> Path:
     """Resolve *path*, interpreting relative paths against *workspace* when set."""
     candidate = Path(path).expanduser()
     if not candidate.is_absolute() and workspace is not None:
@@ -120,8 +122,7 @@ def resolve_allowed_path(
     if not is_path_allowed(resolved, roots) and not exact_allowed:
         boundary = Path(allowed_root).expanduser() if allowed_root is not None else "allowed files"
         raise WorkspaceBoundaryError(
-            f"Path {path} is outside allowed directory {boundary}"
-            + WORKSPACE_BOUNDARY_NOTE
+            f"Path {path} is outside allowed directory {boundary}" + WORKSPACE_BOUNDARY_NOTE
         )
     if strict:
         return resolve_path(path, workspace, strict=True)

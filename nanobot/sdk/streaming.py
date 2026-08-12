@@ -132,11 +132,13 @@ class SDKStreamEmitter:
         if not delta:
             return
         self._text_parts.append(delta)
-        await self.emit(StreamEvent(
-            type=STREAM_EVENT_TEXT_DELTA,
-            delta=delta,
-            iteration=iteration,
-        ))
+        await self.emit(
+            StreamEvent(
+                type=STREAM_EVENT_TEXT_DELTA,
+                delta=delta,
+                iteration=iteration,
+            )
+        )
 
     async def text_completed(
         self,
@@ -149,12 +151,14 @@ class SDKStreamEmitter:
         if not content and (resuming or not force):
             return
         self._text_parts = []
-        await self.emit(StreamEvent(
-            type=STREAM_EVENT_TEXT_COMPLETED,
-            content=content,
-            iteration=iteration,
-            resuming=resuming,
-        ))
+        await self.emit(
+            StreamEvent(
+                type=STREAM_EVENT_TEXT_COMPLETED,
+                content=content,
+                iteration=iteration,
+                resuming=resuming,
+            )
+        )
 
     def close(self) -> None:
         if self._closed:
@@ -177,22 +181,26 @@ class SDKStreamingHook(AgentHook):
 
     async def before_execute_tools(self, context: AgentHookContext) -> None:
         for call in context.tool_calls:
-            await self._emitter.emit(StreamEvent(
-                type=STREAM_EVENT_TOOL_STARTED,
-                name=call.name,
-                tool_call_id=call.id,
-                arguments=deepcopy(call.arguments),
-                iteration=context.iteration,
-            ))
+            await self._emitter.emit(
+                StreamEvent(
+                    type=STREAM_EVENT_TOOL_STARTED,
+                    name=call.name,
+                    tool_call_id=call.id,
+                    arguments=deepcopy(call.arguments),
+                    iteration=context.iteration,
+                )
+            )
 
     async def emit_reasoning(self, reasoning_content: str | None) -> None:
         if not reasoning_content:
             return
         self._reasoning_open = True
-        await self._emitter.emit(StreamEvent(
-            type=STREAM_EVENT_REASONING_DELTA,
-            delta=reasoning_content,
-        ))
+        await self._emitter.emit(
+            StreamEvent(
+                type=STREAM_EVENT_REASONING_DELTA,
+                delta=reasoning_content,
+            )
+        )
 
     async def emit_reasoning_end(self) -> None:
         if not self._reasoning_open:
@@ -208,15 +216,15 @@ class SDKStreamingHook(AgentHook):
             event = dict(raw_event)
             status = event.get("status")
             name = str(event.get("name") or (call.name if call else ""))
-            event_type = (
-                STREAM_EVENT_TOOL_COMPLETED if status == "ok" else STREAM_EVENT_TOOL_FAILED
+            event_type = STREAM_EVENT_TOOL_COMPLETED if status == "ok" else STREAM_EVENT_TOOL_FAILED
+            await self._emitter.emit(
+                StreamEvent(
+                    type=event_type,
+                    name=name or None,
+                    tool_call_id=call.id if call else None,
+                    arguments=deepcopy(call.arguments) if call else None,
+                    iteration=context.iteration,
+                    error=None if status == "ok" else str(event.get("detail") or ""),
+                    metadata=event,
+                )
             )
-            await self._emitter.emit(StreamEvent(
-                type=event_type,
-                name=name or None,
-                tool_call_id=call.id if call else None,
-                arguments=deepcopy(call.arguments) if call else None,
-                iteration=context.iteration,
-                error=None if status == "ok" else str(event.get("detail") or ""),
-                metadata=event,
-            ))

@@ -47,10 +47,12 @@ def test_mistral_keyword_match_covers_model_families() -> None:
         "codestral-latest",
         "devstral-medium-latest",
     ):
-        config = Config.model_validate({
-            "providers": {"mistral": {"apiKey": "test-key"}},
-            "agents": {"defaults": {"model": model}},
-        })
+        config = Config.model_validate(
+            {
+                "providers": {"mistral": {"apiKey": "test-key"}},
+                "agents": {"defaults": {"model": model}},
+            }
+        )
         assert config.get_provider_name(model) == "mistral", model
 
 
@@ -140,9 +142,7 @@ def test_extract_thinking_content_from_mistral_response() -> None:
                     "content": [
                         {
                             "type": "thinking",
-                            "thinking": [
-                                {"type": "text", "text": "Let me think..."}
-                            ],
+                            "thinking": [{"type": "text", "text": "Let me think..."}],
                             "closed": True,
                         },
                         {"type": "text", "text": "Final answer is 35."},
@@ -179,9 +179,7 @@ def test_extract_thinking_content_with_tool_calls() -> None:
                     "content": [
                         {
                             "type": "thinking",
-                            "thinking": [
-                                {"type": "text", "text": "I should call get_weather."}
-                            ],
+                            "thinking": [{"type": "text", "text": "I should call get_weather."}],
                         }
                     ],
                 },

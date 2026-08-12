@@ -25,7 +25,9 @@ _AGENDA_PARAMETERS = tool_parameters_schema(
     time=StringSchema("Time HH:MM or null for all-day."),
     all_day=StringSchema("All-day flag: 'true'/'false'.", enum=["true", "false"]),
     notes=StringSchema("Description/notes."),
-    category=StringSchema("Category.", enum=["personal", "work", "health", "reminder", "journal", "other"]),
+    category=StringSchema(
+        "Category.", enum=["personal", "work", "health", "reminder", "journal", "other"]
+    ),
     color=StringSchema("Hex color (e.g. #ef4444). Defaults to category color."),
     required=["action"],
     description="Manage appointments. add requires title+date; update/delete require id.",
@@ -164,10 +166,7 @@ class AgendaTool(Tool):
         if payload.get("error"):
             return ToolResult.error(f"Error: {payload['error']}")
         appt = payload["appointment"]
-        return (
-            f"Created appointment '{appt['title']}' on {appt['date']} "
-            f"(id: {appt['id']})"
-        )
+        return f"Created appointment '{appt['title']}' on {appt['date']} (id: {appt['id']})"
 
     def _update_appointment(
         self,
@@ -204,10 +203,7 @@ class AgendaTool(Tool):
         if payload.get("error"):
             return ToolResult.error(f"Error: {payload['error']}")
         appt = payload["appointment"]
-        return (
-            f"Updated appointment '{appt['title']}' on {appt['date']} "
-            f"(id: {appt['id']})"
-        )
+        return f"Updated appointment '{appt['title']}' on {appt['date']} (id: {appt['id']})"
 
     def _delete_appointment(self, scope: Any, *, appointment_id: str) -> str:
         payload = delete_appointment(appointment_id, scope=scope)

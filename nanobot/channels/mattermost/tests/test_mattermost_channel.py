@@ -36,7 +36,9 @@ class _FakeHTTPClient:
     def _req(self, method: str, path: str) -> httpx.Request:
         return httpx.Request(method, f"https://chat.example.com{path}")
 
-    def _resp(self, status: int, json_data: Any, method: str = "GET", path: str = "/") -> httpx.Response:
+    def _resp(
+        self, status: int, json_data: Any, method: str = "GET", path: str = "/"
+    ) -> httpx.Response:
         return httpx.Response(status, json=json_data, request=self._req(method, path))
 
     def set_get_response(self, path: str, data: Any) -> None:
@@ -56,7 +58,15 @@ class _FakeHTTPClient:
         data = self._get_responses.get(path, {"id": "resp_" + path.split("/")[-1]})
         return self._resp(200, data, "GET", path)
 
-    async def post(self, path: str, *, json: dict[str, Any] | None = None, data: Any = None, files: Any = None, **kwargs) -> httpx.Response:
+    async def post(
+        self,
+        path: str,
+        *,
+        json: dict[str, Any] | None = None,
+        data: Any = None,
+        files: Any = None,
+        **kwargs,
+    ) -> httpx.Response:
         call: dict[str, Any] = {"path": path}
         if json is not None:
             call["json"] = json
@@ -68,7 +78,9 @@ class _FakeHTTPClient:
         data = self._post_responses.get(path, {"id": "new_id"})
         return self._resp(201, data, "POST", path)
 
-    async def put(self, path: str, *, json: dict[str, Any] | None = None, **kwargs) -> httpx.Response:
+    async def put(
+        self, path: str, *, json: dict[str, Any] | None = None, **kwargs
+    ) -> httpx.Response:
         self.put_calls.append({"path": path, "json": json})
         data = self._put_responses.get(path, {"id": path.split("/")[-1]})
         return self._resp(200, data, "PUT", path)
@@ -97,11 +109,14 @@ def _make_channel(
         bus = MessageBus()
     channel = MattermostChannel(config, bus)
     fake = _FakeHTTPClient()
-    fake.set_get_response("/api/v4/users/me", {
-        "id": "botuserid123",
-        "username": "nanobot",
-        "email": "bot@example.com",
-    })
+    fake.set_get_response(
+        "/api/v4/users/me",
+        {
+            "id": "botuserid123",
+            "username": "nanobot",
+            "email": "bot@example.com",
+        },
+    )
     fake.set_post_response("/api/v4/posts", {"id": "post_new_id"})
     channel._http_client = fake
     return channel, fake
@@ -198,10 +213,12 @@ async def test_start_missing_config():
 
 
 def test_server_url_normalization():
-    config = MattermostConfig.model_validate({
-        "serverUrl": "https://chat.example.com/",
-        "token": "tok",
-    })
+    config = MattermostConfig.model_validate(
+        {
+            "serverUrl": "https://chat.example.com/",
+            "token": "tok",
+        }
+    )
     channel = MattermostChannel(config, MessageBus())
     assert channel._server_url == "https://chat.example.com"
     assert "/api/v4/websocket" in channel._ws_url
@@ -209,10 +226,12 @@ def test_server_url_normalization():
 
 
 def test_server_url_no_trailing_slash():
-    config = MattermostConfig.model_validate({
-        "serverUrl": "https://chat.example.com",
-        "token": "tok",
-    })
+    config = MattermostConfig.model_validate(
+        {
+            "serverUrl": "https://chat.example.com",
+            "token": "tok",
+        }
+    )
     channel = MattermostChannel(config, MessageBus())
     assert channel._server_url == "https://chat.example.com"
 
@@ -232,13 +251,15 @@ async def test_posted_event_routes_to_handle_message():
             "event": "posted",
             "data": {
                 "channel_type": "D",
-                "post": json.dumps({
-                    "id": "post_abc",
-                    "user_id": "user_42",
-                    "channel_id": "chan_1",
-                    "message": "hello",
-                    "root_id": "",
-                }),
+                "post": json.dumps(
+                    {
+                        "id": "post_abc",
+                        "user_id": "user_42",
+                        "channel_id": "chan_1",
+                        "message": "hello",
+                        "root_id": "",
+                    }
+                ),
             },
             "broadcast": {"channel_id": "chan_1", "team_id": ""},
         }
@@ -260,10 +281,15 @@ async def test_posted_event_self_message_ignored():
             "event": "posted",
             "data": {
                 "channel_type": "D",
-                "post": json.dumps({
-                    "id": "p1", "user_id": "bot_id",
-                    "channel_id": "c1", "message": "ignore me", "root_id": "",
-                }),
+                "post": json.dumps(
+                    {
+                        "id": "p1",
+                        "user_id": "bot_id",
+                        "channel_id": "c1",
+                        "message": "ignore me",
+                        "root_id": "",
+                    }
+                ),
             },
             "broadcast": {},
         }
@@ -284,10 +310,15 @@ async def test_posted_event_channel_type_detection():
                         "event": "posted",
                         "data": {
                             "channel_type": code,
-                            "post": json.dumps({
-                                "id": "p1", "user_id": "u1",
-                                "channel_id": "c1", "message": "hi", "root_id": "",
-                            }),
+                            "post": json.dumps(
+                                {
+                                    "id": "p1",
+                                    "user_id": "u1",
+                                    "channel_id": "c1",
+                                    "message": "hi",
+                                    "root_id": "",
+                                }
+                            ),
                         },
                         "broadcast": {},
                     }
@@ -313,10 +344,15 @@ async def test_strip_bot_mention_from_incoming():
                     "event": "posted",
                     "data": {
                         "channel_type": "O",
-                        "post": json.dumps({
-                            "id": "p1", "user_id": "u1",
-                            "channel_id": "c1", "message": "@nanobot hello there", "root_id": "",
-                        }),
+                        "post": json.dumps(
+                            {
+                                "id": "p1",
+                                "user_id": "u1",
+                                "channel_id": "c1",
+                                "message": "@nanobot hello there",
+                                "root_id": "",
+                            }
+                        ),
                     },
                     "broadcast": {},
                 }
@@ -338,7 +374,9 @@ async def test_dm_policy_open():
 
 @pytest.mark.asyncio
 async def test_dm_policy_allowlist_match():
-    channel, fake = _make_channel({"dm": {"policy": "allowlist", "allowFrom": ["user_1", "user_2"]}})
+    channel, fake = _make_channel(
+        {"dm": {"policy": "allowlist", "allowFrom": ["user_1", "user_2"]}}
+    )
     assert await channel._is_allowed("user_1", "dm_chan", "dm") is True
     assert await channel._is_allowed("user_3", "dm_chan", "dm") is False
 
@@ -390,7 +428,9 @@ async def test_match_mode_id():
 @pytest.mark.asyncio
 async def test_match_mode_username():
     channel, fake = _make_channel({"allowFromMatchMode": "username", "allowFrom": ["alice"]})
-    fake.set_get_response("/api/v4/users/u1", {"id": "u1", "username": "alice", "email": "alice@x.com"})
+    fake.set_get_response(
+        "/api/v4/users/u1", {"id": "u1", "username": "alice", "email": "alice@x.com"}
+    )
     assert await channel._match_sender("u1", ["alice"]) is True
     assert await channel._match_sender("u2", ["alice"]) is False
 
@@ -398,7 +438,9 @@ async def test_match_mode_username():
 @pytest.mark.asyncio
 async def test_match_mode_email():
     channel, fake = _make_channel({"allowFromMatchMode": "email", "allowFrom": ["alice@x.com"]})
-    fake.set_get_response("/api/v4/users/u1", {"id": "u1", "username": "alice", "email": "alice@x.com"})
+    fake.set_get_response(
+        "/api/v4/users/u1", {"id": "u1", "username": "alice", "email": "alice@x.com"}
+    )
     assert await channel._match_sender("u1", ["alice@x.com"]) is True
     assert await channel._match_sender("u2", ["alice@x.com"]) is False
 
@@ -446,9 +488,12 @@ async def test_send_creates_post():
 async def test_send_with_file_upload():
     channel, fake = _make_channel()
     channel._self_id = "bot_id"
-    fake.set_post_response("/api/v4/files", {
-        "file_infos": [{"id": "file_abc", "name": "test.txt"}],
-    })
+    fake.set_post_response(
+        "/api/v4/files",
+        {
+            "file_infos": [{"id": "file_abc", "name": "test.txt"}],
+        },
+    )
 
     with patch("nanobot.channels.mattermost.runtime.Path.exists", return_value=True):
         with patch("nanobot.channels.mattermost.runtime.Path.read_bytes", return_value=b"data"):
@@ -541,7 +586,11 @@ async def test_stream_end_adds_done_emoji():
 
     await channel.send_delta("chan_1", "Hello", {"_stream_id": "s1"})
     await channel.send_delta("chan_1", "", {"_stream_id": "s1", "_stream_end": True})
-    reactions = [c for c in fake.post_calls if c["path"] == "/api/v4/reactions" and c["json"]["emoji_name"] == "white_check_mark"]
+    reactions = [
+        c
+        for c in fake.post_calls
+        if c["path"] == "/api/v4/reactions" and c["json"]["emoji_name"] == "white_check_mark"
+    ]
     assert len(reactions) >= 1
     assert channel._stream_posts.get("s1") is None
 
@@ -658,10 +707,15 @@ async def test_team_filtering_rejects_wrong_team():
             "event": "posted",
             "data": {
                 "channel_type": "O",
-                "post": json.dumps({
-                    "id": "p1", "user_id": "u1",
-                    "channel_id": "c1", "message": "hi", "root_id": "",
-                }),
+                "post": json.dumps(
+                    {
+                        "id": "p1",
+                        "user_id": "u1",
+                        "channel_id": "c1",
+                        "message": "hi",
+                        "root_id": "",
+                    }
+                ),
             },
             "broadcast": {"channel_id": "c1", "team_id": "team_b"},
         }
@@ -680,10 +734,15 @@ async def test_team_filtering_allows_correct_team():
                     "event": "posted",
                     "data": {
                         "channel_type": "O",
-                        "post": json.dumps({
-                            "id": "p1", "user_id": "u1",
-                            "channel_id": "c1", "message": "hi", "root_id": "",
-                        }),
+                        "post": json.dumps(
+                            {
+                                "id": "p1",
+                                "user_id": "u1",
+                                "channel_id": "c1",
+                                "message": "hi",
+                                "root_id": "",
+                            }
+                        ),
                     },
                     "broadcast": {"channel_id": "c1", "team_id": "team_a"},
                 }
@@ -700,10 +759,15 @@ async def test_team_filtering_dm_bypass():
             "event": "posted",
             "data": {
                 "channel_type": "D",
-                "post": json.dumps({
-                    "id": "p1", "user_id": "u1",
-                    "channel_id": "dm_chan", "message": "hi", "root_id": "",
-                }),
+                "post": json.dumps(
+                    {
+                        "id": "p1",
+                        "user_id": "u1",
+                        "channel_id": "dm_chan",
+                        "message": "hi",
+                        "root_id": "",
+                    }
+                ),
             },
             "broadcast": {"channel_id": "dm_chan", "team_id": ""},
         }
@@ -715,20 +779,28 @@ async def test_team_filtering_dm_bypass():
 async def test_team_filtering_resolves_missing_broadcast_team_and_rejects_wrong_team():
     channel, fake = _make_channel({"teamId": "team_a"})
     channel._self_id = "bot_id"
-    fake.set_get_response("/api/v4/channels/c1", {
-        "id": "c1",
-        "type": "O",
-        "team_id": "team_b",
-    })
+    fake.set_get_response(
+        "/api/v4/channels/c1",
+        {
+            "id": "c1",
+            "type": "O",
+            "team_id": "team_b",
+        },
+    )
     with patch.object(channel, "_handle_message", AsyncMock()) as mock_handle:
         ws_msg = {
             "event": "posted",
             "data": {
                 "channel_type": "O",
-                "post": json.dumps({
-                    "id": "p1", "user_id": "u1",
-                    "channel_id": "c1", "message": "hi", "root_id": "",
-                }),
+                "post": json.dumps(
+                    {
+                        "id": "p1",
+                        "user_id": "u1",
+                        "channel_id": "c1",
+                        "message": "hi",
+                        "root_id": "",
+                    }
+                ),
             },
             "broadcast": {"channel_id": "c1"},
         }
@@ -752,11 +824,15 @@ async def test_thread_session_key():
                     "event": "posted",
                     "data": {
                         "channel_type": "O",
-                        "post": json.dumps({
-                            "id": "post_1", "user_id": "u1",
-                            "channel_id": "c1", "message": "in thread",
-                            "root_id": "root_99",
-                        }),
+                        "post": json.dumps(
+                            {
+                                "id": "post_1",
+                                "user_id": "u1",
+                                "channel_id": "c1",
+                                "message": "in thread",
+                                "root_id": "root_99",
+                            }
+                        ),
                     },
                     "broadcast": {},
                 }
@@ -776,11 +852,15 @@ async def test_top_level_mention_uses_thread_session_key():
                 "event": "posted",
                 "data": {
                     "channel_type": "O",
-                    "post": json.dumps({
-                        "id": "post_1", "user_id": "u1",
-                        "channel_id": "c1", "message": "@nanobot start thread",
-                        "root_id": "",
-                    }),
+                    "post": json.dumps(
+                        {
+                            "id": "post_1",
+                            "user_id": "u1",
+                            "channel_id": "c1",
+                            "message": "@nanobot start thread",
+                            "root_id": "",
+                        }
+                    ),
                 },
                 "broadcast": {},
             }
@@ -842,11 +922,14 @@ async def test_action_event_denied_dm():
 async def test_action_event_rejects_wrong_team():
     channel, fake = _make_channel({"teamId": "team_a"})
     channel._self_id = "bot_id"
-    fake.set_get_response("/api/v4/channels/c1", {
-        "id": "c1",
-        "type": "O",
-        "team_id": "team_b",
-    })
+    fake.set_get_response(
+        "/api/v4/channels/c1",
+        {
+            "id": "c1",
+            "type": "O",
+            "team_id": "team_b",
+        },
+    )
     with patch.object(channel, "_handle_message", AsyncMock()) as mock_handle:
         ws_msg = {
             "event": "action",
@@ -906,10 +989,12 @@ async def test_auth_failure_prevents_start():
 
 @pytest.mark.asyncio
 async def test_dm_allowlist_with_username_match():
-    channel, fake = _make_channel({
-        "allowFromMatchMode": "username",
-        "dm": {"policy": "allowlist", "allowFrom": ["alice"]},
-    })
+    channel, fake = _make_channel(
+        {
+            "allowFromMatchMode": "username",
+            "dm": {"policy": "allowlist", "allowFrom": ["alice"]},
+        }
+    )
     fake.set_get_response("/api/v4/users/u1", {"id": "u1", "username": "alice", "email": ""})
     assert await channel._is_allowed("u1", "dm_chan", "dm") is True
     assert await channel._is_allowed("u2", "dm_chan", "dm") is False
@@ -937,10 +1022,15 @@ async def test_denied_dm_sends_pairing_not_empty_inbound():
         "event": "posted",
         "data": {
             "channel_type": "D",
-            "post": json.dumps({
-                "id": "p1", "user_id": "u_denied",
-                "channel_id": "dm_chan", "message": "hello", "root_id": "",
-            }),
+            "post": json.dumps(
+                {
+                    "id": "p1",
+                    "user_id": "u_denied",
+                    "channel_id": "dm_chan",
+                    "message": "hello",
+                    "root_id": "",
+                }
+            ),
         },
         "broadcast": {"channel_id": "dm_chan", "team_id": ""},
     }
@@ -987,6 +1077,7 @@ def test_is_mentioned_no_username():
 
 def test_message_splitting():
     from nanobot.utils.helpers import split_message
+
     short = "short message"
     assert split_message(short, MATTERMOST_MAX_MESSAGE_LEN) == [short]
 

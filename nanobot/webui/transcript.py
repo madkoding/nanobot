@@ -37,34 +37,42 @@ _WEBUI_TURN_ID_RE = re.compile(r"^[A-Za-z0-9._:-]{1,128}$")
 _MARKDOWN_LOCAL_IMAGE_RE = re.compile(
     r"!\[([^\]]*)\]\((<[^>]+>|[^)\s]+)(\s+(?:\"[^\"]*\"|'[^']*'))?\)"
 )
-_INLINE_MARKDOWN_IMAGE_EXTS: frozenset[str] = frozenset({
-    ".png",
-    ".jpg",
-    ".jpeg",
-    ".webp",
-    ".gif",
-    ".svg",
-})
-_INLINE_MARKDOWN_VIDEO_EXTS: frozenset[str] = frozenset({
-    ".mp4",
-    ".mov",
-    ".webm",
-})
+_INLINE_MARKDOWN_IMAGE_EXTS: frozenset[str] = frozenset(
+    {
+        ".png",
+        ".jpg",
+        ".jpeg",
+        ".webp",
+        ".gif",
+        ".svg",
+    }
+)
+_INLINE_MARKDOWN_VIDEO_EXTS: frozenset[str] = frozenset(
+    {
+        ".mp4",
+        ".mov",
+        ".webm",
+    }
+)
 _INLINE_MARKDOWN_MEDIA_EXTS = _INLINE_MARKDOWN_IMAGE_EXTS | _INLINE_MARKDOWN_VIDEO_EXTS
-_FILE_EDIT_TOOL_NAMES: frozenset[str] = frozenset({
-    "write_file",
-    "edit_file",
-    "apply_patch",
-})
-_TURN_DISPLAY_EVENTS: frozenset[str] = frozenset({
-    "reasoning_delta",
-    "reasoning_end",
-    "delta",
-    "stream_end",
-    "message",
-    "file_edit",
-    "turn_end",
-})
+_FILE_EDIT_TOOL_NAMES: frozenset[str] = frozenset(
+    {
+        "write_file",
+        "edit_file",
+        "apply_patch",
+    }
+)
+_TURN_DISPLAY_EVENTS: frozenset[str] = frozenset(
+    {
+        "reasoning_delta",
+        "reasoning_end",
+        "delta",
+        "stream_end",
+        "message",
+        "file_edit",
+        "turn_end",
+    }
+)
 
 
 def rewrite_local_markdown_images(
@@ -234,12 +242,13 @@ def _normalize_manifest_entry(session_key: str, entry: Any) -> dict[str, Any] | 
     if not isinstance(entry, dict):
         return None
     segment_id = entry.get("id")
-    if not isinstance(segment_id, str) or not _TRANSCRIPT_SEGMENT_RE.fullmatch(f"{segment_id}.jsonl"):
+    if not isinstance(segment_id, str) or not _TRANSCRIPT_SEGMENT_RE.fullmatch(
+        f"{segment_id}.jsonl"
+    ):
         return None
     segment_path = _segment_file_path(session_key, segment_id)
     values = {
-        key: _non_negative_int(entry.get(key))
-        for key in ("bytes", "turn_count", "user_count")
+        key: _non_negative_int(entry.get(key)) for key in ("bytes", "turn_count", "user_count")
     }
     if not segment_path.is_file() or values["bytes"] != segment_path.stat().st_size:
         return None
@@ -258,7 +267,9 @@ def _write_segment_manifest(session_key: str, segment_ids: list[str]) -> None:
     directory.mkdir(parents=True, exist_ok=True)
     data = {
         "version": _TRANSCRIPT_SEGMENT_MANIFEST_VERSION,
-        "segments": [_segment_manifest_entry(session_key, segment_id) for segment_id in segment_ids],
+        "segments": [
+            _segment_manifest_entry(session_key, segment_id) for segment_id in segment_ids
+        ],
     }
     path = _webui_transcript_manifest_path(session_key)
     atomic_write_text(path, json.dumps(data, ensure_ascii=False, indent=2) + "\n")
@@ -274,7 +285,10 @@ def _rebuild_segment_manifest(session_key: str) -> list[str]:
 
 
 def _rebuilt_segment_manifest_entries(session_key: str) -> list[dict[str, Any]]:
-    return [_segment_manifest_entry(session_key, segment_id) for segment_id in _rebuild_segment_manifest(session_key)]
+    return [
+        _segment_manifest_entry(session_key, segment_id)
+        for segment_id in _rebuild_segment_manifest(session_key)
+    ]
 
 
 def _read_segment_manifest_entries(session_key: str) -> list[dict[str, Any]]:
@@ -287,7 +301,9 @@ def _read_segment_manifest_entries(session_key: str) -> list[dict[str, Any]]:
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
         raw_segments = data.get("segments") if isinstance(data, dict) else None
-        if data.get("version") != _TRANSCRIPT_SEGMENT_MANIFEST_VERSION or not isinstance(raw_segments, list):
+        if data.get("version") != _TRANSCRIPT_SEGMENT_MANIFEST_VERSION or not isinstance(
+            raw_segments, list
+        ):
             return _rebuilt_segment_manifest_entries(session_key)
         entries: list[dict[str, Any]] = []
         for entry in raw_segments:
@@ -317,7 +333,9 @@ def _append_segment_turns(session_key: str, turns: list[list[dict[str, Any]]]) -
         turn_bytes = _records_bytes(turn)
         if batch and batch_bytes + turn_bytes > _MAX_TRANSCRIPT_FILE_BYTES:
             segment_id = f"{next_id:06d}"
-            _write_records_to_path(_segment_file_path(session_key, segment_id), _flatten_turns(batch))
+            _write_records_to_path(
+                _segment_file_path(session_key, segment_id), _flatten_turns(batch)
+            )
             segment_ids.append(segment_id)
             next_id += 1
             batch = []
@@ -404,11 +422,7 @@ def _decode_page_cursor(value: str | None) -> int | None:
     if not isinstance(data, dict):
         return None
     before_turn = data.get("before_turn")
-    if (
-        isinstance(before_turn, bool)
-        or not isinstance(before_turn, int)
-        or before_turn < 0
-    ):
+    if isinstance(before_turn, bool) or not isinstance(before_turn, int) or before_turn < 0:
         return None
     return before_turn
 
@@ -462,10 +476,7 @@ def _count_user_messages_before_ordinal(
             continue
         turns = _read_chunk_turns(session_key, chunk.chunk_id)
         total += sum(
-            1
-            for turn in turns[:local_end]
-            for row in turn
-            if _is_user_transcript_row(row)
+            1 for turn in turns[:local_end] for row in turn if _is_user_transcript_row(row)
         )
     return total
 
@@ -1145,10 +1156,7 @@ def _message_has_file_edit_for_tool_event(
     edits = message.get("fileEdits")
     if not isinstance(edits, list):
         return False
-    return any(
-        isinstance(edit, dict) and _file_edit_tool_event_key(edit) == key
-        for edit in edits
-    )
+    return any(isinstance(edit, dict) and _file_edit_tool_event_key(edit) == key for edit in edits)
 
 
 def _filter_covered_file_edit_tool_events(
@@ -1168,11 +1176,7 @@ def _strip_covered_file_edit_tool_hints(
     message: dict[str, Any],
     edits: list[dict[str, Any]],
 ) -> dict[str, Any]:
-    incoming_keys = {
-        _file_edit_tool_event_key(edit)
-        for edit in edits
-        if isinstance(edit, dict)
-    }
+    incoming_keys = {_file_edit_tool_event_key(edit) for edit in edits if isinstance(edit, dict)}
     events = message.get("toolEvents")
     if not incoming_keys or not isinstance(events, list):
         return message
@@ -1369,7 +1373,8 @@ def replay_transcript_to_ui_messages(
                     **candidate,
                     "reasoning": (str(candidate.get("reasoning") or "")) + chunk,
                     "reasoningStreaming": True,
-                    "activitySegmentId": candidate.get("activitySegmentId") or _ensure_activity_segment(),
+                    "activitySegmentId": candidate.get("activitySegmentId")
+                    or _ensure_activity_segment(),
                     **turn_fields,
                 }
                 return
@@ -1378,7 +1383,8 @@ def replay_transcript_to_ui_messages(
                     **candidate,
                     "reasoning": chunk,
                     "reasoningStreaming": True,
-                    "activitySegmentId": candidate.get("activitySegmentId") or _ensure_activity_segment(),
+                    "activitySegmentId": candidate.get("activitySegmentId")
+                    or _ensure_activity_segment(),
                     **turn_fields,
                 }
                 return
@@ -1517,9 +1523,7 @@ def replay_transcript_to_ui_messages(
     ) -> int | None:
         incoming_keys = {_file_edit_key(edit) for edit in edits if isinstance(edit, dict)}
         incoming_tool_event_keys = {
-            _file_edit_tool_event_key(edit)
-            for edit in edits
-            if isinstance(edit, dict)
+            _file_edit_tool_event_key(edit) for edit in edits if isinstance(edit, dict)
         }
         for i in range(len(messages) - 1, -1, -1):
             candidate = messages[i]
@@ -1534,13 +1538,10 @@ def replay_transcript_to_ui_messages(
                 for existing in existing_edits:
                     if not isinstance(existing, dict):
                         continue
-                    if (
-                        _file_edit_key(existing) in incoming_keys
-                        or (
-                            not existing.get("path")
-                            and existing.get("pending")
-                            and _file_edit_tool_event_key(existing) in incoming_tool_event_keys
-                        )
+                    if _file_edit_key(existing) in incoming_keys or (
+                        not existing.get("path")
+                        and existing.get("pending")
+                        and _file_edit_tool_event_key(existing) in incoming_tool_event_keys
                     ):
                         return i
         return None
@@ -1606,7 +1607,9 @@ def replay_transcript_to_ui_messages(
         target_index = find_file_edit_trace_index(segment, edits)
         if target_index is not None:
             last = messages[target_index]
-            segment = str(last.get("activitySegmentId") or segment or _new_activity_segment(activate=False))
+            segment = str(
+                last.get("activitySegmentId") or segment or _new_activity_segment(activate=False)
+            )
             active_file_edit_segment_id = segment
         else:
             if not segment:
@@ -1632,9 +1635,7 @@ def replay_transcript_to_ui_messages(
             active_file_edit_segment_id = segment
         existing = list(last.get("fileEdits") or [])
         index_by_key = {
-            _file_edit_key(edit): pos
-            for pos, edit in enumerate(existing)
-            if isinstance(edit, dict)
+            _file_edit_key(edit): pos for pos, edit in enumerate(existing) if isinstance(edit, dict)
         }
         for edit in edits:
             if not isinstance(edit, dict):
@@ -1692,7 +1693,9 @@ def replay_transcript_to_ui_messages(
             if media_att:
                 row["media"] = media_att
                 if all(m.get("kind") == "image" for m in media_att):
-                    row["images"] = [{"url": m.get("url"), "name": m.get("name")} for m in media_att]
+                    row["images"] = [
+                        {"url": m.get("url"), "name": m.get("name")} for m in media_att
+                    ]
             cli_apps = rec.get("cli_apps")
             if isinstance(cli_apps, list) and cli_apps:
                 row["cliApps"] = [dict(app) for app in cli_apps if isinstance(app, dict)]
@@ -1723,7 +1726,11 @@ def replay_transcript_to_ui_messages(
                 continue
             close_activity_for_answer()
             turn_fields = _turn_fields(rec, "answer")
-            adopted = find_active_placeholder(messages, turn_fields) if buffer_message_id is None else None
+            adopted = (
+                find_active_placeholder(messages, turn_fields)
+                if buffer_message_id is None
+                else None
+            )
             if buffer_message_id is None:
                 if adopted:
                     buffer_message_id = adopted
@@ -1831,7 +1838,9 @@ def replay_transcript_to_ui_messages(
                 continue
             if kind in ("tool_hint", "progress"):
                 structured_events = _normalize_tool_events(rec.get("tool_events"))
-                visible_structured_events = _filter_covered_file_edit_tool_events(messages, structured_events)
+                visible_structured_events = _filter_covered_file_edit_tool_events(
+                    messages, structured_events
+                )
                 structured = tool_trace_lines_from_events(visible_structured_events)
                 text = rec.get("text")
                 if structured:
@@ -1855,7 +1864,9 @@ def replay_transcript_to_ui_messages(
                 ):
                     prev_traces = list(last.get("traces") or [last.get("content")])
                     if structured:
-                        merged_traces, added = _merge_unique_tool_trace_lines(prev_traces, structured)
+                        merged_traces, added = _merge_unique_tool_trace_lines(
+                            prev_traces, structured
+                        )
                         if not added and not visible_structured_events:
                             continue
                     else:
@@ -1864,7 +1875,9 @@ def replay_transcript_to_ui_messages(
                         **last,
                         "traces": merged_traces,
                         "content": merged_traces[-1],
-                        "toolEvents": _merge_tool_events(last.get("toolEvents"), visible_structured_events)
+                        "toolEvents": _merge_tool_events(
+                            last.get("toolEvents"), visible_structured_events
+                        )
                         if visible_structured_events
                         else last.get("toolEvents"),
                         "activitySegmentId": last.get("activitySegmentId") or segment,
@@ -1879,7 +1892,11 @@ def replay_transcript_to_ui_messages(
                             "kind": "trace",
                             "content": trace_lines[-1],
                             "traces": trace_lines,
-                            **({"toolEvents": visible_structured_events} if visible_structured_events else {}),
+                            **(
+                                {"toolEvents": visible_structured_events}
+                                if visible_structured_events
+                                else {}
+                            ),
                             "activitySegmentId": segment,
                             **_turn_fields(rec, "activity"),
                             "createdAt": _created_at_ms(rec, idx),

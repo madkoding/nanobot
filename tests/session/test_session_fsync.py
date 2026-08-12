@@ -57,9 +57,7 @@ class TestSaveFsync:
             manager.save(session)
             mock_fsync.assert_not_called()
 
-    def test_save_ignores_unsupported_directory_fsync(
-        self, manager: SessionManager
-    ) -> None:
+    def test_save_ignores_unsupported_directory_fsync(self, manager: SessionManager) -> None:
         """Shared filesystems may open directories but reject directory fsync."""
         session = manager.get_or_create("test:unsupported-directory-fsync")
         session.add_message("user", "hello")
@@ -78,9 +76,7 @@ class TestSaveFsync:
         open_dir.assert_called_once_with(str(manager.sessions_dir), os.O_RDONLY)
         close_dir.assert_called_once_with(directory_fd)
 
-    def test_save_propagates_other_directory_fsync_errors(
-        self, manager: SessionManager
-    ) -> None:
+    def test_save_propagates_other_directory_fsync_errors(self, manager: SessionManager) -> None:
         """Only EINVAL is an expected unsupported-directory-fsync result."""
         session = manager.get_or_create("test:directory-fsync-io-error")
         directory_fd = 987654

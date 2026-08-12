@@ -25,7 +25,9 @@ def validate(values: dict[str, Any], _context: ChannelValidationContext) -> dict
                 headers={"Authorization": f"Bot {token}"},
             )
             bot_id = str(data.get("id") or "")
-            checks.append(check("bot_token", "Bot token", "pass", "Discord accepted the bot token."))
+            checks.append(
+                check("bot_token", "Bot token", "pass", "Discord accepted the bot token.")
+            )
             identity = {
                 "name": data.get("global_name") or data.get("username"),
                 "account": bot_id,

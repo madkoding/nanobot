@@ -81,9 +81,7 @@ def list_webui_sessions(session_manager: SessionManager) -> list[dict[str, Any]]
 def _reconcile_index(session_manager: SessionManager) -> tuple[list[dict[str, Any]], bool]:
     existing_rows = _read_index_rows(session_manager.sessions_dir)
     existing_by_file = {
-        row.get("file"): row
-        for row in existing_rows or []
-        if isinstance(row.get("file"), str)
+        row.get("file"): row for row in existing_rows or [] if isinstance(row.get("file"), str)
     }
     paths = sorted(session_manager.sessions_dir.glob("*.jsonl"))
     rows: list[dict[str, Any]] = []

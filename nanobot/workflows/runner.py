@@ -238,9 +238,7 @@ class WorkflowRunner:
 
         task.add_done_callback(_cleanup)
         logger.info("Started workflow '%s' (run: %s)", name, run_id)
-        asyncio.create_task(
-            self._publish_update(run_id=run_id, workflow=name, status="running")
-        )
+        asyncio.create_task(self._publish_update(run_id=run_id, workflow=name, status="running"))
         return run_id
 
     async def _run(

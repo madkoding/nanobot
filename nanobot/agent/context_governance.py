@@ -29,17 +29,27 @@ SNIP_SAFETY_BUFFER = 1024
 MICROCOMPACT_KEEP_RECENT = 10
 MICROCOMPACT_MIN_CHARS = 500
 INFLIGHT_COMPACT_TARGET_RATIO = 0.85
-COMPACTABLE_TOOLS = frozenset({
-    "read_file", "exec", "grep", "find_files",
-    "web_search", "web_fetch", "list_dir", "list_exec_sessions",
-})
+COMPACTABLE_TOOLS = frozenset(
+    {
+        "read_file",
+        "exec",
+        "grep",
+        "find_files",
+        "web_search",
+        "web_fetch",
+        "list_dir",
+        "list_exec_sessions",
+    }
+)
 
 # read_file is the recovery path for persisted results; exempting it prevents persist->read->persist loops.
 TOOL_RESULT_OFFLOAD_EXEMPT_TOOLS = frozenset({"read_file"})
 BACKFILL_CONTENT = "[Tool result unavailable — call was interrupted or lost]"
-PLACEHOLDER_TEXTS = frozenset({
-    "[Previous assistant message omitted.]",
-})
+PLACEHOLDER_TEXTS = frozenset(
+    {
+        "[Previous assistant message omitted.]",
+    }
+)
 
 
 def _tool_call_name_is_valid(tool_call: Any) -> bool:
@@ -94,7 +104,10 @@ class ContextGovernor:
         if budget > 0:
             tools = config.tools.get_definitions()
             estimate, _ = estimate_prompt_tokens_chain(
-                config.provider, config.model, updated, tools,
+                config.provider,
+                config.model,
+                updated,
+                tools,
             )
             overflow = estimate > budget
 
@@ -116,8 +129,10 @@ class ContextGovernor:
             "max_tokens",
             4096,
         )
-        max_output = config.max_tokens if isinstance(config.max_tokens, int) else (
-            provider_max_tokens if isinstance(provider_max_tokens, int) else 4096
+        max_output = (
+            config.max_tokens
+            if isinstance(config.max_tokens, int)
+            else (provider_max_tokens if isinstance(provider_max_tokens, int) else 4096)
         )
         budget = config.context_block_limit or (
             config.context_window_tokens - max_output - SNIP_SAFETY_BUFFER
@@ -307,12 +322,15 @@ class ContextGovernor:
             insert_at = assistant_idx + 1 + offset
             while insert_at < len(updated) and updated[insert_at].get("role") == "tool":
                 insert_at += 1
-            updated.insert(insert_at, {
-                "role": "tool",
-                "tool_call_id": call_id,
-                "name": name,
-                "content": BACKFILL_CONTENT,
-            })
+            updated.insert(
+                insert_at,
+                {
+                    "role": "tool",
+                    "tool_call_id": call_id,
+                    "name": name,
+                    "content": BACKFILL_CONTENT,
+                },
+            )
             offset += 1
         return updated
 
@@ -351,8 +369,7 @@ class ContextGovernor:
                 continue
 
             kept = [
-                tc for tc in calls
-                if isinstance(tc, dict) and str(tc.get("id", "")) in fulfilled
+                tc for tc in calls if isinstance(tc, dict) and str(tc.get("id", "")) in fulfilled
             ]
             if len(kept) == len(calls):
                 if updated is not None:

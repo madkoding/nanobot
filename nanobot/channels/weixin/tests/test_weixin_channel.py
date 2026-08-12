@@ -163,9 +163,7 @@ async def test_process_message_pairs_unauthorized_sender_before_media_side_effec
     channel._start_typing = AsyncMock()
     channel._get_typing_ticket = AsyncMock(return_value="")
     channel._send_text = AsyncMock()
-    monkeypatch.setattr(
-        "nanobot.channels.base.generate_code", lambda _ch, _sid: "ABCD-EFGH"
-    )
+    monkeypatch.setattr("nanobot.channels.base.generate_code", lambda _ch, _sid: "ABCD-EFGH")
 
     await channel._process_message(
         {
@@ -276,7 +274,9 @@ async def test_process_message_falls_back_to_referenced_media_when_no_top_level_
 
 
 @pytest.mark.asyncio
-async def test_process_message_does_not_use_referenced_fallback_when_top_level_media_exists() -> None:
+async def test_process_message_does_not_use_referenced_fallback_when_top_level_media_exists() -> (
+    None
+):
     channel, bus = _make_channel()
     channel._download_media_item = AsyncMock(side_effect=["/tmp/top.jpg", "/tmp/ref.jpg"])
 
@@ -313,7 +313,9 @@ async def test_process_message_does_not_use_referenced_fallback_when_top_level_m
 
 
 @pytest.mark.asyncio
-async def test_process_message_does_not_fallback_when_top_level_media_exists_but_download_fails() -> None:
+async def test_process_message_does_not_fallback_when_top_level_media_exists_but_download_fails() -> (
+    None
+):
     channel, bus = _make_channel()
     # Top-level image download fails (None), referenced image would succeed if fallback were triggered.
     channel._download_media_item = AsyncMock(side_effect=[None, "/tmp/ref.jpg"])
@@ -361,7 +363,11 @@ async def test_send_without_context_token_raises() -> None:
 
     with pytest.raises(RuntimeError, match="context_token missing"):
         await channel.send(
-            type("Msg", (), {"chat_id": "unknown-user", "content": "pong", "media": [], "metadata": {}})()
+            type(
+                "Msg",
+                (),
+                {"chat_id": "unknown-user", "content": "pong", "media": [], "metadata": {}},
+            )()
         )
 
     channel._send_text.assert_not_awaited()
@@ -378,7 +384,9 @@ async def test_send_raises_when_session_is_paused() -> None:
 
     with pytest.raises(RuntimeError, match="session paused"):
         await channel.send(
-            type("Msg", (), {"chat_id": "wx-user", "content": "pong", "media": [], "metadata": {}})()
+            type(
+                "Msg", (), {"chat_id": "wx-user", "content": "pong", "media": [], "metadata": {}}
+            )()
         )
 
     channel._send_text.assert_not_awaited()
@@ -689,7 +697,8 @@ async def test_send_final_message_clears_typing_indicator() -> None:
 
     channel._send_text.assert_awaited_once_with("wx-user", "pong", "ctx-2")
     typing_cancel_calls = [
-        c for c in channel._api_post.await_args_list
+        c
+        for c in channel._api_post.await_args_list
         if c.args[0] == "ilink/bot/sendtyping" and c.args[1]["status"] == 2
     ]
     assert len(typing_cancel_calls) >= 1
@@ -722,7 +731,8 @@ async def test_send_progress_message_keeps_typing_indicator() -> None:
 
     channel._send_text.assert_awaited_once_with("wx-user", "thinking", "ctx-2")
     typing_cancel_calls = [
-        c for c in channel._api_post.await_args_list
+        c
+        for c in channel._api_post.await_args_list
         if c.args and c.args[0] == "ilink/bot/sendtyping" and c.args[1].get("status") == 2
     ]
     assert len(typing_cancel_calls) == 0
@@ -782,7 +792,9 @@ async def test_send_media_falls_back_to_upload_param_url(tmp_path) -> None:
     await channel._send_media_file("wx-user", str(media_file), "ctx-1")
 
     cdn_url = cdn_post.await_args_list[0].args[0]
-    assert cdn_url.startswith(f"{channel.config.cdn_base_url}/upload?encrypted_query_param=enc-need-fallback")
+    assert cdn_url.startswith(
+        f"{channel.config.cdn_base_url}/upload?encrypted_query_param=enc-need-fallback"
+    )
     assert "&filekey=" in cdn_url
 
 
@@ -793,7 +805,9 @@ async def test_send_media_voice_file_uses_voice_item_and_voice_upload_type(tmp_p
     media_file = tmp_path / "voice.mp3"
     media_file.write_bytes(b"voice-bytes")
 
-    cdn_post = AsyncMock(return_value=_DummyHttpResponse(headers={"x-encrypted-param": "voice-dl-param"}))
+    cdn_post = AsyncMock(
+        return_value=_DummyHttpResponse(headers={"x-encrypted-param": "voice-dl-param"})
+    )
     channel._client = SimpleNamespace(post=cdn_post)
     channel._api_post = AsyncMock(
         side_effect=[
@@ -846,7 +860,9 @@ async def test_send_typing_uses_keepalive_until_send_finishes() -> None:
     weixin_mod.TYPING_KEEPALIVE_INTERVAL_S = 0.01
     try:
         await channel.send(
-            type("Msg", (), {"chat_id": "wx-user", "content": "pong", "media": [], "metadata": {}})()
+            type(
+                "Msg", (), {"chat_id": "wx-user", "content": "pong", "media": [], "metadata": {}}
+            )()
         )
     finally:
         weixin_mod.TYPING_KEEPALIVE_INTERVAL_S = old_interval
@@ -1004,7 +1020,9 @@ async def test_download_media_item_uses_full_url_when_present(tmp_path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_download_media_item_falls_back_when_full_url_returns_retryable_error(tmp_path) -> None:
+async def test_download_media_item_falls_back_when_full_url_returns_retryable_error(
+    tmp_path,
+) -> None:
     channel, _bus = _make_channel()
     weixin_mod.get_media_dir = lambda _name: tmp_path
 
@@ -1031,7 +1049,9 @@ async def test_download_media_item_falls_back_when_full_url_returns_retryable_er
     assert channel._client.get.await_count == 2
     assert channel._client.get.await_args_list[0].args[0] == full_url
     fallback_url = channel._client.get.await_args_list[1].args[0]
-    assert fallback_url.startswith(f"{channel.config.cdn_base_url}/download?encrypted_query_param=enc-fallback")
+    assert fallback_url.startswith(
+        f"{channel.config.cdn_base_url}/download?encrypted_query_param=enc-fallback"
+    )
 
 
 @pytest.mark.asyncio
@@ -1049,11 +1069,15 @@ async def test_download_media_item_falls_back_to_encrypt_query_param(tmp_path) -
     assert saved_path is not None
     assert Path(saved_path).read_bytes() == b"fallback-bytes"
     called_url = channel._client.get.await_args_list[0].args[0]
-    assert called_url.startswith(f"{channel.config.cdn_base_url}/download?encrypted_query_param=enc-fallback")
+    assert called_url.startswith(
+        f"{channel.config.cdn_base_url}/download?encrypted_query_param=enc-fallback"
+    )
 
 
 @pytest.mark.asyncio
-async def test_download_media_item_does_not_retry_when_full_url_fails_without_fallback(tmp_path) -> None:
+async def test_download_media_item_does_not_retry_when_full_url_fails_without_fallback(
+    tmp_path,
+) -> None:
     channel, _bus = _make_channel()
     weixin_mod.get_media_dir = lambda _name: tmp_path
 
@@ -1135,9 +1159,7 @@ async def test_send_media_transport_error_propagates_without_text_fallback() -> 
     channel._client = object()
     channel._token = "token"
     channel._context_tokens["wx-user"] = "ctx-1"
-    channel._send_media_file = AsyncMock(
-        side_effect=httpx.TransportError("connection reset")
-    )
+    channel._send_media_file = AsyncMock(side_effect=httpx.TransportError("connection reset"))
     channel._send_text = AsyncMock()
 
     msg = _make_outbound_msg(chat_id="wx-user", media=["/tmp/photo.jpg"])
@@ -1200,9 +1222,7 @@ async def test_send_media_4xx_http_status_error_falls_back_to_text() -> None:
     await channel.send(msg)
 
     # _send_text should have been called with the fallback message
-    channel._send_text.assert_awaited_once_with(
-        "wx-user", "[Failed to send: photo.jpg]", "ctx-1"
-    )
+    channel._send_text.assert_awaited_once_with("wx-user", "[Failed to send: photo.jpg]", "ctx-1")
 
 
 @pytest.mark.asyncio
@@ -1222,9 +1242,7 @@ async def test_send_media_file_not_found_falls_back_to_text() -> None:
     # Should NOT raise
     await channel.send(msg)
 
-    channel._send_text.assert_awaited_once_with(
-        "wx-user", "[Failed to send: missing.jpg]", "ctx-1"
-    )
+    channel._send_text.assert_awaited_once_with("wx-user", "[Failed to send: missing.jpg]", "ctx-1")
 
 
 @pytest.mark.asyncio
@@ -1234,9 +1252,7 @@ async def test_send_media_value_error_falls_back_to_text() -> None:
     channel._client = object()
     channel._token = "token"
     channel._context_tokens["wx-user"] = "ctx-1"
-    channel._send_media_file = AsyncMock(
-        side_effect=ValueError("Unsupported media format")
-    )
+    channel._send_media_file = AsyncMock(side_effect=ValueError("Unsupported media format"))
     channel._send_text = AsyncMock()
 
     msg = _make_outbound_msg(chat_id="wx-user", media=["/tmp/file.xyz"])
@@ -1244,9 +1260,7 @@ async def test_send_media_value_error_falls_back_to_text() -> None:
     # Should NOT raise
     await channel.send(msg)
 
-    channel._send_text.assert_awaited_once_with(
-        "wx-user", "[Failed to send: file.xyz]", "ctx-1"
-    )
+    channel._send_text.assert_awaited_once_with("wx-user", "[Failed to send: file.xyz]", "ctx-1")
 
 
 @pytest.mark.asyncio
@@ -1257,9 +1271,7 @@ async def test_send_media_network_error_does_not_double_api_calls() -> None:
     channel._client = object()
     channel._token = "token"
     channel._context_tokens["wx-user"] = "ctx-1"
-    channel._send_media_file = AsyncMock(
-        side_effect=httpx.ConnectError("connection refused")
-    )
+    channel._send_media_file = AsyncMock(side_effect=httpx.ConnectError("connection refused"))
     channel._send_text = AsyncMock()
 
     msg = _make_outbound_msg(chat_id="wx-user", content="hello", media=["/tmp/img.png"])
@@ -1284,9 +1296,7 @@ async def test_send_text_raises_on_api_error() -> None:
     channel, _bus = _make_channel()
     channel._client = object()
     channel._token = "token"
-    channel._api_post = AsyncMock(
-        return_value={"errcode": -14, "errmsg": "session expired"}
-    )
+    channel._api_post = AsyncMock(return_value={"errcode": -14, "errmsg": "session expired"})
 
     with pytest.raises(RuntimeError, match="WeChat send text error.*-14"):
         await channel._send_text("wx-user", "hello", "ctx-expired")

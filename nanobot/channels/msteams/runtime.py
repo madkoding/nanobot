@@ -258,7 +258,9 @@ class MSTeamsChannel(BaseChannel):
             )
 
         token = await self._get_access_token()
-        base_url = f"{ref.service_url.rstrip('/')}/v3/conversations/{ref.conversation_id}/activities"
+        base_url = (
+            f"{ref.service_url.rstrip('/')}/v3/conversations/{ref.conversation_id}/activities"
+        )
         use_thread_reply = self.config.reply_in_thread and bool(ref.activity_id)
         headers = {
             "Authorization": f"Bearer {token}",
@@ -325,7 +327,8 @@ class MSTeamsChannel(BaseChannel):
             self.logger.warning(
                 "Access denied for sender {} on channel {}. "
                 "Add them to allowFrom list in config to grant access.",
-                sender_id, self.name,
+                sender_id,
+                self.name,
             )
             return
 
@@ -370,7 +373,9 @@ class MSTeamsChannel(BaseChannel):
         while preview_lines and not preview_lines[0]:
             preview_lines.pop(0)
         first_line = preview_lines[0] if preview_lines else ""
-        looks_like_quote_wrapper = first_line.lower().startswith("replying to ") or first_line.startswith("Reply wrapper")
+        looks_like_quote_wrapper = first_line.lower().startswith(
+            "replying to "
+        ) or first_line.startswith("Reply wrapper")
 
         if reply_to_id or channel_data.get("messageType") == "reply" or looks_like_quote_wrapper:
             text = self._normalize_teams_reply_quote(text)

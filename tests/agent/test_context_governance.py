@@ -5,11 +5,13 @@ def _assistant_tool_call(call_id: str) -> dict:
     return {
         "role": "assistant",
         "content": "",
-        "tool_calls": [{
-            "id": call_id,
-            "type": "function",
-            "function": {"name": "exec", "arguments": "{}"},
-        }],
+        "tool_calls": [
+            {
+                "id": call_id,
+                "type": "function",
+                "function": {"name": "exec", "arguments": "{}"},
+            }
+        ],
     }
 
 

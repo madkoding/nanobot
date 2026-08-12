@@ -356,9 +356,7 @@ def get_xai_oauth_token(
     """Load a usable token, refreshing it under an inter-process lock when needed."""
     token = _load_token()
     if token is None:
-        raise XAIOAuthError(
-            "xAI is not signed in. Run `nanobot provider login xai-grok` first."
-        )
+        raise XAIOAuthError("xAI is not signed in. Run `nanobot provider login xai-grok` first.")
     if not force_refresh and _token_is_fresh(token, min_ttl_ms):
         return token
     if not token.refresh:
@@ -406,9 +404,7 @@ def _discover(proxy: str | None) -> _Discovery:
     )
     token_endpoint = _validate_xai_endpoint(payload.get("token_endpoint"), "token")
     userinfo_raw = payload.get("userinfo_endpoint")
-    userinfo_endpoint = (
-        _validate_xai_endpoint(userinfo_raw, "userinfo") if userinfo_raw else None
-    )
+    userinfo_endpoint = _validate_xai_endpoint(userinfo_raw, "userinfo") if userinfo_raw else None
     return _Discovery(authorization_endpoint, token_endpoint, userinfo_endpoint)
 
 
@@ -419,9 +415,7 @@ def _validate_xai_endpoint(value: Any, label: str) -> str:
     try:
         port = parsed.port
     except ValueError as exc:
-        raise XAIOAuthError(
-            f"xAI sign-in discovery returned an unsafe {label} endpoint."
-        ) from exc
+        raise XAIOAuthError(f"xAI sign-in discovery returned an unsafe {label} endpoint.") from exc
     if (
         parsed.scheme != "https"
         or parsed.hostname != "auth.x.ai"
@@ -605,7 +599,9 @@ def _exchange_code(
                 headers={"x-grok-client-version": XAI_CLIENT_VERSION},
             )
     except httpx.HTTPError as exc:
-        raise XAIOAuthError(f"Could not exchange the xAI sign-in code: {type(exc).__name__}.") from exc
+        raise XAIOAuthError(
+            f"Could not exchange the xAI sign-in code: {type(exc).__name__}."
+        ) from exc
     if not response.is_success:
         raise _oauth_http_error(response, "token exchange")
     return _token_payload(response)

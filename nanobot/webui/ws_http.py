@@ -204,6 +204,7 @@ def _decode_api_key(raw_key: str) -> str | None:
 def _default_model_name_from_config() -> str | None:
     try:
         from nanobot.config.loader import load_config
+
         model = load_config().resolve_preset().model.strip()
         return model or None
     except Exception as e:
@@ -457,9 +458,7 @@ class GatewayHTTPHandler:
             )
         token = self.tokens.issue_token(self.config.token_ttl_s, audience="webui")
         api_token = (
-            self.tokens.issue_api_token(self.config.token_ttl_s)
-            if api_token_allowed
-            else None
+            self.tokens.issue_api_token(self.config.token_ttl_s) if api_token_allowed else None
         )
 
         ws_url = self._bootstrap_ws_url(request)
@@ -645,18 +644,14 @@ class GatewayHTTPHandler:
         if err is not None:
             return err
         name = (body.get("name") or "").strip() if isinstance(body, dict) else ""
-        instructions = (
-            (body.get("instructions_md") or "") if isinstance(body, dict) else ""
-        )
+        instructions = (body.get("instructions_md") or "") if isinstance(body, dict) else ""
         try:
             summary = self.projects.create_project(name, instructions)
         except ProjectError as exc:
             return _http_error(400, str(exc))
         return _http_json_response(project_detail_payload(self.projects, summary.id))
 
-    def _handle_projects_detail(
-        self, request: WsRequest, project_id: str
-    ) -> Response:
+    def _handle_projects_detail(self, request: WsRequest, project_id: str) -> Response:
         if not self.check_api_token(request):
             return _http_error(401, "Unauthorized")
         try:
@@ -665,9 +660,7 @@ class GatewayHTTPHandler:
             return _http_error(404, str(exc))
         return _http_json_response(payload)
 
-    def _handle_projects_update(
-        self, request: WsRequest, project_id: str
-    ) -> Response:
+    def _handle_projects_update(self, request: WsRequest, project_id: str) -> Response:
         if not self.check_api_token(request):
             return _http_error(401, "Unauthorized")
         body, err = read_json_request_header(
@@ -676,18 +669,14 @@ class GatewayHTTPHandler:
         if err is not None:
             return err
         name = (body.get("name") or "").strip() if isinstance(body, dict) else ""
-        instructions = (
-            (body.get("instructions_md") or "") if isinstance(body, dict) else ""
-        )
+        instructions = (body.get("instructions_md") or "") if isinstance(body, dict) else ""
         try:
             summary = self.projects.update_project(project_id, name, instructions)
         except ProjectError as exc:
             return _http_error(404, str(exc))
         return _http_json_response(project_detail_payload(self.projects, summary.id))
 
-    def _handle_projects_delete(
-        self, request: WsRequest, project_id: str
-    ) -> Response:
+    def _handle_projects_delete(self, request: WsRequest, project_id: str) -> Response:
         if not self.check_api_token(request):
             return _http_error(401, "Unauthorized")
         try:
@@ -696,9 +685,7 @@ class GatewayHTTPHandler:
             return _http_error(404, str(exc))
         return _http_json_response({"ok": True, "id": project_id})
 
-    def _handle_projects_files_list(
-        self, request: WsRequest, project_id: str
-    ) -> Response:
+    def _handle_projects_files_list(self, request: WsRequest, project_id: str) -> Response:
         if not self.check_api_token(request):
             return _http_error(401, "Unauthorized")
         try:
@@ -721,9 +708,7 @@ class GatewayHTTPHandler:
             }
         )
 
-    def _handle_projects_files_upload(
-        self, request: WsRequest, project_id: str
-    ) -> Response:
+    def _handle_projects_files_upload(self, request: WsRequest, project_id: str) -> Response:
         if not self.check_api_token(request):
             return _http_error(401, "Unauthorized")
         body, err = read_json_request_header(
@@ -772,9 +757,7 @@ class GatewayHTTPHandler:
             return _http_error(404, str(exc))
         return _http_json_response({"ok": True, "id": file_id})
 
-    def _handle_projects_folder_add(
-        self, request: WsRequest, project_id: str
-    ) -> Response:
+    def _handle_projects_folder_add(self, request: WsRequest, project_id: str) -> Response:
         if not self.check_api_token(request):
             return _http_error(401, "Unauthorized")
         body, err = read_json_request_header(
@@ -787,13 +770,9 @@ class GatewayHTTPHandler:
             folder = self.projects.add_folder(project_id, path)
         except ProjectError as exc:
             return _http_error(400, str(exc))
-        return _http_json_response(
-            {"path": folder.path, "created_at_ms": folder.created_at_ms}
-        )
+        return _http_json_response({"path": folder.path, "created_at_ms": folder.created_at_ms})
 
-    def _handle_projects_folder_remove(
-        self, request: WsRequest, project_id: str
-    ) -> Response:
+    def _handle_projects_folder_remove(self, request: WsRequest, project_id: str) -> Response:
         if not self.check_api_token(request):
             return _http_error(401, "Unauthorized")
         body, err = read_json_request_header(
@@ -1029,9 +1008,7 @@ class GatewayHTTPHandler:
 
     # -- Workspace browser routes ------------------------------------------
 
-    def _dispatch_workspace_browser_routes(
-        self, request: WsRequest, got: str
-    ) -> Response | None:
+    def _dispatch_workspace_browser_routes(self, request: WsRequest, got: str) -> Response | None:
         if got == "/api/workspace-browser/list":
             return self._handle_workspace_browser_list(request)
         if got == "/api/workspace-browser/read":
@@ -1332,9 +1309,7 @@ class GatewayHTTPHandler:
         return _http_response(
             data,
             content_type=content_type or "application/octet-stream",
-            extra_headers=[
-                ("Content-Disposition", f"attachment; filename*=UTF-8''{quote(name)}")
-            ],
+            extra_headers=[("Content-Disposition", f"attachment; filename*=UTF-8''{quote(name)}")],
         )
 
     def _handle_session_subagent(
@@ -1425,6 +1400,7 @@ class GatewayHTTPHandler:
         # sessions don't reappear in the sidebar before the next reconciliation.
         try:
             from nanobot.webui.session_list_index import _index_path
+
             idx = _index_path(self.session_manager.sessions_dir)
             if idx.is_file():
                 idx.unlink()
@@ -1432,7 +1408,9 @@ class GatewayHTTPHandler:
             pass
         return _http_json_response({"deleted": bool(deleted)})
 
-    def _resolve_session_for_project(self, key: str) -> tuple[Any | None, str | None, Response | None]:
+    def _resolve_session_for_project(
+        self, key: str
+    ) -> tuple[Any | None, str | None, Response | None]:
         """Validate a session key and return ``(session, decoded_key, error)``."""
         if self.session_manager is None:
             return None, None, _http_error(503, "session manager unavailable")
@@ -1451,10 +1429,12 @@ class GatewayHTTPHandler:
         if err is not None:
             return err
         project_id = chat_project_id_from_metadata(session.metadata)
-        return _http_json_response({
-            "session_key": decoded_key,
-            "project_id": project_id,
-        })
+        return _http_json_response(
+            {
+                "session_key": decoded_key,
+                "project_id": project_id,
+            }
+        )
 
     def _handle_session_project_bind(self, request: WsRequest, key: str) -> Response:
         if not self.check_api_token(request):
@@ -1472,10 +1452,12 @@ class GatewayHTTPHandler:
             return _http_error(404, str(exc))
         set_chat_project_id(session, project_id)
         self.session_manager.save(session)
-        return _http_json_response({
-            "session_key": decoded_key,
-            "project_id": chat_project_id_from_metadata(session.metadata),
-        })
+        return _http_json_response(
+            {
+                "session_key": decoded_key,
+                "project_id": chat_project_id_from_metadata(session.metadata),
+            }
+        )
 
     def _handle_session_project_unbind(self, request: WsRequest, key: str) -> Response:
         if not self.check_api_token(request):
@@ -1485,10 +1467,12 @@ class GatewayHTTPHandler:
             return err
         set_chat_project_id(session, None)
         self.session_manager.save(session)
-        return _http_json_response({
-            "session_key": decoded_key,
-            "project_id": None,
-        })
+        return _http_json_response(
+            {
+                "session_key": decoded_key,
+                "project_id": None,
+            }
+        )
 
     def _handle_session_todo_bind(self, request: WsRequest, key: str) -> Response:
         if not self.check_api_token(request):
@@ -1507,10 +1491,12 @@ class GatewayHTTPHandler:
             return _http_error(400, "missing slug")
         set_chat_todo_list(session, slug)
         self.session_manager.save(session)
-        return _http_json_response({
-            "session_key": decoded_key,
-            "todo_list": chat_todo_list_from_metadata(session.metadata),
-        })
+        return _http_json_response(
+            {
+                "session_key": decoded_key,
+                "todo_list": chat_todo_list_from_metadata(session.metadata),
+            }
+        )
 
     def _handle_session_todo_unbind(self, request: WsRequest, key: str) -> Response:
         if not self.check_api_token(request):
@@ -1525,10 +1511,12 @@ class GatewayHTTPHandler:
         session = self.session_manager.get_or_create(decoded_key)
         set_chat_todo_list(session, None)
         self.session_manager.save(session)
-        return _http_json_response({
-            "session_key": decoded_key,
-            "todo_list": None,
-        })
+        return _http_json_response(
+            {
+                "session_key": decoded_key,
+                "todo_list": None,
+            }
+        )
 
     # -- Automation routes --------------------------------------------------
 
@@ -1761,9 +1749,7 @@ class GatewayHTTPHandler:
     _AGENDA_DATA_HEADER = "X-Nanobot-Agenda-Data"
     _TODO_DATA_HEADER = "X-Nanobot-Todo-Data"
 
-    def _dispatch_agenda_routes(
-        self, request: WsRequest, got: str
-    ) -> Response | None:
+    def _dispatch_agenda_routes(self, request: WsRequest, got: str) -> Response | None:
         if got == "/api/agenda" or got == "/api/agenda/appointments":
             return self._handle_agenda_list(request)
         if got == "/api/agenda/create" or got == "/api/agenda/appointments/create":
@@ -1829,9 +1815,7 @@ class GatewayHTTPHandler:
             return _http_error(404, result["error"])
         return _http_json_response(result)
 
-    def _dispatch_todos_routes(
-        self, request: WsRequest, got: str
-    ) -> Response | None:
+    def _dispatch_todos_routes(self, request: WsRequest, got: str) -> Response | None:
         if got == "/api/todos" or got == "/api/todos/lists":
             return self._handle_todo_list_index(request)
         if got == "/api/todos/create" or got == "/api/todos/lists/create":
@@ -2283,9 +2267,9 @@ def _schedule_matches_job(schedule: CronSchedule, job: CronJob) -> bool:
     if schedule.kind == "every":
         return schedule.every_ms == current.every_ms
     if schedule.kind == "cron":
-        return (schedule.expr or "") == (current.expr or "") and (
-            schedule.tz or None
-        ) == (current.tz or None)
+        return (schedule.expr or "") == (current.expr or "") and (schedule.tz or None) == (
+            current.tz or None
+        )
     return False
 
 

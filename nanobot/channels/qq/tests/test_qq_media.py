@@ -122,9 +122,7 @@ async def test_send_exception_propagates_for_manager_retry() -> None:
         channel, "_send_text_only", new_callable=AsyncMock, side_effect=RuntimeError("boom")
     ) as send_text:
         with pytest.raises(RuntimeError, match="boom"):
-            await channel.send(
-                OutboundMessage(channel="qq", chat_id="user1", content="hello")
-            )
+            await channel.send(OutboundMessage(channel="qq", chat_id="user1", content="hello"))
     send_text.assert_awaited_once()
 
 
@@ -141,7 +139,9 @@ async def test_send_media_then_text() -> None:
         tmp = f.name
 
     try:
-        with patch.object(channel, "_post_base64file", new_callable=AsyncMock, return_value={"file_info": "1"}) as mock_upload:
+        with patch.object(
+            channel, "_post_base64file", new_callable=AsyncMock, return_value={"file_info": "1"}
+        ) as mock_upload:
             await channel.send(
                 OutboundMessage(
                     channel="qq",
@@ -159,6 +159,7 @@ async def test_send_media_then_text() -> None:
         assert text_calls[-1]["content"] == "text after image"
     finally:
         import os
+
         os.unlink(tmp)
 
 
@@ -180,7 +181,9 @@ async def test_send_media_failure_falls_back_to_text() -> None:
         )
 
     # Should have the failure text among the c2c calls
-    failure_calls = [c for c in channel._client.api.c2c_calls if "Attachment send failed" in c.get("content", "")]
+    failure_calls = [
+        c for c in channel._client.api.c2c_calls if "Attachment send failed" in c.get("content", "")
+    ]
     assert len(failure_calls) == 1
     assert "bad.png" in failure_calls[0]["content"]
 
@@ -303,6 +306,7 @@ async def test_on_message_with_attachments() -> None:
         assert msg.media[0] == saved_path
     finally:
         import os
+
         os.unlink(saved_path)
 
 
@@ -355,11 +359,13 @@ async def test_post_base64file_includes_file_name_for_files() -> None:
 async def test_post_base64file_filters_response_to_file_info() -> None:
     """Response with file_info + extra fields must be filtered to only file_info."""
     channel = QQChannel(QQConfig(app_id="app", secret="secret"), MessageBus())
-    channel._client = _FakeClient(http_return={
-        "file_info": "fi_123",
-        "file_uuid": "uuid_xxx",
-        "ttl": 3600,
-    })
+    channel._client = _FakeClient(
+        http_return={
+            "file_info": "fi_123",
+            "file_uuid": "uuid_xxx",
+            "ttl": 3600,
+        }
+    )
 
     result = await channel._post_base64file(
         chat_id="user1",

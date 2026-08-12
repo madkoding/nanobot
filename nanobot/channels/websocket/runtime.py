@@ -658,9 +658,7 @@ class WebSocketChannel(BaseChannel):
                 if status is not None:
                     payload = dict(status.to_payload())
                     payload.setdefault("chat_id", status.chat_id)
-                    await self._send_event(
-                        connection, "subagent_update", **payload
-                    )
+                    await self._send_event(connection, "subagent_update", **payload)
             return
         if t == "message":
             cid = envelope.get("chat_id")
@@ -747,9 +745,11 @@ class WebSocketChannel(BaseChannel):
                     mcp_presets=mcp_presets or None,
                 )
             if metadata.get("webui") is True and connection in self._webui_connections:
-                quote = webui_quote_runtime_context({
-                    WEBUI_QUOTE_METADATA: envelope.get("quoted_context"),
-                })
+                quote = webui_quote_runtime_context(
+                    {
+                        WEBUI_QUOTE_METADATA: envelope.get("quoted_context"),
+                    }
+                )
                 if quote is not None:
                     metadata[RUNTIME_CONTEXT_INPUT_META] = [quote]
             await self._handle_message(
@@ -1268,11 +1268,7 @@ class WebSocketChannel(BaseChannel):
     ) -> None:
         """Notify one chat's subscribers which model is handling its current request."""
         conns = list(self._subs.get(chat_id, ()))
-        if (
-            not conns
-            or not isinstance(model_name, str)
-            or not model_name.strip()
-        ):
+        if not conns or not isinstance(model_name, str) or not model_name.strip():
             return
         body: dict[str, Any] = {
             "event": "turn_model_updated",

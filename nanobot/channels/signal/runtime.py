@@ -560,7 +560,7 @@ class SignalChannel(BaseChannel):
                 response = await self._send_request("send", params)
 
                 if "error" in response:
-                    self.logger.error("Error sending Signal message: {}", response['error'])
+                    self.logger.error("Error sending Signal message: {}", response["error"])
                     raise RuntimeError(f"signal-cli send failed: {response['error']}")
                 else:
                     self.logger.debug(
@@ -1367,9 +1367,7 @@ class SignalChannel(BaseChannel):
         """Enable typing indicators on the bot account."""
         response = await self._send_request("updateConfiguration", {"typingIndicators": True})
         if "error" in response:
-            self.logger.warning(
-                "Failed to enable Signal typing indicators: {}", response["error"]
-            )
+            self.logger.warning("Failed to enable Signal typing indicators: {}", response["error"])
         else:
             self.logger.info("Signal typing indicators enabled on account configuration")
 

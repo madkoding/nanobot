@@ -203,9 +203,7 @@ class WeixinConnectStore:
     async def _cleanup(self) -> None:
         now = time.monotonic()
         expired = [
-            session_id
-            for session_id, session in self._sessions.items()
-            if now >= session.deadline
+            session_id for session_id, session in self._sessions.items() if now >= session.deadline
         ]
         for session_id in expired:
             session = self._sessions.pop(session_id, None)

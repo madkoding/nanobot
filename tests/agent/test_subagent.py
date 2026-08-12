@@ -410,7 +410,11 @@ async def test_subagent_resume_continues_from_checkpoint_messages(tmp_path):
         await task
 
     assert len(captured) == 1
-    assert [m.get("role") for m in captured[0]["initial_messages"][:3]] == ["system", "user", "assistant"]
+    assert [m.get("role") for m in captured[0]["initial_messages"][:3]] == [
+        "system",
+        "user",
+        "assistant",
+    ]
     assert captured[0]["initial_messages"][1]["content"] == "original task"
     assert captured[0]["initial_messages"][2]["content"] == "progress so far"
     # The resumed subagent refreshes the system prompt with the current template.

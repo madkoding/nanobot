@@ -42,9 +42,13 @@ class TestEventCallback:
     @pytest.mark.asyncio
     async def test_event_callback_receives_done_payload(self, tmp_path: Path) -> None:
         sm = _manager(tmp_path)
-        sm.runner.run = AsyncMock(return_value=AgentRunResult(
-            final_content="ok", messages=[], stop_reason="completed",
-        ))
+        sm.runner.run = AsyncMock(
+            return_value=AgentRunResult(
+                final_content="ok",
+                messages=[],
+                stop_reason="completed",
+            )
+        )
 
         captured: list[dict] = []
 
@@ -87,9 +91,13 @@ class TestEventCallback:
     @pytest.mark.asyncio
     async def test_event_callback_fault_does_not_break_subagent(self, tmp_path: Path) -> None:
         sm = _manager(tmp_path)
-        sm.runner.run = AsyncMock(return_value=AgentRunResult(
-            final_content="ok", messages=[], stop_reason="completed",
-        ))
+        sm.runner.run = AsyncMock(
+            return_value=AgentRunResult(
+                final_content="ok",
+                messages=[],
+                stop_reason="completed",
+            )
+        )
 
         async def bad_cb(_payload: dict) -> None:
             raise RuntimeError("callback crash")
@@ -132,11 +140,17 @@ class TestGetStatus:
         assert snapshot.result == "ok"
 
     @pytest.mark.asyncio
-    async def test_get_status_evicts_after_ttl(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    async def test_get_status_evicts_after_ttl(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         sm = _manager(tmp_path)
-        sm.runner.run = AsyncMock(return_value=AgentRunResult(
-            final_content="ok", messages=[], stop_reason="completed",
-        ))
+        sm.runner.run = AsyncMock(
+            return_value=AgentRunResult(
+                final_content="ok",
+                messages=[],
+                stop_reason="completed",
+            )
+        )
         await sm.spawn("task", runtime=_runtime())
         await _drain(sm)
         tid = next(iter(sm._finished_statuses.keys()))

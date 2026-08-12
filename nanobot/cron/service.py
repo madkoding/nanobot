@@ -55,6 +55,7 @@ def _compute_next_run(schedule: CronSchedule, now_ms: int) -> int | None:
             from zoneinfo import ZoneInfo
 
             from croniter import croniter
+
             # Use caller-provided reference time for deterministic scheduling
             base_time = now_ms / 1000
             tz = ZoneInfo(schedule.tz) if schedule.tz else datetime.now().astimezone().tzinfo
@@ -256,6 +257,7 @@ class CronService:
             return
 
         jobs_map = {j.id: j for j in self._store.jobs}
+
         def _update(params: dict):
             j = CronJob.from_dict(params)
             _normalize_agent_turn_job(j)
@@ -389,7 +391,7 @@ class CronService:
                     "deleteAfterRun": j.delete_after_run,
                 }
                 for j in self._store.jobs
-            ]
+            ],
         }
 
         atomic_write_text(
@@ -423,7 +425,9 @@ class CronService:
         self._recompute_next_runs()
         self._save_store()
         self._arm_timer()
-        logger.info("Cron service started with {} jobs", len(self._store.jobs if self._store else []))
+        logger.info(
+            "Cron service started with {} jobs", len(self._store.jobs if self._store else [])
+        )
 
     def stop(self) -> None:
         """Stop the cron service."""
@@ -447,8 +451,9 @@ class CronService:
         """Get the earliest next run time across all jobs."""
         if not self._store:
             return None
-        times = [j.state.next_run_at_ms for j in self._store.jobs
-                 if j.enabled and j.state.next_run_at_ms]
+        times = [
+            j.state.next_run_at_ms for j in self._store.jobs if j.enabled and j.state.next_run_at_ms
+        ]
         return min(times) if times else None
 
     def _arm_timer(self) -> None:
@@ -487,7 +492,8 @@ class CronService:
         try:
             now = _now_ms()
             due_jobs = [
-                j for j in self._store.jobs
+                j
+                for j in self._store.jobs
                 if j.enabled and j.state.next_run_at_ms and now >= j.state.next_run_at_ms
             ]
 
@@ -532,13 +538,15 @@ class CronService:
         job.state.last_run_at_ms = start_ms
         job.updated_at_ms = end_ms
 
-        job.state.run_history.append(CronRunRecord(
-            run_at_ms=start_ms,
-            status=job.state.last_status,
-            duration_ms=end_ms - start_ms,
-            error=job.state.last_error,
-        ))
-        job.state.run_history = job.state.run_history[-self._MAX_RUN_HISTORY:]
+        job.state.run_history.append(
+            CronRunRecord(
+                run_at_ms=start_ms,
+                status=job.state.last_status,
+                duration_ms=end_ms - start_ms,
+                error=job.state.last_error,
+            )
+        )
+        job.state.run_history = job.state.run_history[-self._MAX_RUN_HISTORY :]
 
         # Handle one-shot jobs
         if job.schedule.kind == "at":
@@ -564,14 +572,13 @@ class CronService:
                     + "\n"
                 )
 
-
     # ========== Public API ==========
 
     def list_jobs(self, include_disabled: bool = False) -> list[CronJob]:
         """List all jobs."""
         store = self._require_store()
         jobs = store.jobs if include_disabled else [j for j in store.jobs if j.enabled]
-        return sorted(jobs, key=lambda j: j.state.next_run_at_ms or float('inf'))
+        return sorted(jobs, key=lambda j: j.state.next_run_at_ms or float("inf"))
 
     def list_bound_cron_jobs_for_session(
         self,
@@ -583,8 +590,7 @@ class CronService:
         return [
             job
             for job in self.list_jobs(include_disabled=include_disabled)
-            if is_bound_cron_job(job)
-            and job.payload.session_key == session_key
+            if is_bound_cron_job(job) and job.payload.session_key == session_key
         ]
 
     def add_job(

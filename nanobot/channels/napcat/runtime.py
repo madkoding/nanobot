@@ -257,9 +257,7 @@ class NapcatChannel(BaseChannel):
             if group_id is None:
                 return
 
-            replying_to_bot = (
-                isinstance(reply_to_id, int) and reply_to_id in self._bot_outbound_ids
-            )
+            replying_to_bot = isinstance(reply_to_id, int) and reply_to_id in self._bot_outbound_ids
             if not self._should_reply_in_group(
                 group_id=group_id,
                 mentioned_self=mentioned_self,
@@ -392,7 +390,9 @@ class NapcatChannel(BaseChannel):
             group_id_int = int(group_id)
             user_id_int = int(user_id)
         except (TypeError, ValueError):
-            logger.warning("napcat: invalid group_increase ids group_id={} user_id={}", group_id, user_id)
+            logger.warning(
+                "napcat: invalid group_increase ids group_id={} user_id={}", group_id, user_id
+            )
             return
 
         nickname = await self._lookup_member_name(group_id_int, user_id_int)

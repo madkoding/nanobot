@@ -82,9 +82,11 @@ def make_loop(
         kwargs["hooks"] = hooks
 
     if patch_deps:
-        with patch("nanobot.agent.loop.ContextBuilder"), \
-             patch("nanobot.agent.loop.SessionManager"), \
-             patch("nanobot.agent.loop.SubagentManager") as mock_sub_mgr:
+        with (
+            patch("nanobot.agent.loop.ContextBuilder"),
+            patch("nanobot.agent.loop.SessionManager"),
+            patch("nanobot.agent.loop.SubagentManager") as mock_sub_mgr,
+        ):
             mock_sub_mgr.return_value.cancel_by_session = AsyncMock(return_value=0)
             return AgentLoop(**kwargs)
     return AgentLoop(**kwargs)
@@ -93,6 +95,8 @@ def make_loop(
 @pytest.fixture
 def loop_factory(tmp_path):
     """Fixture providing a factory for creating AgentLoop instances."""
+
     def _factory(**kwargs):
         return make_loop(tmp_path, **kwargs)
+
     return _factory

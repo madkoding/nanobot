@@ -1,4 +1,5 @@
 """Nanobot optional feature helpers for WebUI Settings."""
+
 from __future__ import annotations
 
 from typing import Any

@@ -42,11 +42,13 @@ async def test_runner_calls_hooks_in_order():
             events.append(("before_iteration", context.iteration))
 
         async def before_execute_tools(self, context: AgentHookContext) -> None:
-            events.append((
-                "before_execute_tools",
-                context.iteration,
-                [tc.name for tc in context.tool_calls],
-            ))
+            events.append(
+                (
+                    "before_execute_tools",
+                    context.iteration,
+                    [tc.name for tc in context.tool_calls],
+                )
+            )
 
         async def before_execute_tool(self, context, tool_call, tool, params) -> None:
             events.append(("before_execute_tool", context.iteration, tool_call.name, params))
@@ -55,28 +57,33 @@ async def test_runner_calls_hooks_in_order():
             events.append(("after_execute_tool", context.iteration, tool_call.name, result))
 
         async def after_iteration(self, context: AgentHookContext) -> None:
-            events.append((
-                "after_iteration",
-                context.iteration,
-                context.final_content,
-                list(context.tool_results),
-                list(context.tool_events),
-                context.stop_reason,
-            ))
+            events.append(
+                (
+                    "after_iteration",
+                    context.iteration,
+                    context.final_content,
+                    list(context.tool_results),
+                    list(context.tool_events),
+                    context.stop_reason,
+                )
+            )
 
         def finalize_content(self, context: AgentHookContext, content: str | None) -> str | None:
             events.append(("finalize_content", context.iteration, content))
             return content.upper() if content else content
 
     runner = AgentRunner()
-    result = await runner.run(make_run_spec(provider,
-        initial_messages=[],
-        tools=tools,
-        model="test-model",
-        max_iterations=3,
-        max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
-        hook=RecordingHook(),
-    ))
+    result = await runner.run(
+        make_run_spec(
+            provider,
+            initial_messages=[],
+            tools=tools,
+            model="test-model",
+            max_iterations=3,
+            max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
+            hook=RecordingHook(),
+        )
+    )
 
     assert result.final_content == "DONE"
     assert events == [
@@ -128,14 +135,17 @@ async def test_runner_streaming_hook_receives_deltas_and_end_signal():
             endings.append(resuming)
 
     runner = AgentRunner()
-    result = await runner.run(make_run_spec(provider,
-        initial_messages=[],
-        tools=tools,
-        model="test-model",
-        max_iterations=1,
-        max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
-        hook=StreamingHook(),
-    ))
+    result = await runner.run(
+        make_run_spec(
+            provider,
+            initial_messages=[],
+            tools=tools,
+            model="test-model",
+            max_iterations=1,
+            max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
+            hook=StreamingHook(),
+        )
+    )
 
     assert result.final_content == "hello"
     assert streamed == ["he", "llo"]
@@ -168,14 +178,17 @@ async def test_runner_passes_cached_tokens_to_hook_context():
     tools.get_definitions.return_value = []
 
     runner = AgentRunner()
-    await runner.run(make_run_spec(provider,
-        initial_messages=[],
-        tools=tools,
-        model="test-model",
-        max_iterations=1,
-        max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
-        hook=UsageHook(),
-    ))
+    await runner.run(
+        make_run_spec(
+            provider,
+            initial_messages=[],
+            tools=tools,
+            model="test-model",
+            max_iterations=1,
+            max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
+            hook=UsageHook(),
+        )
+    )
 
     assert len(captured_usage) == 1
     assert captured_usage[0]["cached_tokens"] == 150
@@ -207,14 +220,17 @@ async def test_runner_estimates_usage_when_provider_omits_usage(monkeypatch):
     monkeypatch.setattr("nanobot.agent.runner.estimate_message_tokens", lambda message: 7)
 
     runner = AgentRunner()
-    result = await runner.run(make_run_spec(provider,
-        initial_messages=[{"role": "user", "content": "hi"}],
-        tools=tools,
-        model="test-model",
-        max_iterations=1,
-        max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
-        hook=UsageHook(),
-    ))
+    result = await runner.run(
+        make_run_spec(
+            provider,
+            initial_messages=[{"role": "user", "content": "hi"}],
+            tools=tools,
+            model="test-model",
+            max_iterations=1,
+            max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
+            hook=UsageHook(),
+        )
+    )
 
     assert result.usage["prompt_tokens"] == 123
     assert result.usage["completion_tokens"] == 7
@@ -249,14 +265,16 @@ async def test_runner_calls_run_level_hooks_on_success():
             context.messages.append({"role": "user", "content": "hook-only"})
 
         async def after_run(self, context: AgentRunHookContext) -> None:
-            events.append((
-                "after_run",
-                context.final_content,
-                context.stop_reason,
-                context.error,
-                dict(context.usage),
-                [msg["role"] for msg in context.messages],
-            ))
+            events.append(
+                (
+                    "after_run",
+                    context.final_content,
+                    context.stop_reason,
+                    context.error,
+                    dict(context.usage),
+                    [msg["role"] for msg in context.messages],
+                )
+            )
 
         async def on_error(self, context: AgentRunHookContext) -> None:
             events.append(("on_error", context.error))
@@ -265,14 +283,17 @@ async def test_runner_calls_run_level_hooks_on_success():
             events.append(("on_finally", context.stop_reason, context.exception))
 
     runner = AgentRunner()
-    result = await runner.run(make_run_spec(provider,
-        initial_messages=[{"role": "user", "content": "hi"}],
-        tools=tools,
-        model="test-model",
-        max_iterations=1,
-        max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
-        hook=RunHook(),
-    ))
+    result = await runner.run(
+        make_run_spec(
+            provider,
+            initial_messages=[{"role": "user", "content": "hi"}],
+            tools=tools,
+            model="test-model",
+            max_iterations=1,
+            max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
+            hook=RunHook(),
+        )
+    )
 
     assert result.final_content == "done"
     assert events == [
@@ -332,21 +353,22 @@ async def test_runner_run_level_context_is_detached_snapshot():
             context.messages[0]["content"] = "mutated-finally"
 
     runner = AgentRunner()
-    result = await runner.run(make_run_spec(provider,
-        initial_messages=[{"role": "user", "content": "hi"}],
-        tools=tools,
-        model="test-model",
-        max_iterations=2,
-        max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
-        hook=MutatingRunHook(),
-    ))
+    result = await runner.run(
+        make_run_spec(
+            provider,
+            initial_messages=[{"role": "user", "content": "hi"}],
+            tools=tools,
+            model="test-model",
+            max_iterations=2,
+            max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
+            hook=MutatingRunHook(),
+        )
+    )
 
     assert request_messages[0][0]["content"] == "hi"
     assert result.messages[0]["content"] == "hi"
     assert result.tools_used == ["list_dir"]
-    assert result.tool_events == [
-        {"name": "list_dir", "status": "ok", "detail": "tool result"}
-    ]
+    assert result.tool_events == [{"name": "list_dir", "status": "ok", "detail": "tool result"}]
 
 
 @pytest.mark.asyncio
@@ -378,14 +400,17 @@ async def test_runner_calls_on_error_for_model_error_result():
             events.append(("on_finally", context.stop_reason, context.error))
 
     runner = AgentRunner()
-    result = await runner.run(make_run_spec(provider,
-        initial_messages=[],
-        tools=tools,
-        model="test-model",
-        max_iterations=1,
-        max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
-        hook=ErrorHook(),
-    ))
+    result = await runner.run(
+        make_run_spec(
+            provider,
+            initial_messages=[],
+            tools=tools,
+            model="test-model",
+            max_iterations=1,
+            max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
+            hook=ErrorHook(),
+        )
+    )
 
     assert result.stop_reason == "error"
     assert result.error == "model failed"
@@ -417,12 +442,14 @@ async def test_runner_calls_on_error_and_finally_for_unhandled_exception():
             events.append(("before_run", list(context.messages)))
 
         async def on_error(self, context: AgentRunHookContext) -> None:
-            events.append((
-                "on_error",
-                context.stop_reason,
-                context.error,
-                type(context.exception).__name__ if context.exception else None,
-            ))
+            events.append(
+                (
+                    "on_error",
+                    context.stop_reason,
+                    context.error,
+                    type(context.exception).__name__ if context.exception else None,
+                )
+            )
 
         async def after_run(self, context: AgentRunHookContext) -> None:
             events.append(("after_run", context.stop_reason))
@@ -432,14 +459,17 @@ async def test_runner_calls_on_error_and_finally_for_unhandled_exception():
 
     runner = AgentRunner()
     with pytest.raises(RuntimeError, match="provider exploded"):
-        await runner.run(make_run_spec(provider,
-            initial_messages=[{"role": "user", "content": "hi"}],
-            tools=tools,
-            model="test-model",
-            max_iterations=1,
-            max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
-            hook=ExceptionHook(),
-        ))
+        await runner.run(
+            make_run_spec(
+                provider,
+                initial_messages=[{"role": "user", "content": "hi"}],
+                tools=tools,
+                model="test-model",
+                max_iterations=1,
+                max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
+                hook=ExceptionHook(),
+            )
+        )
 
     assert events == [
         ("before_run", [{"role": "user", "content": "hi"}]),
@@ -468,14 +498,17 @@ async def test_runner_preserves_original_exception_when_finally_hook_fails():
 
     runner = AgentRunner()
     with pytest.raises(RuntimeError, match="provider exploded"):
-        await runner.run(make_run_spec(provider,
-            initial_messages=[{"role": "user", "content": "hi"}],
-            tools=tools,
-            model="test-model",
-            max_iterations=1,
-            max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
-            hook=BadFinallyHook(),
-        ))
+        await runner.run(
+            make_run_spec(
+                provider,
+                initial_messages=[{"role": "user", "content": "hi"}],
+                tools=tools,
+                model="test-model",
+                max_iterations=1,
+                max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
+                hook=BadFinallyHook(),
+            )
+        )
 
 
 @pytest.mark.asyncio
@@ -506,23 +539,28 @@ async def test_runner_does_not_report_cancellation_as_error():
             events.append(("after_run", context.stop_reason))
 
         async def on_finally(self, context: AgentRunHookContext) -> None:
-            events.append((
-                "on_finally",
-                context.stop_reason,
-                context.error,
-                type(context.exception).__name__ if context.exception else None,
-            ))
+            events.append(
+                (
+                    "on_finally",
+                    context.stop_reason,
+                    context.error,
+                    type(context.exception).__name__ if context.exception else None,
+                )
+            )
 
     runner = AgentRunner()
     with pytest.raises(asyncio.CancelledError):
-        await runner.run(make_run_spec(provider,
-            initial_messages=[{"role": "user", "content": "hi"}],
-            tools=tools,
-            model="test-model",
-            max_iterations=1,
-            max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
-            hook=CancellationHook(),
-        ))
+        await runner.run(
+            make_run_spec(
+                provider,
+                initial_messages=[{"role": "user", "content": "hi"}],
+                tools=tools,
+                model="test-model",
+                max_iterations=1,
+                max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
+                hook=CancellationHook(),
+            )
+        )
 
     assert events == [
         ("before_run", None),
@@ -552,11 +590,14 @@ async def test_runner_preserves_cancellation_when_finally_hook_fails():
 
     runner = AgentRunner()
     with pytest.raises(asyncio.CancelledError):
-        await runner.run(make_run_spec(provider,
-            initial_messages=[{"role": "user", "content": "hi"}],
-            tools=tools,
-            model="test-model",
-            max_iterations=1,
-            max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
-            hook=BadFinallyHook(),
-        ))
+        await runner.run(
+            make_run_spec(
+                provider,
+                initial_messages=[{"role": "user", "content": "hi"}],
+                tools=tools,
+                model="test-model",
+                max_iterations=1,
+                max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
+                hook=BadFinallyHook(),
+            )
+        )

@@ -21,8 +21,9 @@ class AutoCompact:
     _SUMMARIES_MAX = 64
     _LIST_TTL_S = 30.0
 
-    def __init__(self, sessions: SessionManager, consolidator: Consolidator,
-                 session_ttl_minutes: int = 0):
+    def __init__(
+        self, sessions: SessionManager, consolidator: Consolidator, session_ttl_minutes: int = 0
+    ):
         self.sessions = sessions
         self.consolidator = consolidator
         self._ttl = session_ttl_minutes
@@ -30,8 +31,7 @@ class AutoCompact:
         self._summaries: dict[str, tuple[str, datetime]] = {}
         self._list_cache: tuple[float, list[dict]] | None = None
 
-    def _is_expired(self, ts: datetime | str | None,
-                    now: datetime | None = None) -> bool:
+    def _is_expired(self, ts: datetime | str | None, now: datetime | None = None) -> bool:
         if self._ttl <= 0 or not ts:
             return False
         if isinstance(ts, str):
@@ -56,7 +56,7 @@ class AutoCompact:
 
     def _has_compactable_idle_tail(self, key: str) -> bool:
         session = self.sessions.get_or_create(key)
-        tail = list(session.messages[session.last_consolidated:])
+        tail = list(session.messages[session.last_consolidated :])
         if not tail:
             return False
 
@@ -73,7 +73,7 @@ class AutoCompact:
             window,
             extend_to_user=True,
         )
-        messages_to_remove = result.dropped[result.already_consolidated_count:]
+        messages_to_remove = result.dropped[result.already_consolidated_count :]
         return bool(messages_to_remove)
 
     @staticmethod
@@ -151,7 +151,9 @@ class AutoCompact:
             self._summaries.pop(key, None)
             return session, None
         if key in self._archiving or self._is_expired(session.updated_at):
-            logger.info("Auto-compact: reloading session {} (archiving={})", key, key in self._archiving)
+            logger.info(
+                "Auto-compact: reloading session {} (archiving={})", key, key in self._archiving
+            )
             session = self.sessions.get_or_create(key)
         # Hot path: summary from in-memory dict (process hasn't restarted).
         entry = self._summaries.pop(key, None)

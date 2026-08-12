@@ -95,9 +95,7 @@ async def test_bot_connect_dns_error_no_traceback(capsys):
     )
 
     with (
-        patch(
-            "nanobot.channels.qq.runtime.BotWebSocket"
-        ) as mock_ws_cls,
+        patch("nanobot.channels.qq.runtime.BotWebSocket") as mock_ws_cls,
         patch("asyncio.sleep", new=AsyncMock()),
     ):
         mock_client = MagicMock()
@@ -123,9 +121,7 @@ async def test_bot_connect_connector_error_applies_backoff():
     )
 
     with (
-        patch(
-            "nanobot.channels.qq.runtime.BotWebSocket"
-        ) as mock_ws_cls,
+        patch("nanobot.channels.qq.runtime.BotWebSocket") as mock_ws_cls,
         patch("asyncio.sleep", new=AsyncMock()) as mock_sleep,
     ):
         mock_client = MagicMock()
@@ -152,9 +148,7 @@ async def test_bot_connect_backoff_doubles_and_caps():
     )
 
     with (
-        patch(
-            "nanobot.channels.qq.runtime.BotWebSocket"
-        ) as mock_ws_cls,
+        patch("nanobot.channels.qq.runtime.BotWebSocket") as mock_ws_cls,
         patch("asyncio.sleep", new=AsyncMock()),
     ):
         mock_client = MagicMock()
@@ -200,9 +194,7 @@ async def test_bot_connect_non_network_error_still_requeues():
     runtime_error = RuntimeError("Unexpected error")
 
     with (
-        patch(
-            "nanobot.channels.qq.runtime.BotWebSocket"
-        ) as mock_ws_cls,
+        patch("nanobot.channels.qq.runtime.BotWebSocket") as mock_ws_cls,
         patch("asyncio.sleep", new=AsyncMock()) as mock_sleep,
     ):
         mock_client = MagicMock()
@@ -230,9 +222,7 @@ async def test_bot_connect_per_session_backoff_isolated():
     )
 
     with (
-        patch(
-            "nanobot.channels.qq.runtime.BotWebSocket"
-        ) as mock_ws_cls,
+        patch("nanobot.channels.qq.runtime.BotWebSocket") as mock_ws_cls,
         patch("asyncio.sleep", new=AsyncMock()),
     ):
         mock_client = MagicMock()
@@ -252,6 +242,7 @@ async def test_bot_connect_per_session_backoff_isolated():
         assert bot._ws_backoff[id(session_a)] == 20
 
         assert bot._ws_backoff[id(session_b)] == 10
+
 
 def test_is_network_error_classification():
     from nanobot.channels.qq.runtime import _is_network_error

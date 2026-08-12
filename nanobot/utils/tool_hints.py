@@ -8,17 +8,17 @@ from nanobot.utils.path import abbreviate_path
 
 # Registry: tool_name -> (key_args, template, is_path, is_command)
 _TOOL_FORMATS: dict[str, tuple[list[str], str, bool, bool]] = {
-    "read_file":  (["path", "file_path"],              "read {}",     True,  False),
-    "write_file": (["path", "file_path"],              "write {}",    True,  False),
-    "edit":       (["file_path", "path"],              "edit {}",     True,  False),
-    "find_files": (["query", "glob", "path"],           "find {}",     False, False),
-    "grep":       (["pattern"],                        'grep "{}"',   False, False),
-    "exec":       (["command"],                        "$ {}",        False, True),
-    "list_exec_sessions": ([],                          "exec sessions", False, False),
-    "web_search": (["query"],                          'search "{}"', False, False),
-    "x_search":   (["query"],                        'search X "{}"', False, False),
-    "web_fetch":  (["url"],                            "fetch {}",    True,  False),
-    "list_dir":   (["path"],                           "ls {}",       True,  False),
+    "read_file": (["path", "file_path"], "read {}", True, False),
+    "write_file": (["path", "file_path"], "write {}", True, False),
+    "edit": (["file_path", "path"], "edit {}", True, False),
+    "find_files": (["query", "glob", "path"], "find {}", False, False),
+    "grep": (["pattern"], 'grep "{}"', False, False),
+    "exec": (["command"], "$ {}", False, True),
+    "list_exec_sessions": ([], "exec sessions", False, False),
+    "web_search": (["query"], 'search "{}"', False, False),
+    "x_search": (["query"], 'search X "{}"', False, False),
+    "web_fetch": (["url"], "fetch {}", True, False),
+    "list_dir": (["path"], "ls {}", True, False),
 }
 
 # Matches file paths embedded in shell commands, including quoted paths with spaces.
@@ -56,9 +56,7 @@ def format_tool_hints(tool_calls: list, max_length: int = 40) -> str:
         else:
             hints.append((hint, 1))
 
-    return ", ".join(
-        f"{h} \u00d7 {c}" if c > 1 else h for h, c in hints
-    )
+    return ", ".join(f"{h} \u00d7 {c}" if c > 1 else h for h, c in hints)
 
 
 def _get_args(tc) -> dict:
@@ -115,7 +113,7 @@ def _abbreviate_command(cmd: str, max_len: int = 40) -> str:
     abbreviated = _PATH_IN_CMD_RE.sub(_replace_path, cmd)
     if len(abbreviated) <= max_len:
         return abbreviated
-    return abbreviated[:max_len - 1] + "\u2026"
+    return abbreviated[: max_len - 1] + "\u2026"
 
 
 def _fmt_mcp(tc, max_length: int = 40) -> str:
@@ -145,4 +143,8 @@ def _fmt_fallback(tc, max_length: int = 40) -> str:
     val = next(iter(args.values()), None) if isinstance(args, dict) else None
     if not isinstance(val, str):
         return tc.name
-    return f'{tc.name}("{abbreviate_path(val, max_length)}")' if len(val) > max_length else f'{tc.name}("{val}")'
+    return (
+        f'{tc.name}("{abbreviate_path(val, max_length)}")'
+        if len(val) > max_length
+        else f'{tc.name}("{val}")'
+    )

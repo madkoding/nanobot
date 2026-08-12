@@ -32,26 +32,30 @@ def test_api_runtime_builds_detached_serve_command(tmp_path: Path, monkeypatch) 
     monkeypatch.setattr(runtime, "_is_pid_running", lambda _pid: True)
     monkeypatch.setattr(runtime, "_process_identity", lambda _pid: 23456)
 
-    result = runtime.start_background(ApiStartOptions(
-        host="0.0.0.0",
-        port=9900,
-        workspace="/tmp/workspace",
-        config_path="/tmp/config.json",
-    ))
+    result = runtime.start_background(
+        ApiStartOptions(
+            host="0.0.0.0",
+            port=9900,
+            workspace="/tmp/workspace",
+            config_path="/tmp/config.json",
+        )
+    )
 
     assert result.ok is True
     assert result.message == "api_started_background"
-    assert calls == [[
-        "/python",
-        "-m",
-        "nanobot",
-        "serve",
-        "--host",
-        "0.0.0.0",
-        "--port",
-        "9900",
-        "--workspace",
-        "/tmp/workspace",
-        "--config",
-        "/tmp/config.json",
-    ]]
+    assert calls == [
+        [
+            "/python",
+            "-m",
+            "nanobot",
+            "serve",
+            "--host",
+            "0.0.0.0",
+            "--port",
+            "9900",
+            "--workspace",
+            "/tmp/workspace",
+            "--config",
+            "/tmp/config.json",
+        ]
+    ]

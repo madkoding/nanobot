@@ -188,8 +188,7 @@ def test_named_default_refresh_is_used_by_sessions_without_override(tmp_path: Pa
         provider_signature=shared_signature,
         provider_snapshot_loader=lambda: default_snapshot,
         model_presets={
-            name: ModelPresetConfig(model=snapshot.model)
-            for name, snapshot in snapshots.items()
+            name: ModelPresetConfig(model=snapshot.model) for name, snapshot in snapshots.items()
         },
         model_preset="fast",
         preset_snapshot_loader=snapshots.__getitem__,

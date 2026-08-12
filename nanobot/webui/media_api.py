@@ -53,16 +53,18 @@ def _default_media_dir(channel: str | None = None) -> Path:
 # outside this set is degraded to ``application/octet-stream`` so an
 # attacker who somehow gets a signed URL for an unexpected file type can't
 # trick the browser into sniffing executable content.
-_MEDIA_ALLOWED_MIMES: frozenset[str] = frozenset({
-    "image/png",
-    "image/jpeg",
-    "image/webp",
-    "image/gif",
-    "image/svg+xml",
-    "video/mp4",
-    "video/webm",
-    "video/quicktime",
-})
+_MEDIA_ALLOWED_MIMES: frozenset[str] = frozenset(
+    {
+        "image/png",
+        "image/jpeg",
+        "image/webp",
+        "image/gif",
+        "image/svg+xml",
+        "video/mp4",
+        "video/webm",
+        "video/quicktime",
+    }
+)
 _SVG_MEDIA_HEADERS: tuple[tuple[str, str], ...] = (
     (
         "Content-Security-Policy",

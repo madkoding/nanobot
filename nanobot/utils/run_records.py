@@ -31,4 +31,3 @@ def write_run_record(runs_dir: Path, run_id: str, record: dict[str, Any]) -> Pat
 
 def _now_ms() -> int:
     return int(time.time() * 1000)
-

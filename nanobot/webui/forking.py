@@ -63,7 +63,9 @@ def create_webui_chat_fork(
     return new_id, target_key
 
 
-async def handle_webui_fork_chat(channel: Any, connection: Any, envelope: Mapping[str, Any]) -> None:
+async def handle_webui_fork_chat(
+    channel: Any, connection: Any, envelope: Mapping[str, Any]
+) -> None:
     """Handle the WebUI ``fork_chat`` websocket command.
 
     ``websocket.py`` owns the transport. This module owns WebUI fork semantics:

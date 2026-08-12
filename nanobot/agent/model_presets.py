@@ -78,6 +78,7 @@ def normalize_preset_name(name: str | None, presets: dict[str, ModelPresetConfig
         raise ValueError("model_preset must be a non-empty string")
     name = name.strip()
     if name not in presets:
-        raise KeyError(f"model_preset {name!r} not found. Available: {', '.join(presets) or '(none)'}")
+        raise KeyError(
+            f"model_preset {name!r} not found. Available: {', '.join(presets) or '(none)'}"
+        )
     return name
-

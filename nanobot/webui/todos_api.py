@@ -291,7 +291,9 @@ def create_todo_list(name: str, scope: WorkspaceScope, slug: str | None = None) 
         todo_dir = _resolve_todo_dir(scope, create=True)
     except ValueError as e:
         return {"error": str(e)}
-    final_slug = _ensure_unique_slug(todo_dir, slug.strip() if slug and slug.strip() else _slugify(name))
+    final_slug = _ensure_unique_slug(
+        todo_dir, slug.strip() if slug and slug.strip() else _slugify(name)
+    )
     if not _is_valid_slug(final_slug):
         return {"error": "invalid slug"}
     path = _list_file(todo_dir, final_slug)
@@ -452,7 +454,9 @@ def migrate_legacy(scope: WorkspaceScope) -> dict[str, Any]:
         path = _list_file(todo_dir, slug)
         if path.exists():
             continue
-        items = [_normalize_item({**x, "assignee": x.get("assignee") or user_id}) for x in items_raw]
+        items = [
+            _normalize_item({**x, "assignee": x.get("assignee") or user_id}) for x in items_raw
+        ]
         now = _now_iso()
         data = {
             "id": str(uuid.uuid4()),
@@ -471,4 +475,9 @@ def migrate_legacy(scope: WorkspaceScope) -> dict[str, Any]:
         legacy_path.rename(legacy_path.parent / migrated_name)
     except OSError:
         pass
-    return {"ok": True, "migrated": bool(migrated), "lists": migrated, "users": users.get("users", {})}
+    return {
+        "ok": True,
+        "migrated": bool(migrated),
+        "lists": migrated,
+        "users": users.get("users", {}),
+    }

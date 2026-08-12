@@ -58,11 +58,15 @@ class ContextBuilder:
     _RUNTIME_CONTEXT_TAG = RUNTIME_CONTEXT_TAG
     _RUNTIME_CONTEXT_END = RUNTIME_CONTEXT_END
 
-    def __init__(self, workspace: Path, timezone: str | None = None, disabled_skills: list[str] | None = None):
+    def __init__(
+        self, workspace: Path, timezone: str | None = None, disabled_skills: list[str] | None = None
+    ):
         self.workspace = workspace
         self.timezone = timezone
         self.memory = MemoryStore(workspace)
-        self.skills = SkillsLoader(workspace, disabled_skills=set(disabled_skills) if disabled_skills else None)
+        self.skills = SkillsLoader(
+            workspace, disabled_skills=set(disabled_skills) if disabled_skills else None
+        )
         # Cache of the static system-prompt prefix, keyed by a signature of the
         # source files' mtimes. Invalidated automatically when any of AGENTS.md,
         # SOUL.md, USER.md, MEMORY.md, or a skill file changes.
@@ -170,11 +174,9 @@ class ContextBuilder:
         # and the first/last 200 chars of each section.
         if extra_bootstrap_paths and not getattr(self, "_diag_logged", False):
             from loguru import logger as _logger
+
             self._diag_logged = True
-            section_labels = [
-                p.split("\n", 1)[0].lstrip("# ").strip() or p[:60]
-                for p in parts
-            ]
+            section_labels = [p.split("\n", 1)[0].lstrip("# ").strip() or p[:60] for p in parts]
             _logger.info(
                 "[group_override_diag] channel={} extra_paths={} sections={}",
                 channel,
@@ -269,7 +271,10 @@ class ContextBuilder:
 
         def _to_blocks(value: Any) -> list[dict[str, Any]]:
             if isinstance(value, list):
-                return [item if isinstance(item, dict) else {"type": "text", "text": str(item)} for item in value]
+                return [
+                    item if isinstance(item, dict) else {"type": "text", "text": str(item)}
+                    for item in value
+                ]
             if value is None:
                 return []
             return [{"type": "text", "text": str(value)}]
@@ -423,11 +428,13 @@ class ContextBuilder:
             if not mime or not mime.startswith("image/"):
                 continue
             b64 = base64.b64encode(raw).decode()
-            images.append({
-                "type": "image_url",
-                "image_url": {"url": f"data:{mime};base64,{b64}"},
-                "_meta": {"path": str(p)},
-            })
+            images.append(
+                {
+                    "type": "image_url",
+                    "image_url": {"url": f"data:{mime};base64,{b64}"},
+                    "_meta": {"path": str(p)},
+                }
+            )
 
         if not images:
             return text

@@ -55,9 +55,7 @@ def test_current_time_str_rejects_unknown_timezone():
         current_time_str("Not/AZone")
 
 
-def test_write_text_atomic_fsyncs_file_and_parent_directory(
-    tmp_path: Path, monkeypatch
-) -> None:
+def test_write_text_atomic_fsyncs_file_and_parent_directory(tmp_path: Path, monkeypatch) -> None:
     target = tmp_path / "pairing.json"
     fsync_calls: list[int] = []
     closed_fds: list[int] = []

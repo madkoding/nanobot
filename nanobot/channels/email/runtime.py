@@ -64,8 +64,8 @@ class EmailConfig(Base):
     allow_from: list[str] = Field(default_factory=list)
 
     # Email authentication verification (anti-spoofing)
-    verify_dkim: bool = True   # Require Authentication-Results with dkim=pass
-    verify_spf: bool = True    # Require Authentication-Results with spf=pass
+    verify_dkim: bool = True  # Require Authentication-Results with dkim=pass
+    verify_spf: bool = True  # Require Authentication-Results with spf=pass
 
     # Attachment handling — set allowed types to enable (e.g. ["application/pdf", "image/*"], or ["*"] for all)
     allowed_attachment_types: list[str] = Field(default_factory=list)
@@ -196,7 +196,9 @@ class EmailChannel(BaseChannel):
                     post_actions_uids.update(skipped_uids)
 
                 if post_actions_uids:
-                    await asyncio.to_thread(self._apply_post_actions_batch, sorted(post_actions_uids))
+                    await asyncio.to_thread(
+                        self._apply_post_actions_batch, sorted(post_actions_uids)
+                    )
             except Exception:
                 self.logger.exception("Polling error")
 
@@ -287,7 +289,9 @@ class EmailChannel(BaseChannel):
             content = f"{content.rstrip()}\n\n{fallback}" if content.strip() else fallback
 
         email_msg = EmailMessage()
-        email_msg["From"] = self.config.from_address or self.config.smtp_username or self.config.imap_username
+        email_msg["From"] = (
+            self.config.from_address or self.config.smtp_username or self.config.imap_username
+        )
         email_msg["To"] = to_addr
         email_msg["Subject"] = subject
         email_msg.set_content(content)
@@ -326,11 +330,14 @@ class EmailChannel(BaseChannel):
         if not self.config.smtp_password:
             missing.append("smtp_password")
 
-        if self.config.post_action == "move" and not (self.config.post_action_move_mailbox or "").strip():
+        if (
+            self.config.post_action == "move"
+            and not (self.config.post_action_move_mailbox or "").strip()
+        ):
             missing.append("post_action_move_mailbox")
 
         if missing:
-            self.logger.error("Channel not configured, missing: {}", ', '.join(missing))
+            self.logger.error("Channel not configured, missing: {}", ", ".join(missing))
             return False
         return True
 
@@ -570,13 +577,17 @@ class EmailChannel(BaseChannel):
                 status, _ = client.select(mailbox)
             except Exception as exc:
                 if missing_mailbox_ok and self._is_missing_mailbox_error(exc):
-                    self.logger.warning("Mailbox unavailable, skipping poll for {}: {}", mailbox, exc)
+                    self.logger.warning(
+                        "Mailbox unavailable, skipping poll for {}: {}", mailbox, exc
+                    )
                     self._close_imap_client(client)
                     return None
                 raise
 
             if status != "OK":
-                self.logger.warning("Mailbox select returned {}, skipping poll for {}", status, mailbox)
+                self.logger.warning(
+                    "Mailbox select returned {}, skipping poll for {}", status, mailbox
+                )
                 self._close_imap_client(client)
                 return None
         except Exception:
@@ -598,9 +609,7 @@ class EmailChannel(BaseChannel):
             self.config.imap_username,
         )
         normalized = {
-            addr
-            for candidate in candidates
-            if (addr := self._normalize_address(candidate))
+            addr for candidate in candidates if (addr := self._normalize_address(candidate))
         }
         return normalized
 
@@ -632,7 +641,9 @@ class EmailChannel(BaseChannel):
             # mark_seen is the primary dedup; this set is a safety net
             if len(self._processed_uids) > self._MAX_PROCESSED_UIDS:
                 # Evict a random half to cap memory; mark_seen is the primary dedup
-                self._processed_uids = set(list(self._processed_uids)[len(self._processed_uids) // 2:])
+                self._processed_uids = set(
+                    list(self._processed_uids)[len(self._processed_uids) // 2 :]
+                )
 
     def _should_apply_post_action(self) -> bool:
         return self.config.post_action in {"delete", "move"}
@@ -676,12 +687,16 @@ class EmailChannel(BaseChannel):
             if features.move:
                 status, _ = client.uid("MOVE", uid, target)
                 if status != "OK":
-                    self.logger.warning("Post-action move failed (UID MOVE) for UID {} to mailbox {}", uid, target)
+                    self.logger.warning(
+                        "Post-action move failed (UID MOVE) for UID {} to mailbox {}", uid, target
+                    )
                 return
 
             status, _ = client.uid("COPY", uid, target)
             if status != "OK":
-                self.logger.warning("Post-action move failed (UID COPY) for UID {} to mailbox {}", uid, target)
+                self.logger.warning(
+                    "Post-action move failed (UID COPY) for UID {} to mailbox {}", uid, target
+                )
                 return
             if not self._uid_store_deleted(client, uid, features):
                 return
@@ -695,7 +710,9 @@ class EmailChannel(BaseChannel):
             if status == "OK" and data:
                 for raw in data:
                     if isinstance(raw, (bytes, bytearray)):
-                        caps.update(token.upper() for token in raw.decode("utf-8", errors="ignore").split())
+                        caps.update(
+                            token.upper() for token in raw.decode("utf-8", errors="ignore").split()
+                        )
                     elif isinstance(raw, str):
                         caps.update(token.upper() for token in raw.split())
         return _ServerFeatures(move="MOVE" in caps, uidplus="UIDPLUS" in caps)
@@ -765,7 +782,11 @@ class EmailChannel(BaseChannel):
     @staticmethod
     def _extract_message_bytes(fetched: list[Any]) -> bytes | None:
         for item in fetched:
-            if isinstance(item, tuple) and len(item) >= 2 and isinstance(item[1], (bytes, bytearray)):
+            if (
+                isinstance(item, tuple)
+                and len(item) >= 2
+                and isinstance(item[1], (bytes, bytearray))
+            ):
                 return bytes(item[1])
         return None
 

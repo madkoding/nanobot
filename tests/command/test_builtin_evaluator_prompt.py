@@ -67,9 +67,7 @@ async def test_evaluator_prompt_handles_undecodable_existing_prompt(tmp_path) ->
     prompt_file.write_bytes(original)
 
     status = await cmd_evaluator_prompt(_make_ctx(tmp_path))
-    init = await cmd_evaluator_prompt(
-        _make_ctx(tmp_path, "/evaluator-prompt init", "init")
-    )
+    init = await cmd_evaluator_prompt(_make_ctx(tmp_path, "/evaluator-prompt init", "init"))
 
     assert "Heartbeat evaluator prompt: nanobot default" in status.content
     assert "already exists" in init.content

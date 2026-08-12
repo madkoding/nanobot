@@ -132,7 +132,9 @@ async def test_api_key_protects_api_routes_but_not_health(aiohttp_client, mock_a
 
 @pytest.mark.skipif(not HAS_AIOHTTP, reason="aiohttp not installed")
 @pytest.mark.asyncio
-async def test_api_routes_allow_requests_without_configured_api_key(aiohttp_client, mock_agent) -> None:
+async def test_api_routes_allow_requests_without_configured_api_key(
+    aiohttp_client, mock_agent
+) -> None:
     app = create_app(mock_agent, model_name="test-model")
     client = await aiohttp_client(app)
 
@@ -406,7 +408,10 @@ async def test_multimodal_remote_image_url_returns_400(aiohttp_client, mock_agen
                     "role": "user",
                     "content": [
                         {"type": "text", "text": "describe this"},
-                        {"type": "image_url", "image_url": {"url": "https://example.com/image.png"}},
+                        {
+                            "type": "image_url",
+                            "image_url": {"url": "https://example.com/image.png"},
+                        },
                     ],
                 }
             ]
@@ -461,7 +466,15 @@ async def test_process_direct_accepts_media() -> None:
 
     captured_msg = None
 
-    async def fake_process(msg, *, session_key="", on_progress=None, on_stream=None, on_stream_end=None, ephemeral=False):
+    async def fake_process(
+        msg,
+        *,
+        session_key="",
+        on_progress=None,
+        on_stream=None,
+        on_stream_end=None,
+        ephemeral=False,
+    ):
         nonlocal captured_msg
         captured_msg = msg
         return None

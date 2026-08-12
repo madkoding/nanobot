@@ -20,30 +20,33 @@ async def test_runner_returns_structured_tool_error():
     from nanobot.agent.runner import AgentRunner
 
     provider = MagicMock(spec=LLMProvider)
-    provider.chat_with_retry = AsyncMock(return_value=LLMResponse(
-        content="working",
-        tool_calls=[ToolCallRequest(id="call_1", name="list_dir", arguments={})],
-    ))
+    provider.chat_with_retry = AsyncMock(
+        return_value=LLMResponse(
+            content="working",
+            tool_calls=[ToolCallRequest(id="call_1", name="list_dir", arguments={})],
+        )
+    )
     tools = MagicMock()
     tools.get_definitions.return_value = []
     tools.execute = AsyncMock(side_effect=RuntimeError("boom"))
 
     runner = AgentRunner()
 
-    result = await runner.run(make_run_spec(provider,
-        initial_messages=[],
-        tools=tools,
-        model="test-model",
-        max_iterations=2,
-        max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
-        fail_on_tool_error=True,
-    ))
+    result = await runner.run(
+        make_run_spec(
+            provider,
+            initial_messages=[],
+            tools=tools,
+            model="test-model",
+            max_iterations=2,
+            max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
+            fail_on_tool_error=True,
+        )
+    )
 
     assert result.stop_reason == "tool_error"
     assert result.error == "Error: RuntimeError: boom"
-    assert result.tool_events == [
-        {"name": "list_dir", "status": "error", "detail": "boom"}
-    ]
+    assert result.tool_events == [{"name": "list_dir", "status": "error", "detail": "boom"}]
 
 
 @pytest.mark.asyncio
@@ -89,26 +92,35 @@ async def test_llm_error_not_appended_to_session_messages():
     )
 
     provider = MagicMock(spec=LLMProvider)
-    provider.chat_with_retry = AsyncMock(return_value=LLMResponse(
-        content="429 rate limit exceeded", finish_reason="error", tool_calls=[], usage={},
-    ))
+    provider.chat_with_retry = AsyncMock(
+        return_value=LLMResponse(
+            content="429 rate limit exceeded",
+            finish_reason="error",
+            tool_calls=[],
+            usage={},
+        )
+    )
     tools = MagicMock()
     tools.get_definitions.return_value = []
 
     runner = AgentRunner()
-    result = await runner.run(make_run_spec(provider,
-        initial_messages=[{"role": "user", "content": "hello"}],
-        tools=tools,
-        model="test-model",
-        max_iterations=5,
-        max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
-    ))
+    result = await runner.run(
+        make_run_spec(
+            provider,
+            initial_messages=[{"role": "user", "content": "hello"}],
+            tools=tools,
+            model="test-model",
+            max_iterations=5,
+            max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
+        )
+    )
 
     assert result.stop_reason == "error"
     assert result.final_content == "429 rate limit exceeded"
     assistant_msgs = [m for m in result.messages if m.get("role") == "assistant"]
-    assert all("429" not in (m.get("content") or "") for m in assistant_msgs), \
+    assert all("429" not in (m.get("content") or "") for m in assistant_msgs), (
         "Error content should not appear in session messages"
+    )
     assert assistant_msgs[-1]["content"] == _PERSISTED_MODEL_ERROR_PLACEHOLDER
 
 
@@ -118,20 +130,27 @@ async def test_llm_arrearage_error_surfaces_clear_message():
     from nanobot.agent.runner import _ARREARAGE_ERROR_MESSAGE, AgentRunner
 
     provider = MagicMock(spec=LLMProvider)
-    provider.chat_with_retry = AsyncMock(return_value=LLMResponse(
-        content="HTTP 402 insufficient_quota", finish_reason="error", error_status_code=402,
-    ))
+    provider.chat_with_retry = AsyncMock(
+        return_value=LLMResponse(
+            content="HTTP 402 insufficient_quota",
+            finish_reason="error",
+            error_status_code=402,
+        )
+    )
     tools = MagicMock()
     tools.get_definitions.return_value = []
 
     runner = AgentRunner()
-    result = await runner.run(make_run_spec(provider,
-        initial_messages=[{"role": "user", "content": "hello"}],
-        tools=tools,
-        model="test-model",
-        max_iterations=5,
-        max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
-    ))
+    result = await runner.run(
+        make_run_spec(
+            provider,
+            initial_messages=[{"role": "user", "content": "hello"}],
+            tools=tools,
+            model="test-model",
+            max_iterations=5,
+            max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
+        )
+    )
 
     assert result.stop_reason == "error"
     assert result.final_content == _ARREARAGE_ERROR_MESSAGE
@@ -154,23 +173,30 @@ async def test_runner_ignores_tool_calls_when_finish_reason_blocks_execution(
     from nanobot.agent.runner import AgentRunner
 
     provider = MagicMock(spec=LLMProvider)
-    provider.chat_with_retry = AsyncMock(return_value=LLMResponse(
-        content="Request blocked by provider policy.",
-        finish_reason=finish_reason,
-        tool_calls=[ToolCallRequest(id="call_1", name="exec", arguments={"command": "echo nope"})],
-        usage={},
-    ))
+    provider.chat_with_retry = AsyncMock(
+        return_value=LLMResponse(
+            content="Request blocked by provider policy.",
+            finish_reason=finish_reason,
+            tool_calls=[
+                ToolCallRequest(id="call_1", name="exec", arguments={"command": "echo nope"})
+            ],
+            usage={},
+        )
+    )
     tools = MagicMock()
     tools.get_definitions.return_value = []
     tools.execute = AsyncMock(return_value="should not run")
 
-    result = await AgentRunner().run(make_run_spec(provider,
-        initial_messages=[{"role": "user", "content": "run a command"}],
-        tools=tools,
-        model="test-model",
-        max_iterations=2,
-        max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
-    ))
+    result = await AgentRunner().run(
+        make_run_spec(
+            provider,
+            initial_messages=[{"role": "user", "content": "run a command"}],
+            tools=tools,
+            model="test-model",
+            max_iterations=2,
+            max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
+        )
+    )
 
     tools.execute.assert_not_awaited()
     assert result.stop_reason == expected_stop_reason
@@ -198,14 +224,17 @@ async def test_runner_tool_error_sets_final_content():
     tools.execute = AsyncMock(side_effect=RuntimeError("boom"))
 
     runner = AgentRunner()
-    result = await runner.run(make_run_spec(provider,
-        initial_messages=[{"role": "user", "content": "do task"}],
-        tools=tools,
-        model="test-model",
-        max_iterations=1,
-        max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
-        fail_on_tool_error=True,
-    ))
+    result = await runner.run(
+        make_run_spec(
+            provider,
+            initial_messages=[{"role": "user", "content": "do task"}],
+            tools=tools,
+            model="test-model",
+            max_iterations=1,
+            max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
+            fail_on_tool_error=True,
+        )
+    )
 
     assert result.final_content == "Error: RuntimeError: boom"
     assert result.stop_reason == "tool_error"
@@ -235,19 +264,26 @@ async def test_runner_preserves_successful_exec_output_that_starts_with_error():
     tools.execute = AsyncMock(return_value=output)
 
     runner = AgentRunner()
-    result = await runner.run(make_run_spec(provider,
-        initial_messages=[{"role": "user", "content": "run report"}],
-        tools=tools,
-        model="test-model",
-        max_iterations=2,
-        max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
-        fail_on_tool_error=True,
-    ))
+    result = await runner.run(
+        make_run_spec(
+            provider,
+            initial_messages=[{"role": "user", "content": "run report"}],
+            tools=tools,
+            model="test-model",
+            max_iterations=2,
+            max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
+            fail_on_tool_error=True,
+        )
+    )
 
     assert result.final_content == "done"
     assert result.stop_reason == "completed"
     assert result.tool_events == [
-        {"name": "exec", "status": "ok", "detail": "Error: generated report successfully  Exit code: 0"}
+        {
+            "name": "exec",
+            "status": "ok",
+            "detail": "Error: generated report successfully  Exit code: 0",
+        }
     ]
 
 
@@ -286,14 +322,17 @@ async def test_runner_tool_error_preserves_tool_results_in_messages():
     tools.execute = AsyncMock(side_effect=fake_execute)
 
     runner = AgentRunner()
-    result = await runner.run(make_run_spec(provider,
-        initial_messages=[{"role": "user", "content": "do stuff"}],
-        tools=tools,
-        model="test-model",
-        max_iterations=1,
-        max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
-        fail_on_tool_error=True,
-    ))
+    result = await runner.run(
+        make_run_spec(
+            provider,
+            initial_messages=[{"role": "user", "content": "do stuff"}],
+            tools=tools,
+            model="test-model",
+            max_iterations=1,
+            max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
+            fail_on_tool_error=True,
+        )
+    )
 
     assert result.stop_reason == "tool_error"
     # Both tool results must be in messages even though tc2 had a fatal error.
@@ -303,10 +342,9 @@ async def test_runner_tool_error_preserves_tool_results_in_messages():
     assert tool_msgs[1]["tool_call_id"] == "tc2"
     # The assistant message with tool_calls must precede the tool results.
     asst_tc_idx = next(
-        i for i, m in enumerate(result.messages)
+        i
+        for i, m in enumerate(result.messages)
         if m.get("role") == "assistant" and m.get("tool_calls")
     )
-    tool_indices = [
-        i for i, m in enumerate(result.messages) if m.get("role") == "tool"
-    ]
+    tool_indices = [i for i, m in enumerate(result.messages) if m.get("role") == "tool"]
     assert all(ti > asst_tc_idx for ti in tool_indices)

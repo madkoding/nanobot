@@ -68,7 +68,9 @@ def test_concurrent_loop_initialization_starts_one_thread(monkeypatch) -> None:
 
     monkeypatch.setattr(runner, "_run_loop", fake_run_loop)
     loops: list[asyncio.AbstractEventLoop] = []
-    threads = [threading.Thread(target=lambda: loops.append(runner._ensure_loop())) for _ in range(2)]
+    threads = [
+        threading.Thread(target=lambda: loops.append(runner._ensure_loop())) for _ in range(2)
+    ]
 
     for thread in threads:
         thread.start()

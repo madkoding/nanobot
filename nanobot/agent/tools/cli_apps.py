@@ -35,7 +35,9 @@ class CliAppsToolConfig(Base):
 @tool_parameters(
     tool_parameters_schema(
         required=["name"],
-        name=StringSchema("Installed CLI app registry name, for example gimp, safari, or obsidian."),
+        name=StringSchema(
+            "Installed CLI app registry name, for example gimp, safari, or obsidian."
+        ),
         args=ArraySchema(
             StringSchema("One command-line argument."),
             description="Arguments to pass to the CLI entry point. Do not include the entry point itself.",
@@ -96,12 +98,13 @@ class CliAppsTool(Tool):
     @property
     def description(self) -> str:
         try:
-            installed = CliAppManager(workspace=self.workspace, runtime=self.runtime).installed_names()
+            installed = CliAppManager(
+                workspace=self.workspace, runtime=self.runtime
+            ).installed_names()
         except Exception:
             installed = []
         installed_note = (
-            f" Installed: {', '.join(installed)}." if installed
-            else " No CLI Apps installed."
+            f" Installed: {', '.join(installed)}." if installed else " No CLI Apps installed."
         )
         return "Run a Settings CLI App or @app. Not for system CLIs. Uses argv." + installed_note
 

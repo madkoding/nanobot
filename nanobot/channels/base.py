@@ -56,6 +56,7 @@ class BaseChannel(ABC):
     def _touch_activity(self) -> None:
         """Record that this channel just did work, for the manager watchdog."""
         import time as _time
+
         self.last_activity_at = _time.monotonic()
 
     async def transcribe_audio(self, file_path: str | Path) -> str:
@@ -67,7 +68,9 @@ class BaseChannel(ABC):
             )
             from nanobot.config.loader import load_config
 
-            return await transcribe_audio_file(file_path, resolve_transcription_config(load_config()))
+            return await transcribe_audio_file(
+                file_path, resolve_transcription_config(load_config())
+            )
         except Exception:
             self.logger.exception("Audio transcription failed")
             return ""
@@ -210,7 +213,11 @@ class BaseChannel(ABC):
     def supports_streaming(self) -> bool:
         """True when config enables streaming AND this subclass implements send_delta."""
         cfg = self.config
-        streaming = cfg.get("streaming", False) if isinstance(cfg, dict) else getattr(cfg, "streaming", False)
+        streaming = (
+            cfg.get("streaming", False)
+            if isinstance(cfg, dict)
+            else getattr(cfg, "streaming", False)
+        )
         return bool(streaming) and type(self).send_delta is not BaseChannel.send_delta
 
     def is_allowed(self, sender_id: str) -> bool:
@@ -267,12 +274,16 @@ class BaseChannel(ABC):
                     # message. Log it so the user has a clue to retry.
                     self.logger.exception(
                         "Failed to send pairing code {} to sender {} in chat {}",
-                        code, sender_id, chat_id,
+                        code,
+                        sender_id,
+                        chat_id,
                     )
                 else:
                     self.logger.info(
                         "Sent pairing code {} to sender {} in chat {}",
-                        code, sender_id, chat_id,
+                        code,
+                        sender_id,
+                        chat_id,
                     )
             else:
                 self.logger.warning(

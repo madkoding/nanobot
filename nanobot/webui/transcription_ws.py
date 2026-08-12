@@ -21,10 +21,7 @@ _MAX_REQUEST_ID_LENGTH = 80
 async def webui_transcription_event(envelope: dict[str, Any]) -> tuple[str, dict[str, Any]]:
     """Return the WS event name and payload for one WebUI transcription request."""
     request_id = envelope.get("request_id")
-    valid_request_id = (
-        isinstance(request_id, str)
-        and 0 < len(request_id) <= _MAX_REQUEST_ID_LENGTH
-    )
+    valid_request_id = isinstance(request_id, str) and 0 < len(request_id) <= _MAX_REQUEST_ID_LENGTH
 
     def error(detail: str, **extra: Any) -> tuple[str, dict[str, Any]]:
         payload: dict[str, Any] = {"detail": detail, **extra}

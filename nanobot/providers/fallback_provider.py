@@ -14,18 +14,22 @@ from nanobot.providers.base import LLMProvider, LLMResponse
 _PRIMARY_FAILURE_THRESHOLD = 3
 _PRIMARY_COOLDOWN_S = 60
 _MISSING = object()
-_FALLBACK_ERROR_KINDS = frozenset({
-    "timeout",
-    "connection",
-    "server_error",
-    "rate_limit",
-    "overloaded",
-})
-_AUTHENTICATION_ERROR_KINDS = frozenset({
-    "authentication",
-    "auth",
-    "permission",
-})
+_FALLBACK_ERROR_KINDS = frozenset(
+    {
+        "timeout",
+        "connection",
+        "server_error",
+        "rate_limit",
+        "overloaded",
+    }
+)
+_AUTHENTICATION_ERROR_KINDS = frozenset(
+    {
+        "authentication",
+        "auth",
+        "permission",
+    }
+)
 _AUTHENTICATION_ERROR_TOKENS = (
     "authentication_error",
     "authentication error",
@@ -50,12 +54,14 @@ _AUTHENTICATION_ERROR_TOKENS = (
     "account_deactivated",
     "organization_deactivated",
 )
-_NON_FALLBACK_ERROR_KINDS = frozenset({
-    "content_filter",
-    "refusal",
-    "context_length",
-    "invalid_request",
-})
+_NON_FALLBACK_ERROR_KINDS = frozenset(
+    {
+        "content_filter",
+        "refusal",
+        "context_length",
+        "invalid_request",
+    }
+)
 _FALLBACK_ERROR_TOKENS = (
     "rate_limit",
     "rate limit",
@@ -156,9 +162,7 @@ class FallbackProvider(LLMProvider):
     async def chat(self, **kwargs: Any) -> LLMResponse:
         if not self._has_fallbacks:
             return await self._primary.chat(**kwargs)
-        return await self._try_with_fallback(
-            lambda p, kw: p.chat(**kw), kwargs, has_streamed=None
-        )
+        return await self._try_with_fallback(lambda p, kw: p.chat(**kw), kwargs, has_streamed=None)
 
     async def chat_stream(self, **kwargs: Any) -> LLMResponse:
         on_stream_recover = kwargs.pop("on_stream_recover", None)
@@ -234,7 +238,8 @@ class FallbackProvider(LLMProvider):
                 self._primary_tripped_at = time.monotonic()
                 logger.warning(
                     "Primary model '{}' circuit open after {} consecutive failures",
-                    primary_model, self._primary_failures,
+                    primary_model,
+                    self._primary_failures,
                 )
         else:
             logger.debug("Primary model '{}' circuit open; skipping", primary_model)
@@ -261,17 +266,21 @@ class FallbackProvider(LLMProvider):
             if idx == 0 and primary_skipped:
                 logger.info(
                     "Primary model '{}' circuit open, trying fallback '{}'",
-                    primary_model, fallback_model,
+                    primary_model,
+                    fallback_model,
                 )
             elif idx == 0:
                 logger.info(
                     "Primary model '{}' failed: {}; trying fallback '{}'",
-                    primary_model, primary_error, fallback_model,
+                    primary_model,
+                    primary_error,
+                    fallback_model,
                 )
             else:
                 logger.info(
                     "Fallback '{}' also failed, trying next fallback '{}'",
-                    self._fallback_presets[idx - 1].model, fallback_model,
+                    self._fallback_presets[idx - 1].model,
+                    fallback_model,
                 )
             try:
                 fallback_provider = self._provider_factory(fallback)
@@ -306,7 +315,8 @@ class FallbackProvider(LLMProvider):
             if fallback_response.finish_reason != "error":
                 logger.info(
                     "Fallback '{}' succeeded after primary '{}' failed",
-                    fallback_model, primary_model,
+                    fallback_model,
+                    primary_model,
                 )
                 return fallback_response
 
@@ -352,17 +362,13 @@ class FallbackProvider(LLMProvider):
         if kind in _AUTHENTICATION_ERROR_KINDS:
             return True
         if any(
-            token in value
-            for value in structured_values
-            for token in _AUTHENTICATION_ERROR_TOKENS
+            token in value for value in structured_values for token in _AUTHENTICATION_ERROR_TOKENS
         ):
             return True
         if kind in _NON_FALLBACK_ERROR_KINDS:
             return False
         if any(
-            token in value
-            for value in structured_values
-            for token in _NON_FALLBACK_ERROR_KINDS
+            token in value for value in structured_values for token in _NON_FALLBACK_ERROR_KINDS
         ):
             return False
         if status in {401, 403}:
@@ -379,4 +385,8 @@ class FallbackProvider(LLMProvider):
             return True
         if kind in _FALLBACK_ERROR_KINDS:
             return True
-        return any(token in value for value in (kind, error_type, code, text) for token in _FALLBACK_ERROR_TOKENS)
+        return any(
+            token in value
+            for value in (kind, error_type, code, text)
+            for token in _FALLBACK_ERROR_TOKENS
+        )

@@ -50,9 +50,11 @@ def _make_loop(tmp_path):
     provider = MagicMock()
     provider.get_default_model.return_value = "test-model"
 
-    with patch("nanobot.agent.loop.ContextBuilder"), \
-         patch("nanobot.agent.loop.SessionManager"), \
-         patch("nanobot.agent.loop.SubagentManager") as mock_sub_mgr:
+    with (
+        patch("nanobot.agent.loop.ContextBuilder"),
+        patch("nanobot.agent.loop.SessionManager"),
+        patch("nanobot.agent.loop.SubagentManager") as mock_sub_mgr,
+    ):
         mock_sub_mgr.return_value.cancel_by_session = AsyncMock(return_value=0)
         loop = AgentLoop(bus=bus, provider=provider, workspace=tmp_path)
     return loop
@@ -75,13 +77,16 @@ async def test_runner_propagates_context_governance_failure():
         side_effect=RuntimeError("boom")
     )
     with pytest.raises(RuntimeError, match="boom"):
-        await runner.run(make_run_spec(provider,
-            initial_messages=initial_messages,
-            tools=tools,
-            model="test-model",
-            max_iterations=1,
-            max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
-        ))
+        await runner.run(
+            make_run_spec(
+                provider,
+                initial_messages=initial_messages,
+                tools=tools,
+                model="test-model",
+                max_iterations=1,
+                max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
+            )
+        )
 
     provider.chat_with_retry.assert_not_awaited()
 
@@ -96,12 +101,15 @@ def test_snip_history_drops_orphaned_tool_results_from_trimmed_slice(monkeypatch
         {
             "role": "assistant",
             "content": "tool call",
-            "tool_calls": [{"id": "call_1", "type": "function", "function": {"name": "ls", "arguments": "{}"}}],
+            "tool_calls": [
+                {"id": "call_1", "type": "function", "function": {"name": "ls", "arguments": "{}"}}
+            ],
         },
         {"role": "tool", "tool_call_id": "call_1", "content": "tool output"},
         {"role": "assistant", "content": "after tool"},
     ]
-    spec = make_run_spec(provider,
+    spec = make_run_spec(
+        provider,
         initial_messages=messages,
         tools=tools,
         model="test-model",
@@ -133,7 +141,9 @@ def test_snip_history_drops_orphaned_tool_results_from_trimmed_slice(monkeypatch
     # for providers that require system → user (e.g. GLM error 1214).
     assert trimmed[0]["role"] == "system"
     non_system = [m for m in trimmed if m["role"] != "system"]
-    assert non_system[0]["role"] == "user", f"Expected user after system, got {non_system[0]['role']}"
+    assert non_system[0]["role"] == "user", (
+        f"Expected user after system, got {non_system[0]['role']}"
+    )
 
 
 def test_snip_history_reserves_budget_for_tool_definitions(monkeypatch):
@@ -148,7 +158,8 @@ def test_snip_history_reserves_budget_for_tool_definitions(monkeypatch):
         {"role": "assistant", "content": "recent answer"},
         {"role": "user", "content": "recent two"},
     ]
-    spec = make_run_spec(provider,
+    spec = make_run_spec(
+        provider,
         initial_messages=messages,
         tools=tools,
         model="test-model",
@@ -194,8 +205,16 @@ async def test_backfill_missing_tool_results_inserts_error():
             "role": "assistant",
             "content": "",
             "tool_calls": [
-                {"id": "call_a", "type": "function", "function": {"name": "exec", "arguments": "{}"}},
-                {"id": "call_b", "type": "function", "function": {"name": "read_file", "arguments": "{}"}},
+                {
+                    "id": "call_a",
+                    "type": "function",
+                    "function": {"name": "exec", "arguments": "{}"},
+                },
+                {
+                    "id": "call_b",
+                    "type": "function",
+                    "function": {"name": "read_file", "arguments": "{}"},
+                },
             ],
         },
         {"role": "tool", "tool_call_id": "call_a", "name": "exec", "content": "ok"},
@@ -217,7 +236,11 @@ def test_drop_orphan_tool_results_removes_unmatched_tool_messages():
             "role": "assistant",
             "content": "",
             "tool_calls": [
-                {"id": "call_ok", "type": "function", "function": {"name": "read_file", "arguments": "{}"}},
+                {
+                    "id": "call_ok",
+                    "type": "function",
+                    "function": {"name": "read_file", "arguments": "{}"},
+                },
             ],
         },
         {"role": "tool", "tool_call_id": "call_ok", "name": "read_file", "content": "ok"},
@@ -234,7 +257,11 @@ def test_drop_orphan_tool_results_removes_unmatched_tool_messages():
             "role": "assistant",
             "content": "",
             "tool_calls": [
-                {"id": "call_ok", "type": "function", "function": {"name": "read_file", "arguments": "{}"}},
+                {
+                    "id": "call_ok",
+                    "type": "function",
+                    "function": {"name": "read_file", "arguments": "{}"},
+                },
             ],
         },
         {"role": "tool", "tool_call_id": "call_ok", "name": "read_file", "content": "ok"},
@@ -251,7 +278,11 @@ async def test_backfill_noop_when_complete():
             "role": "assistant",
             "content": "",
             "tool_calls": [
-                {"id": "call_x", "type": "function", "function": {"name": "exec", "arguments": "{}"}},
+                {
+                    "id": "call_x",
+                    "type": "function",
+                    "function": {"name": "exec", "arguments": "{}"},
+                },
             ],
         },
         {"role": "tool", "tool_call_id": "call_x", "name": "exec", "content": "done"},
@@ -277,19 +308,22 @@ async def test_runner_drops_orphan_tool_results_before_model_request():
     tools.get_definitions.return_value = []
 
     runner = AgentRunner()
-    result = await runner.run(make_run_spec(provider,
-        initial_messages=[
-            {"role": "system", "content": "system"},
-            {"role": "user", "content": "old user"},
-            {"role": "tool", "tool_call_id": "call_orphan", "name": "exec", "content": "stale"},
-            {"role": "assistant", "content": "after orphan"},
-            {"role": "user", "content": "new prompt"},
-        ],
-        tools=tools,
-        model="test-model",
-        max_iterations=1,
-        max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
-    ))
+    result = await runner.run(
+        make_run_spec(
+            provider,
+            initial_messages=[
+                {"role": "system", "content": "system"},
+                {"role": "user", "content": "old user"},
+                {"role": "tool", "tool_call_id": "call_orphan", "name": "exec", "content": "stale"},
+                {"role": "assistant", "content": "after orphan"},
+                {"role": "user", "content": "new prompt"},
+            ],
+            tools=tools,
+            model="test-model",
+            max_iterations=1,
+            max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
+        )
+    )
 
     assert all(
         message.get("tool_call_id") != "call_orphan"
@@ -419,13 +453,16 @@ async def test_runner_backfill_only_mutates_model_context_not_returned_messages(
     ]
 
     runner = AgentRunner()
-    result = await runner.run(make_run_spec(provider,
-        initial_messages=initial_messages,
-        tools=tools,
-        model="test-model",
-        max_iterations=3,
-        max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
-    ))
+    result = await runner.run(
+        make_run_spec(
+            provider,
+            initial_messages=initial_messages,
+            tools=tools,
+            model="test-model",
+            max_iterations=3,
+            max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
+        )
+    )
 
     synthetic = [
         message
@@ -470,21 +507,27 @@ async def test_runner_backfill_only_mutates_model_context_not_returned_messages(
 def _microcompact_messages(*, total: int, tool_name: str, content: str) -> list[dict]:
     messages: list[dict] = [{"role": "system", "content": "sys"}]
     for i in range(total):
-        messages.append({
-            "role": "assistant",
-            "content": "",
-            "tool_calls": [{
-                "id": f"c{i}",
-                "type": "function",
-                "function": {"name": tool_name, "arguments": "{}"},
-            }],
-        })
-        messages.append({
-            "role": "tool",
-            "tool_call_id": f"c{i}",
-            "name": tool_name,
-            "content": content,
-        })
+        messages.append(
+            {
+                "role": "assistant",
+                "content": "",
+                "tool_calls": [
+                    {
+                        "id": f"c{i}",
+                        "type": "function",
+                        "function": {"name": tool_name, "arguments": "{}"},
+                    }
+                ],
+            }
+        )
+        messages.append(
+            {
+                "role": "tool",
+                "tool_call_id": f"c{i}",
+                "name": tool_name,
+                "content": content,
+            }
+        )
     return messages
 
 
@@ -498,7 +541,8 @@ def test_microcompact_skips_when_prompt_under_hard_budget(monkeypatch):
     total = MICROCOMPACT_KEEP_RECENT + 5
     long_content = "x" * 600
     messages = _microcompact_messages(total=total, tool_name="read_file", content=long_content)
-    spec = make_run_spec(provider,
+    spec = make_run_spec(
+        provider,
         initial_messages=messages,
         tools=tools,
         model="test-model",
@@ -532,7 +576,8 @@ def test_microcompact_overflow_compacts_to_low_watermark(monkeypatch):
     total = MICROCOMPACT_KEEP_RECENT + 8
     long_content = "x" * 600
     messages = _microcompact_messages(total=total, tool_name="read_file", content=long_content)
-    spec = make_run_spec(provider,
+    spec = make_run_spec(
+        provider,
         initial_messages=messages,
         tools=tools,
         model="test-model",
@@ -544,8 +589,10 @@ def test_microcompact_overflow_compacts_to_low_watermark(monkeypatch):
 
     def estimate(_provider, _model, msgs, _tools):
         return sum(
-            100 if (content := msg.get("content")) == long_content
-            else 1 if isinstance(content, str) and "compacted to fit context" in content
+            100
+            if (content := msg.get("content")) == long_content
+            else 1
+            if isinstance(content, str) and "compacted to fit context" in content
             else 0
             for msg in msgs
             if msg.get("role") == "tool"
@@ -576,7 +623,8 @@ def test_microcompact_compacts_newest_when_it_alone_overflows(monkeypatch):
 
     long_content = "x" * 600
     messages = _microcompact_messages(total=1, tool_name="read_file", content=long_content)
-    spec = make_run_spec(provider,
+    spec = make_run_spec(
+        provider,
         initial_messages=messages,
         tools=tools,
         model="test-model",
@@ -620,7 +668,8 @@ def test_context_governor_keeps_compaction_boundary_stable(monkeypatch):
     total = MICROCOMPACT_KEEP_RECENT + 8
     long_content = "x" * 600
     messages = _microcompact_messages(total=total, tool_name="read_file", content=long_content)
-    spec = make_run_spec(provider,
+    spec = make_run_spec(
+        provider,
         initial_messages=messages,
         tools=tools,
         model="test-model",
@@ -660,7 +709,8 @@ def test_microcompact_preserves_short_results(monkeypatch):
 
     total = MICROCOMPACT_KEEP_RECENT + 5
     messages = _microcompact_messages(total=total, tool_name="exec", content="short")
-    spec = make_run_spec(provider,
+    spec = make_run_spec(
+        provider,
         initial_messages=messages,
         tools=tools,
         model="test-model",
@@ -693,7 +743,8 @@ def test_microcompact_skips_non_compactable_tools(monkeypatch):
     total = MICROCOMPACT_KEEP_RECENT + 5
     long_content = "y" * 1000
     messages = _microcompact_messages(total=total, tool_name="message", content=long_content)
-    spec = make_run_spec(provider,
+    spec = make_run_spec(
+        provider,
         initial_messages=messages,
         tools=tools,
         model="test-model",
@@ -722,18 +773,14 @@ def test_governance_repairs_orphans_after_snip():
     # tool_calls but keep its tool result (orphan).
     snipped = [
         {"role": "system", "content": "system"},
-        {"role": "tool", "tool_call_id": "tc_old", "name": "search",
-         "content": "old result"},
+        {"role": "tool", "tool_call_id": "tc_old", "name": "search", "content": "old result"},
         {"role": "assistant", "content": "old answer"},
         {"role": "user", "content": "new msg"},
     ]
 
     cleaned = ContextGovernor.drop_orphan_tool_results(snipped)
     # The orphan tool result should be removed.
-    assert not any(
-        m.get("role") == "tool" and m.get("tool_call_id") == "tc_old"
-        for m in cleaned
-    )
+    assert not any(m.get("role") == "tool" and m.get("tool_call_id") == "tc_old" for m in cleaned)
 
 
 def test_snip_history_drops_tool_calls_when_results_are_dropped(monkeypatch):
@@ -761,18 +808,36 @@ def test_snip_history_drops_tool_calls_when_results_are_dropped(monkeypatch):
             "role": "assistant",
             "content": "",
             "tool_calls": [
-                {"id": "tc_1", "type": "function", "function": {"name": "read_file", "arguments": "{}"}},
-                {"id": "tc_2", "type": "function", "function": {"name": "read_file", "arguments": "{}"}},
-                {"id": "tc_3", "type": "function", "function": {"name": "read_file", "arguments": "{}"}},
+                {
+                    "id": "tc_1",
+                    "type": "function",
+                    "function": {"name": "read_file", "arguments": "{}"},
+                },
+                {
+                    "id": "tc_2",
+                    "type": "function",
+                    "function": {"name": "read_file", "arguments": "{}"},
+                },
+                {
+                    "id": "tc_3",
+                    "type": "function",
+                    "function": {"name": "read_file", "arguments": "{}"},
+                },
             ],
         },
         {"role": "tool", "tool_call_id": "tc_1", "name": "read_file", "content": "result one"},
         {"role": "tool", "tool_call_id": "tc_2", "name": "read_file", "content": "result two"},
-        {"role": "tool", "tool_call_id": "tc_3", "name": "read_file", "content": "large tool output" * 100},
+        {
+            "role": "tool",
+            "tool_call_id": "tc_3",
+            "name": "read_file",
+            "content": "large tool output" * 100,
+        },
         {"role": "assistant", "content": "final answer"},
     ]
 
-    spec = make_run_spec(provider,
+    spec = make_run_spec(
+        provider,
         initial_messages=messages,
         tools=tools,
         model="test-model",
@@ -837,8 +902,7 @@ def test_snip_history_drops_tool_calls_when_results_are_dropped(monkeypatch):
         set(),
     )
     assert not any(
-        m.get("role") == "tool" and m.get("content") == BACKFILL_CONTENT
-        for m in prepared
+        m.get("role") == "tool" and m.get("content") == BACKFILL_CONTENT for m in prepared
     ), "prepare_for_model backfilled a retained tool_call with 'interrupted or lost'"
 
 
@@ -852,8 +916,16 @@ def test_strip_orphan_tool_calls_removes_calls_without_results():
             "role": "assistant",
             "content": "",
             "tool_calls": [
-                {"id": "tc_ok", "type": "function", "function": {"name": "read_file", "arguments": "{}"}},
-                {"id": "tc_lost", "type": "function", "function": {"name": "read_file", "arguments": "{}"}},
+                {
+                    "id": "tc_ok",
+                    "type": "function",
+                    "function": {"name": "read_file", "arguments": "{}"},
+                },
+                {
+                    "id": "tc_lost",
+                    "type": "function",
+                    "function": {"name": "read_file", "arguments": "{}"},
+                },
             ],
         },
         {"role": "tool", "tool_call_id": "tc_ok", "name": "read_file", "content": "ok"},
@@ -888,8 +960,7 @@ def test_strip_orphan_tool_calls_removes_calls_without_results():
         set(),
     )
     assert not any(
-        m.get("role") == "tool" and m.get("content") == BACKFILL_CONTENT
-        for m in prepared
+        m.get("role") == "tool" and m.get("content") == BACKFILL_CONTENT for m in prepared
     ), "prepare_for_model should not backfill after stripping orphaned calls"
 
 
@@ -898,8 +969,7 @@ def test_governance_fallback_still_repairs_orphans():
     # Messages with an orphan tool result (no matching assistant tool_call).
     messages = [
         {"role": "user", "content": "hello"},
-        {"role": "tool", "tool_call_id": "orphan_tc", "name": "read",
-         "content": "stale"},
+        {"role": "tool", "tool_call_id": "orphan_tc", "name": "read", "content": "stale"},
         {"role": "assistant", "content": "hi"},
     ]
 
@@ -933,18 +1003,23 @@ def test_snip_history_preserves_user_message_after_truncation(monkeypatch):
         {
             "role": "assistant",
             "content": None,
-            "tool_calls": [{"id": "tc_1", "type": "function", "function": {"name": "exec", "arguments": "{}"}}],
+            "tool_calls": [
+                {"id": "tc_1", "type": "function", "function": {"name": "exec", "arguments": "{}"}}
+            ],
         },
         {"role": "tool", "tool_call_id": "tc_1", "content": "tool output 1"},
         {
             "role": "assistant",
             "content": None,
-            "tool_calls": [{"id": "tc_2", "type": "function", "function": {"name": "exec", "arguments": "{}"}}],
+            "tool_calls": [
+                {"id": "tc_2", "type": "function", "function": {"name": "exec", "arguments": "{}"}}
+            ],
         },
         {"role": "tool", "tool_call_id": "tc_2", "content": "tool output 2"},
     ]
 
-    spec = make_run_spec(provider,
+    spec = make_run_spec(
+        provider,
         initial_messages=messages,
         tools=tools,
         model="test-model",
@@ -998,7 +1073,8 @@ def test_snip_history_no_user_at_all_falls_back_gracefully(monkeypatch):
         {"role": "tool", "tool_call_id": "tc_2", "content": "result 2"},
     ]
 
-    spec = make_run_spec(provider,
+    spec = make_run_spec(
+        provider,
         initial_messages=messages,
         tools=tools,
         model="test-model",
@@ -1026,6 +1102,7 @@ def test_snip_history_no_user_at_all_falls_back_gracefully(monkeypatch):
     # The _enforce_role_alternation safety net must be able to fix whatever
     # _snip_history returns here — verify it produces a valid sequence.
     from nanobot.providers.base import LLMProvider
+
     fixed = LLMProvider._enforce_role_alternation(trimmed)
     non_system = [m for m in fixed if m["role"] != "system"]
     if non_system:
@@ -1162,7 +1239,11 @@ def test_strip_placeholder_assistant_messages_removes_omitted():
     ]
     result = ContextGovernor.strip_placeholder_assistant_messages(messages)
     assert [m["role"] for m in result] == [
-        "user", "assistant", "user", "user", "user",
+        "user",
+        "assistant",
+        "user",
+        "user",
+        "user",
     ]
     assert result[1]["content"] == "real response"
 

@@ -194,9 +194,13 @@ async def test_server_send_message(bus: MagicMock) -> None:
     try:
         async with WsTestClient("ws://127.0.0.1:29909/", client_id="r") as c:
             ready = await c.recv_ready()
-            await ch.send(OutboundMessage(
-                channel="websocket", chat_id=ready.chat_id, content="reply",
-            ))
+            await ch.send(
+                OutboundMessage(
+                    channel="websocket",
+                    chat_id=ready.chat_id,
+                    content="reply",
+                )
+            )
             msg = await c.recv_message()
             assert msg.text == "reply"
     finally:
@@ -213,28 +217,38 @@ async def test_server_send_tags_tool_hint_with_kind(bus: MagicMock) -> None:
         async with WsTestClient("ws://127.0.0.1:29919/", client_id="h") as c:
             ready = await c.recv_ready()
             # Plain reply: no "kind" field.
-            await ch.send(OutboundMessage(
-                channel="websocket", chat_id=ready.chat_id, content="hi",
-            ))
+            await ch.send(
+                OutboundMessage(
+                    channel="websocket",
+                    chat_id=ready.chat_id,
+                    content="hi",
+                )
+            )
             plain = await c.recv_message()
             assert plain.raw.get("kind") is None
 
             # Tool-hint breadcrumb: kind == "tool_hint".
-            await ch.send(OutboundMessage(
-                channel="websocket", chat_id=ready.chat_id,
-                content='weather("get")',
-                event=ProgressEvent(content='weather("get")', tool_hint=True),
-            ))
+            await ch.send(
+                OutboundMessage(
+                    channel="websocket",
+                    chat_id=ready.chat_id,
+                    content='weather("get")',
+                    event=ProgressEvent(content='weather("get")', tool_hint=True),
+                )
+            )
             hint = await c.recv_message()
             assert hint.raw.get("kind") == "tool_hint"
             assert hint.text == 'weather("get")'
 
             # Generic progress (non-tool-hint) gets the softer "progress" label.
-            await ch.send(OutboundMessage(
-                channel="websocket", chat_id=ready.chat_id,
-                content="thinking…",
-                event=ProgressEvent(content="thinking…"),
-            ))
+            await ch.send(
+                OutboundMessage(
+                    channel="websocket",
+                    chat_id=ready.chat_id,
+                    content="thinking…",
+                    event=ProgressEvent(content="thinking…"),
+                )
+            )
             prog = await c.recv_message()
             assert prog.raw.get("kind") == "progress"
     finally:
@@ -249,10 +263,15 @@ async def test_server_send_with_media_and_reply(bus: MagicMock) -> None:
     try:
         async with WsTestClient("ws://127.0.0.1:29910/", client_id="m") as c:
             ready = await c.recv_ready()
-            await ch.send(OutboundMessage(
-                channel="websocket", chat_id=ready.chat_id, content="img",
-                media=["/tmp/a.png"], reply_to="m1",
-            ))
+            await ch.send(
+                OutboundMessage(
+                    channel="websocket",
+                    chat_id=ready.chat_id,
+                    content="img",
+                    media=["/tmp/a.png"],
+                    reply_to="m1",
+                )
+            )
             msg = await c.recv_message()
             assert msg.text == "img"
             assert msg.media == ["/tmp/a.png"]
@@ -321,13 +340,21 @@ async def test_independent_sessions(bus: MagicMock) -> None:
         async with WsTestClient("ws://127.0.0.1:29913/", client_id="u1") as c1:
             async with WsTestClient("ws://127.0.0.1:29913/", client_id="u2") as c2:
                 r1, r2 = await c1.recv_ready(), await c2.recv_ready()
-                await ch.send(OutboundMessage(
-                    channel="websocket", chat_id=r1.chat_id, content="for-u1",
-                ))
+                await ch.send(
+                    OutboundMessage(
+                        channel="websocket",
+                        chat_id=r1.chat_id,
+                        content="for-u1",
+                    )
+                )
                 assert (await c1.recv_message()).text == "for-u1"
-                await ch.send(OutboundMessage(
-                    channel="websocket", chat_id=r2.chat_id, content="for-u2",
-                ))
+                await ch.send(
+                    OutboundMessage(
+                        channel="websocket",
+                        chat_id=r2.chat_id,
+                        content="for-u2",
+                    )
+                )
                 assert (await c2.recv_message()).text == "for-u2"
     finally:
         await ch.stop()
@@ -343,9 +370,13 @@ async def test_disconnected_client_cleanup(bus: MagicMock) -> None:
             chat_id = (await c.recv_ready()).chat_id
         # disconnected
         await asyncio.sleep(0.1)
-        await ch.send(OutboundMessage(
-            channel="websocket", chat_id=chat_id, content="orphan",
-        ))
+        await ch.send(
+            OutboundMessage(
+                channel="websocket",
+                chat_id=chat_id,
+                content="orphan",
+            )
+        )
         assert chat_id not in ch._subs
     finally:
         await ch.stop()
@@ -383,9 +414,14 @@ async def test_static_token_rejected(bus: MagicMock) -> None:
 
 @pytest.mark.asyncio
 async def test_token_issue_full_flow(bus: MagicMock) -> None:
-    ch = _ch(bus, 29917, path="/ws",
-             tokenIssuePath="/auth/token", tokenIssueSecret="s",
-             websocketRequiresToken=True)
+    ch = _ch(
+        bus,
+        29917,
+        path="/ws",
+        tokenIssuePath="/auth/token",
+        tokenIssueSecret="s",
+        websocketRequiresToken=True,
+    )
     t = asyncio.create_task(ch.start())
     try:
         # no secret -> 401
@@ -486,9 +522,13 @@ async def test_unicode_roundtrip(bus: MagicMock) -> None:
             await c.send_text(text)
             await asyncio.sleep(0.1)
             assert bus.publish_inbound.call_args[0][0].content == text
-            await ch.send(OutboundMessage(
-                channel="websocket", chat_id=ready.chat_id, content=text,
-            ))
+            await ch.send(
+                OutboundMessage(
+                    channel="websocket",
+                    chat_id=ready.chat_id,
+                    content=text,
+                )
+            )
             assert (await c.recv_message()).text == text
     finally:
         await ch.stop()
@@ -507,9 +547,13 @@ async def test_rapid_fire(bus: MagicMock) -> None:
             await asyncio.sleep(0.5)
             assert bus.publish_inbound.await_count == 50
             for i in range(50):
-                await ch.send(OutboundMessage(
-                    channel="websocket", chat_id=ready.chat_id, content=f"out-{i}",
-                ))
+                await ch.send(
+                    OutboundMessage(
+                        channel="websocket",
+                        chat_id=ready.chat_id,
+                        content=f"out-{i}",
+                    )
+                )
             received = [(await c.recv_message()).text for _ in range(50)]
             assert received == [f"out-{i}" for i in range(50)]
     finally:

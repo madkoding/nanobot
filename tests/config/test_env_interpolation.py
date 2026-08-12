@@ -54,9 +54,7 @@ class TestResolveConfig:
         monkeypatch.setenv("TEST_API_KEY", "resolved-key")
         config_path = tmp_path / "config.json"
         config_path.write_text(
-            json.dumps(
-                {"providers": {"groq": {"apiKey": "${TEST_API_KEY}"}}}
-            ),
+            json.dumps({"providers": {"groq": {"apiKey": "${TEST_API_KEY}"}}}),
             encoding="utf-8",
         )
 
@@ -70,9 +68,7 @@ class TestResolveConfig:
         monkeypatch.setenv("MY_TOKEN", "real-token")
         config_path = tmp_path / "config.json"
         config_path.write_text(
-            json.dumps(
-                {"channels": {"telegram": {"token": "${MY_TOKEN}"}}}
-            ),
+            json.dumps({"channels": {"telegram": {"token": "${MY_TOKEN}"}}}),
             encoding="utf-8",
         )
 
@@ -85,9 +81,7 @@ class TestResolveConfig:
     def test_save_preserves_dream_legacy_cron(self, tmp_path):
         config_path = tmp_path / "config.json"
         config_path.write_text(
-            json.dumps(
-                {"agents": {"defaults": {"dream": {"cron": "0 */4 * * *"}}}}
-            ),
+            json.dumps({"agents": {"defaults": {"dream": {"cron": "0 */4 * * *"}}}}),
             encoding="utf-8",
         )
 
@@ -227,9 +221,7 @@ class TestResolveConfig:
         roundtrip silently dropped them."""
         config_path = tmp_path / "config.json"
         config_path.write_text(
-            json.dumps(
-                {"providers": {"openaiCodex": {"apiKey": "secret"}}}
-            ),
+            json.dumps({"providers": {"openaiCodex": {"apiKey": "secret"}}}),
             encoding="utf-8",
         )
 

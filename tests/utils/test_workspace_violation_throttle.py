@@ -9,15 +9,9 @@ from nanobot.utils.runtime import (
 
 
 def test_signature_for_filesystem_tools_uses_path_argument():
-    sig_a = workspace_violation_signature(
-        "read_file", {"path": "/Users/x/Downloads/01.md"}
-    )
-    sig_b = workspace_violation_signature(
-        "write_file", {"path": "/Users/x/Downloads/01.md"}
-    )
-    sig_c = workspace_violation_signature(
-        "edit_file", {"file_path": "/Users/x/Downloads/01.md"}
-    )
+    sig_a = workspace_violation_signature("read_file", {"path": "/Users/x/Downloads/01.md"})
+    sig_b = workspace_violation_signature("write_file", {"path": "/Users/x/Downloads/01.md"})
+    sig_c = workspace_violation_signature("edit_file", {"file_path": "/Users/x/Downloads/01.md"})
 
     assert sig_a is not None
     assert sig_a == sig_b == sig_c, (
@@ -39,12 +33,8 @@ def test_signature_for_exec_extracts_first_absolute_path_in_command():
 def test_signature_collides_across_filesystem_and_exec_for_same_target():
     """LLM bypass loops jump tools (read_file -> exec cat). Throttle must
     treat both attempts as targeting the same outside resource."""
-    fs_sig = workspace_violation_signature(
-        "read_file", {"path": "/Users/x/Downloads/01.md"}
-    )
-    exec_sig = workspace_violation_signature(
-        "exec", {"command": "cat /Users/x/Downloads/01.md"}
-    )
+    fs_sig = workspace_violation_signature("read_file", {"path": "/Users/x/Downloads/01.md"})
+    exec_sig = workspace_violation_signature("exec", {"command": "cat /Users/x/Downloads/01.md"})
     assert fs_sig == exec_sig
 
 
@@ -89,15 +79,24 @@ def test_repeated_workspace_violation_independent_per_target():
     counts: dict[str, int] = {}
 
     repeated_workspace_violation_error(
-        "read_file", {"path": "/Users/x/Downloads/01.md"}, counts,
+        "read_file",
+        {"path": "/Users/x/Downloads/01.md"},
+        counts,
     )
     repeated_workspace_violation_error(
-        "read_file", {"path": "/Users/x/Downloads/01.md"}, counts,
+        "read_file",
+        {"path": "/Users/x/Downloads/01.md"},
+        counts,
     )
     # Different target, fresh budget.
-    assert repeated_workspace_violation_error(
-        "read_file", {"path": "/Users/x/Documents/notes.md"}, counts,
-    ) is None
+    assert (
+        repeated_workspace_violation_error(
+            "read_file",
+            {"path": "/Users/x/Documents/notes.md"},
+            counts,
+        )
+        is None
+    )
 
 
 def test_repeated_workspace_violation_collapses_tool_switching():
@@ -106,10 +105,14 @@ def test_repeated_workspace_violation_collapses_tool_switching():
     counts: dict[str, int] = {}
 
     repeated_workspace_violation_error(
-        "read_file", {"path": "/Users/x/Downloads/01.md"}, counts,
+        "read_file",
+        {"path": "/Users/x/Downloads/01.md"},
+        counts,
     )
     repeated_workspace_violation_error(
-        "exec", {"command": "cat /Users/x/Downloads/01.md"}, counts,
+        "exec",
+        {"command": "cat /Users/x/Downloads/01.md"},
+        counts,
     )
     third = repeated_workspace_violation_error(
         "exec",

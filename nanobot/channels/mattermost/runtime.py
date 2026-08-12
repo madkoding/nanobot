@@ -33,6 +33,7 @@ _CHANNEL_TYPES = {
 
 class MattermostDMConfig(Base):
     """Mattermost DM policy configuration."""
+
     enabled: bool = True
     policy: str = "open"
     allow_from: list[str] = Field(default_factory=list)
@@ -40,6 +41,7 @@ class MattermostDMConfig(Base):
 
 class MattermostConfig(Base):
     """Mattermost channel configuration."""
+
     enabled: bool = False
     server_url: str = ""
     token: str = ""
@@ -237,7 +239,9 @@ class MattermostChannel(BaseChannel):
                 )
                 self.logger.info(
                     "Sent pairing code {} to sender {} in chat {}",
-                    code, sender_id, channel_id,
+                    code,
+                    sender_id,
+                    channel_id,
                 )
             return
 
@@ -265,7 +269,9 @@ class MattermostChannel(BaseChannel):
         content = message_text
         if root_id and self.config.include_thread_context:
             content = await self._with_thread_context(
-                content, channel_id=channel_id, root_id=root_id,
+                content,
+                channel_id=channel_id,
+                root_id=root_id,
             )
 
         mm_meta: dict[str, Any] = {
@@ -455,7 +461,11 @@ class MattermostChannel(BaseChannel):
 
         if not lines:
             return text
-        return "Mattermost thread context before this mention:\n" + "\n".join(lines) + f"\n\nCurrent message:\n{text}"
+        return (
+            "Mattermost thread context before this mention:\n"
+            + "\n".join(lines)
+            + f"\n\nCurrent message:\n{text}"
+        )
 
     # Send ---------------------------------------------------------------------
 
@@ -484,7 +494,8 @@ class MattermostChannel(BaseChannel):
                 chunks = split_message(text, MATTERMOST_MAX_MESSAGE_LEN)
                 for i, chunk in enumerate(chunks):
                     await self._create_post(
-                        chat_id, chunk,
+                        chat_id,
+                        chunk,
                         root_id=root_id if self.config.reply_in_thread else None,
                         file_ids=(file_ids if i == 0 else None) or None,
                     )
@@ -496,7 +507,9 @@ class MattermostChannel(BaseChannel):
                     self.logger.debug("remove reaction failed")
                 if self.config.done_emoji:
                     try:
-                        await self._add_reaction(chat_id, meta["message_id"], self.config.done_emoji)
+                        await self._add_reaction(
+                            chat_id, meta["message_id"], self.config.done_emoji
+                        )
                     except Exception:
                         self.logger.debug("done reaction failed")
 
@@ -536,7 +549,11 @@ class MattermostChannel(BaseChannel):
                 return
 
             if final and not meta.get("_progress"):
-                mm_meta = (meta.get("mattermost", {}) or {}) if isinstance(meta.get("mattermost"), dict) else {}
+                mm_meta = (
+                    (meta.get("mattermost", {}) or {})
+                    if isinstance(meta.get("mattermost"), dict)
+                    else {}
+                )
                 root_id = (
                     mm_meta.get("root_id")
                     or mm_meta.get("thread_ts")
@@ -548,7 +565,8 @@ class MattermostChannel(BaseChannel):
                 try:
                     for chunk in chunks:
                         post = await self._create_post(
-                            chat_id, chunk,
+                            chat_id,
+                            chunk,
                             root_id=root_id if self.config.reply_in_thread else None,
                         )
                         if first_post_id is None:
@@ -574,7 +592,9 @@ class MattermostChannel(BaseChannel):
         if not delta.strip():
             return
 
-        mm_meta = (meta.get("mattermost", {}) or {}) if isinstance(meta.get("mattermost"), dict) else {}
+        mm_meta = (
+            (meta.get("mattermost", {}) or {}) if isinstance(meta.get("mattermost"), dict) else {}
+        )
         root_id = mm_meta.get("root_id") or mm_meta.get("thread_ts") or meta.get("root_id")
         if root_id:
             self._stream_root_ids[stream_id] = root_id
@@ -671,11 +691,14 @@ class MattermostChannel(BaseChannel):
     async def _add_reaction(self, channel_id: str, post_id: str, emoji: str) -> None:
         if not self._self_id or not emoji:
             return
-        await self._api_post("/api/v4/reactions", {
-            "user_id": self._self_id,
-            "post_id": post_id,
-            "emoji_name": emoji,
-        })
+        await self._api_post(
+            "/api/v4/reactions",
+            {
+                "user_id": self._self_id,
+                "post_id": post_id,
+                "emoji_name": emoji,
+            },
+        )
 
     async def _remove_reaction(self, post_id: str, emoji: str) -> None:
         if not self._self_id or not emoji:

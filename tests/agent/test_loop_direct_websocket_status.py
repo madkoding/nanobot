@@ -54,11 +54,7 @@ async def test_process_direct_websocket_clears_run_status(tmp_path) -> None:
     while loop.bus.outbound_size:
         events.append(await loop.bus.consume_outbound())
 
-    statuses = [
-        event.event
-        for event in events
-        if isinstance(event.event, GoalStatusEvent)
-    ]
+    statuses = [event.event for event in events if isinstance(event.event, GoalStatusEvent)]
     assert [status.status for status in statuses] == ["running", "idle"]
     assert isinstance(statuses[0].started_at, float)
     assert statuses[1].started_at is None

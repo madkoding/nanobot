@@ -28,10 +28,12 @@ async def test_webui_transcribe_audio_rejects_unconfigured_provider(
     save_config(config, config_path)
     monkeypatch.setattr("nanobot.config.loader._current_config_path", config_path)
 
-    event, payload = await webui_transcription_event({
-        "request_id": "voice-1",
-        "data_url": _audio_data_url(),
-    })
+    event, payload = await webui_transcription_event(
+        {
+            "request_id": "voice-1",
+            "data_url": _audio_data_url(),
+        }
+    )
 
     assert event == "transcription_error"
     assert payload == {
@@ -53,10 +55,12 @@ async def test_webui_transcribe_audio_rejects_unsupported_mime(
     save_config(config, config_path)
     monkeypatch.setattr("nanobot.config.loader._current_config_path", config_path)
 
-    event, payload = await webui_transcription_event({
-        "request_id": "voice-1",
-        "data_url": _audio_data_url(mime="text/plain"),
-    })
+    event, payload = await webui_transcription_event(
+        {
+            "request_id": "voice-1",
+            "data_url": _audio_data_url(mime="text/plain"),
+        }
+    )
 
     assert event == "transcription_error"
     assert payload["request_id"] == "voice-1"
@@ -77,10 +81,12 @@ async def test_webui_transcribe_audio_rejects_oversized_audio(
     monkeypatch.setattr("nanobot.config.loader._current_config_path", config_path)
     monkeypatch.setattr("nanobot.audio.transcription.get_media_dir", lambda _channel=None: tmp_path)
 
-    event, payload = await webui_transcription_event({
-        "request_id": "voice-1",
-        "data_url": _audio_data_url(payload=b"x" * (1024 * 1024 + 1)),
-    })
+    event, payload = await webui_transcription_event(
+        {
+            "request_id": "voice-1",
+            "data_url": _audio_data_url(payload=b"x" * (1024 * 1024 + 1)),
+        }
+    )
 
     assert event == "transcription_error"
     assert payload["request_id"] == "voice-1"
@@ -117,11 +123,13 @@ async def test_webui_transcribe_audio_returns_text_and_removes_temp_file(
         fake_transcribe_audio_file,
     )
 
-    event, payload = await webui_transcription_event({
-        "request_id": "voice-1",
-        "data_url": _audio_data_url(payload=b"webm voice", mime="audio/webm;codecs=opus"),
-        "duration_ms": 1200,
-    })
+    event, payload = await webui_transcription_event(
+        {
+            "request_id": "voice-1",
+            "data_url": _audio_data_url(payload=b"webm voice", mime="audio/webm;codecs=opus"),
+            "duration_ms": 1200,
+        }
+    )
 
     assert event == "transcription_result"
     assert payload == {"request_id": "voice-1", "text": "hello voice"}

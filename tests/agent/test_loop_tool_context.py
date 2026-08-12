@@ -29,12 +29,14 @@ class _ContextRecordingTool:
         ctx = current_request_context()
         assert ctx is not None
         self.runtimes.append(ctx.runtime)
-        self.contexts.append({
-            "channel": ctx.channel,
-            "chat_id": ctx.chat_id,
-            "metadata": ctx.metadata,
-            "session_key": ctx.session_key,
-        })
+        self.contexts.append(
+            {
+                "channel": ctx.channel,
+                "chat_id": ctx.chat_id,
+                "metadata": ctx.metadata,
+                "session_key": ctx.session_key,
+            }
+        )
         return "created"
 
 

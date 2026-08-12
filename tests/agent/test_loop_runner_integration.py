@@ -34,9 +34,11 @@ def _make_loop(tmp_path):
     provider.get_default_model.return_value = "test-model"
     provider.generation = GenerationSettings()
 
-    with patch("nanobot.agent.loop.ContextBuilder"), \
-         patch("nanobot.agent.loop.SessionManager"), \
-         patch("nanobot.agent.loop.SubagentManager") as mock_sub_mgr:
+    with (
+        patch("nanobot.agent.loop.ContextBuilder"),
+        patch("nanobot.agent.loop.SessionManager"),
+        patch("nanobot.agent.loop.SubagentManager") as mock_sub_mgr,
+    ):
         mock_sub_mgr.return_value.cancel_by_session = AsyncMock(return_value=0)
         loop = AgentLoop(bus=bus, provider=provider, workspace=tmp_path)
     return loop
@@ -71,44 +73,46 @@ async def test_goal_command_can_implement_plan_from_prior_discussion(tmp_path):
 
     provider = MagicMock()
     provider.get_default_model.return_value = "test-model"
-    provider.chat_with_retry = AsyncMock(side_effect=[
-        LLMResponse(
-            content="recording the agreed plan",
-            tool_calls=[
-                ToolCallRequest(
-                    id="call_create",
-                    name="create_goal",
-                    arguments={
-                        "objective": "Implement the agreed migration plan and run its tests.",
-                    },
-                )
-            ],
-            usage={},
-        ),
-        LLMResponse(
-            content="closing goal",
-            tool_calls=[
-                ToolCallRequest(
-                    id="call_update",
-                    name="update_goal",
-                    arguments={"action": "complete", "recap": "Implemented and tested."},
-                )
-            ],
-            usage={},
-        ),
-        LLMResponse(
-            content="trying to start another goal",
-            tool_calls=[
-                ToolCallRequest(
-                    id="call_create_again",
-                    name="create_goal",
-                    arguments={"objective": "Start an unrelated follow-up."},
-                )
-            ],
-            usage={},
-        ),
-        LLMResponse(content="done", tool_calls=[], usage={}),
-    ])
+    provider.chat_with_retry = AsyncMock(
+        side_effect=[
+            LLMResponse(
+                content="recording the agreed plan",
+                tool_calls=[
+                    ToolCallRequest(
+                        id="call_create",
+                        name="create_goal",
+                        arguments={
+                            "objective": "Implement the agreed migration plan and run its tests.",
+                        },
+                    )
+                ],
+                usage={},
+            ),
+            LLMResponse(
+                content="closing goal",
+                tool_calls=[
+                    ToolCallRequest(
+                        id="call_update",
+                        name="update_goal",
+                        arguments={"action": "complete", "recap": "Implemented and tested."},
+                    )
+                ],
+                usage={},
+            ),
+            LLMResponse(
+                content="trying to start another goal",
+                tool_calls=[
+                    ToolCallRequest(
+                        id="call_create_again",
+                        name="create_goal",
+                        arguments={"objective": "Start an unrelated follow-up."},
+                    )
+                ],
+                usage={},
+            ),
+            LLMResponse(content="done", tool_calls=[], usage={}),
+        ]
+    )
     loop = AgentLoop(bus=MessageBus(), provider=provider, workspace=tmp_path, model="test-model")
     loop.consolidator.maybe_consolidate_by_tokens = AsyncMock(return_value=None)
     session = loop.sessions.get_or_create("cli:direct")
@@ -149,10 +153,12 @@ async def test_runtime_context_is_persisted_as_next_turn_prompt_prefix(tmp_path)
     provider = MagicMock()
     provider.get_default_model.return_value = "test-model"
     provider.generation = GenerationSettings()
-    provider.chat_with_retry = AsyncMock(side_effect=[
-        LLMResponse(content="first answer", usage={}),
-        LLMResponse(content="second answer", usage={}),
-    ])
+    provider.chat_with_retry = AsyncMock(
+        side_effect=[
+            LLMResponse(content="first answer", usage={}),
+            LLMResponse(content="second answer", usage={}),
+        ]
+    )
     loop = AgentLoop(bus=MessageBus(), provider=provider, workspace=tmp_path, model="test-model")
     loop.consolidator.maybe_consolidate_by_tokens = AsyncMock(return_value=None)
     session = loop.sessions.get_or_create("cli:direct")
@@ -165,18 +171,22 @@ async def test_runtime_context_is_persisted_as_next_turn_prompt_prefix(tmp_path)
     loop.register_runtime_context_provider(provide_context)
     loop.register_runtime_context_provider(provide_context)
 
-    await loop._process_message(InboundMessage(
-        channel="cli",
-        sender_id="user",
-        chat_id="direct",
-        content="first turn",
-    ))
-    await loop._process_message(InboundMessage(
-        channel="cli",
-        sender_id="user",
-        chat_id="direct",
-        content="second turn",
-    ))
+    await loop._process_message(
+        InboundMessage(
+            channel="cli",
+            sender_id="user",
+            chat_id="direct",
+            content="first turn",
+        )
+    )
+    await loop._process_message(
+        InboundMessage(
+            channel="cli",
+            sender_id="user",
+            chat_id="direct",
+            content="second turn",
+        )
+    )
 
     first_request = provider.chat_with_retry.await_args_list[0].kwargs["messages"]
     second_request = provider.chat_with_retry.await_args_list[1].kwargs["messages"]
@@ -207,18 +217,22 @@ async def test_webui_quote_reaches_model_without_leaking_into_public_history(tmp
     loop = AgentLoop(bus=MessageBus(), provider=provider, workspace=tmp_path, model="test-model")
     loop.consolidator.maybe_consolidate_by_tokens = AsyncMock(return_value=None)
     session = loop.sessions.get_or_create("websocket:chat")
-    quote = webui_quote_runtime_context({
-        WEBUI_QUOTE_METADATA: "the selected answer excerpt",
-    })
+    quote = webui_quote_runtime_context(
+        {
+            WEBUI_QUOTE_METADATA: "the selected answer excerpt",
+        }
+    )
     assert quote is not None
 
-    await loop._process_message(InboundMessage(
-        channel="websocket",
-        sender_id="user",
-        chat_id="chat",
-        content="What does this mean?",
-        metadata={RUNTIME_CONTEXT_INPUT_META: [quote]},
-    ))
+    await loop._process_message(
+        InboundMessage(
+            channel="websocket",
+            sender_id="user",
+            chat_id="chat",
+            content="What does this mean?",
+            metadata={RUNTIME_CONTEXT_INPUT_META: [quote]},
+        )
+    )
 
     request = provider.chat_with_retry.await_args.kwargs["messages"]
     assert "What does this mean?" in str(request)
@@ -237,18 +251,22 @@ async def test_runtime_context_provider_runs_once_across_tool_iterations(tmp_pat
     provider = MagicMock()
     provider.get_default_model.return_value = "test-model"
     provider.generation = GenerationSettings()
-    provider.chat_with_retry = AsyncMock(side_effect=[
-        LLMResponse(
-            content="reading",
-            tool_calls=[ToolCallRequest(
-                id="call_read",
-                name="read_file",
-                arguments={"path": "note.txt"},
-            )],
-            usage={},
-        ),
-        LLMResponse(content="done", usage={}),
-    ])
+    provider.chat_with_retry = AsyncMock(
+        side_effect=[
+            LLMResponse(
+                content="reading",
+                tool_calls=[
+                    ToolCallRequest(
+                        id="call_read",
+                        name="read_file",
+                        arguments={"path": "note.txt"},
+                    )
+                ],
+                usage={},
+            ),
+            LLMResponse(content="done", usage={}),
+        ]
+    )
     loop = AgentLoop(bus=MessageBus(), provider=provider, workspace=tmp_path, model="test-model")
     loop.consolidator.maybe_consolidate_by_tokens = AsyncMock(return_value=None)
     provider_calls = 0
@@ -260,12 +278,14 @@ async def test_runtime_context_provider_runs_once_across_tool_iterations(tmp_pat
 
     loop.register_runtime_context_provider(provide_context)
 
-    await loop._process_message(InboundMessage(
-        channel="cli",
-        sender_id="user",
-        chat_id="direct",
-        content="read the note",
-    ))
+    await loop._process_message(
+        InboundMessage(
+            channel="cli",
+            sender_id="user",
+            chat_id="direct",
+            content="read the note",
+        )
+    )
 
     assert provider.chat_with_retry.await_count == 2
     assert provider_calls == 1
@@ -280,20 +300,22 @@ async def test_non_goal_direct_turn_cannot_reuse_prior_goal_command(tmp_path):
 
     provider = MagicMock()
     provider.get_default_model.return_value = "test-model"
-    provider.chat_with_retry = AsyncMock(side_effect=[
-        LLMResponse(
-            content="trying to create a goal",
-            tool_calls=[
-                ToolCallRequest(
-                    id="call_create",
-                    name="create_goal",
-                    arguments={"objective": "Unauthorized persistent objective."},
-                )
-            ],
-            usage={},
-        ),
-        LLMResponse(content="handled as a one-time task", tool_calls=[], usage={}),
-    ])
+    provider.chat_with_retry = AsyncMock(
+        side_effect=[
+            LLMResponse(
+                content="trying to create a goal",
+                tool_calls=[
+                    ToolCallRequest(
+                        id="call_create",
+                        name="create_goal",
+                        arguments={"objective": "Unauthorized persistent objective."},
+                    )
+                ],
+                usage={},
+            ),
+            LLMResponse(content="handled as a one-time task", tool_calls=[], usage={}),
+        ]
+    )
     loop = AgentLoop(bus=MessageBus(), provider=provider, workspace=tmp_path, model="test-model")
     loop.consolidator.maybe_consolidate_by_tokens = AsyncMock(return_value=None)
     session = loop.sessions.get_or_create("api:default")
@@ -314,20 +336,21 @@ async def test_non_goal_direct_turn_cannot_reuse_prior_goal_command(tmp_path):
     second_request = provider.chat_with_retry.await_args_list[1].kwargs["messages"]
     assert "create_goal is unavailable for this turn" in str(second_request)
 
+
 @pytest.mark.asyncio
 async def test_loop_max_iterations_message_stays_stable(tmp_path):
     loop = _make_loop(tmp_path)
-    loop.provider.chat_with_retry = AsyncMock(return_value=LLMResponse(
-        content="working",
-        tool_calls=[ToolCallRequest(id="call_1", name="list_dir", arguments={})],
-    ))
+    loop.provider.chat_with_retry = AsyncMock(
+        return_value=LLMResponse(
+            content="working",
+            tool_calls=[ToolCallRequest(id="call_1", name="list_dir", arguments={})],
+        )
+    )
     loop.tools.get_definitions = MagicMock(return_value=[])
     loop.tools.execute = AsyncMock(return_value="ok")
     loop.max_iterations = 2
 
-    final_content, _, _, _, _ = await loop._run_agent_loop(
-        [], runtime=loop.llm_runtime()
-    )
+    final_content, _, _, _, _ = await loop._run_agent_loop([], runtime=loop.llm_runtime())
 
     assert final_content == (
         "I reached the maximum number of tool call iterations (2) "
@@ -338,10 +361,12 @@ async def test_loop_max_iterations_message_stays_stable(tmp_path):
 @pytest.mark.asyncio
 async def test_loop_goal_turn_uses_standard_iteration_budget(tmp_path):
     loop = _make_loop(tmp_path)
-    loop.provider.chat_with_retry = AsyncMock(return_value=LLMResponse(
-        content="working",
-        tool_calls=[ToolCallRequest(id="call_1", name="list_dir", arguments={})],
-    ))
+    loop.provider.chat_with_retry = AsyncMock(
+        return_value=LLMResponse(
+            content="working",
+            tool_calls=[ToolCallRequest(id="call_1", name="list_dir", arguments={})],
+        )
+    )
     loop.tools.get_definitions = MagicMock(return_value=[])
     loop.tools.execute = AsyncMock(return_value="ok")
     loop.max_iterations = 2
@@ -451,9 +476,7 @@ async def test_loop_retries_think_only_final_response(tmp_path):
 
     loop.provider.chat_with_retry = chat_with_retry
 
-    final_content, _, _, _, _ = await loop._run_agent_loop(
-        [], runtime=loop.llm_runtime()
-    )
+    final_content, _, _, _, _ = await loop._run_agent_loop([], runtime=loop.llm_runtime())
 
     assert final_content == "Recovered answer"
     assert call_count["n"] == 2
@@ -472,14 +495,20 @@ async def test_streamed_flag_not_set_on_llm_error(tmp_path):
     provider.get_default_model.return_value = "test-model"
     loop = AgentLoop(bus=bus, provider=provider, workspace=tmp_path, model="test-model")
     error_resp = LLMResponse(
-        content="503 service unavailable", finish_reason="error", tool_calls=[], usage={},
+        content="503 service unavailable",
+        finish_reason="error",
+        tool_calls=[],
+        usage={},
     )
     loop.provider.chat_with_retry = AsyncMock(return_value=error_resp)
     loop.provider.chat_stream_with_retry = AsyncMock(return_value=error_resp)
     loop.tools.get_definitions = MagicMock(return_value=[])
 
     msg = InboundMessage(
-        channel="feishu", sender_id="u1", chat_id="c1", content="hi",
+        channel="feishu",
+        sender_id="u1",
+        chat_id="c1",
+        content="hi",
     )
     result = await loop._process_message(
         msg,
@@ -505,21 +534,25 @@ async def test_ssrf_soft_block_can_finalize_after_streamed_tool_call(tmp_path):
     provider.get_default_model.return_value = "test-model"
     tool_call_resp = LLMResponse(
         content="checking metadata",
-        tool_calls=[ToolCallRequest(
-            id="call_ssrf",
-            name="exec",
-            arguments={"command": "curl http://169.254.169.254/latest/meta-data/"},
-        )],
+        tool_calls=[
+            ToolCallRequest(
+                id="call_ssrf",
+                name="exec",
+                arguments={"command": "curl http://169.254.169.254/latest/meta-data/"},
+            )
+        ],
         usage={},
     )
-    responses = iter([
-        tool_call_resp,
-        LLMResponse(
-            content="I cannot access private URLs. Please share the local file.",
-            tool_calls=[],
-            usage={},
-        ),
-    ])
+    responses = iter(
+        [
+            tool_call_resp,
+            LLMResponse(
+                content="I cannot access private URLs. Please share the local file.",
+                tool_calls=[],
+                usage={},
+            ),
+        ]
+    )
 
     async def chat_stream_with_retry(*, on_content_delta, **kwargs):
         response = next(responses)
@@ -531,9 +564,9 @@ async def test_ssrf_soft_block_can_finalize_after_streamed_tool_call(tmp_path):
     loop = AgentLoop(bus=bus, provider=provider, workspace=tmp_path, model="test-model")
     loop.tools.get_definitions = MagicMock(return_value=[])
     loop.tools.prepare_call = MagicMock(return_value=(None, {}, None))
-    loop.tools.execute = AsyncMock(return_value=(
-        "Error: Command blocked by safety guard (internal/private URL detected)"
-    ))
+    loop.tools.execute = AsyncMock(
+        return_value=("Error: Command blocked by safety guard (internal/private URL detected)")
+    )
 
     result = await loop._process_message(
         InboundMessage(channel="telegram", sender_id="u1", chat_id="c1", content="hi"),
@@ -555,10 +588,14 @@ async def test_next_turn_after_llm_error_keeps_turn_boundary(tmp_path):
 
     provider = MagicMock()
     provider.get_default_model.return_value = "test-model"
-    provider.chat_with_retry = AsyncMock(side_effect=[
-        LLMResponse(content="429 rate limit exceeded", finish_reason="error", tool_calls=[], usage={}),
-        LLMResponse(content="Recovered answer", tool_calls=[], usage={}),
-    ])
+    provider.chat_with_retry = AsyncMock(
+        side_effect=[
+            LLMResponse(
+                content="429 rate limit exceeded", finish_reason="error", tool_calls=[], usage={}
+            ),
+            LLMResponse(content="Recovered answer", tool_calls=[], usage={}),
+        ]
+    )
 
     loop = AgentLoop(bus=MessageBus(), provider=provider, workspace=tmp_path, model="test-model")
     loop.tools.get_definitions = MagicMock(return_value=[])
@@ -603,10 +640,12 @@ async def test_subagent_max_iterations_announces_existing_fallback(tmp_path, mon
     bus = MessageBus()
     provider = MagicMock()
     provider.get_default_model.return_value = "test-model"
-    provider.chat_with_retry = AsyncMock(return_value=LLMResponse(
-        content="working",
-        tool_calls=[ToolCallRequest(id="call_1", name="list_dir", arguments={"path": "."})],
-    ))
+    provider.chat_with_retry = AsyncMock(
+        return_value=LLMResponse(
+            content="working",
+            tool_calls=[ToolCallRequest(id="call_1", name="list_dir", arguments={"path": "."})],
+        )
+    )
     mgr = SubagentManager(
         workspace=tmp_path,
         bus=bus,
@@ -620,7 +659,9 @@ async def test_subagent_max_iterations_announces_existing_fallback(tmp_path, mon
 
     monkeypatch.setattr("nanobot.agent.tools.filesystem.ListDirTool.execute", fake_execute)
 
-    status = SubagentStatus(task_id="sub-1", label="label", task_description="do task", started_at=time.monotonic())
+    status = SubagentStatus(
+        task_id="sub-1", label="label", task_description="do task", started_at=time.monotonic()
+    )
     await mgr._run_subagent(
         "sub-1",
         "do task",

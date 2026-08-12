@@ -72,7 +72,7 @@ class TestSmartQuoteNormalization:
     """_find_match should handle curly ↔ straight quote fallback."""
 
     def test_curly_double_quotes_match_straight(self):
-        content = 'She said \u201chello\u201d to him'
+        content = "She said \u201chello\u201d to him"
         old_text = 'She said "hello" to him'
         match, count = _find_match(content, old_text)
         assert match is not None
@@ -90,7 +90,7 @@ class TestSmartQuoteNormalization:
 
     def test_straight_matches_curly_in_old_text(self):
         content = 'x = "hello"'
-        old_text = 'x = \u201chello\u201d'
+        old_text = "x = \u201chello\u201d"
         match, count = _find_match(content, old_text)
         assert match is not None
         assert count == 1
@@ -113,14 +113,14 @@ class TestQuoteStylePreservation:
     @pytest.mark.asyncio
     async def test_replacement_preserves_curly_double_quotes(self, tool, tmp_path):
         f = tmp_path / "quotes.txt"
-        f.write_text('message = “hello”\n', encoding="utf-8")
+        f.write_text("message = “hello”\n", encoding="utf-8")
         result = await tool.execute(
             path=str(f),
             old_text='message = "hello"',
             new_text='message = "goodbye"',
         )
         assert "Successfully" in result
-        assert f.read_text(encoding="utf-8") == 'message = “goodbye”\n'
+        assert f.read_text(encoding="utf-8") == "message = “goodbye”\n"
 
     @pytest.mark.asyncio
     async def test_replacement_preserves_curly_apostrophe(self, tool, tmp_path):
@@ -151,9 +151,7 @@ class TestIndentationPreservation:
     async def test_trim_fallback_preserves_outer_indentation(self, tool, tmp_path):
         f = tmp_path / "indent.py"
         f.write_text(
-            "if True:\n"
-            "    def foo():\n"
-            "        pass\n",
+            "if True:\n    def foo():\n        pass\n",
             encoding="utf-8",
         )
         result = await tool.execute(
@@ -162,11 +160,7 @@ class TestIndentationPreservation:
             new_text="def bar():\n    return 1",
         )
         assert "Successfully" in result
-        assert f.read_text(encoding="utf-8") == (
-            "if True:\n"
-            "    def bar():\n"
-            "        return 1\n"
-        )
+        assert f.read_text(encoding="utf-8") == ("if True:\n    def bar():\n        return 1\n")
 
 
 # ---------------------------------------------------------------------------
@@ -224,12 +218,7 @@ class TestAdvancedReplaceAll:
     async def test_replace_all_preserves_each_match_indentation(self, tool, tmp_path):
         f = tmp_path / "indent_multi.py"
         f.write_text(
-            "if a:\n"
-            "    def foo():\n"
-            "        pass\n"
-            "if b:\n"
-            "        def foo():\n"
-            "            pass\n",
+            "if a:\n    def foo():\n        pass\nif b:\n        def foo():\n            pass\n",
             encoding="utf-8",
         )
         result = await tool.execute(
@@ -278,7 +267,9 @@ class TestTrailingWhitespaceStrip:
         f = tmp_path / "a.py"
         f.write_text("x = 1\n", encoding="utf-8")
         result = await tool.execute(
-            path=str(f), old_text="x = 1", new_text="x = 2   \ny = 3  ",
+            path=str(f),
+            old_text="x = 1",
+            new_text="x = 2   \ny = 3  ",
         )
         assert "Successfully" in result
         content = f.read_text()
@@ -290,7 +281,9 @@ class TestTrailingWhitespaceStrip:
         f.write_text("# Title\n", encoding="utf-8")
         # Markdown uses trailing double-space for line breaks
         result = await tool.execute(
-            path=str(f), old_text="# Title", new_text="# Title  \nSubtitle  ",
+            path=str(f),
+            old_text="# Title",
+            new_text="# Title  \nSubtitle  ",
         )
         assert "Successfully" in result
         content = f.read_text()
@@ -328,7 +321,8 @@ class TestFileSizeProtection:
                 return 2 * 1024 * 1024 * 1024  # 2 GiB
 
         import unittest.mock
-        with unittest.mock.patch.object(type(f), 'stat', return_value=FakeStat(f.stat())):
+
+        with unittest.mock.patch.object(type(f), "stat", return_value=FakeStat(f.stat())):
             result = await tool.execute(path=str(f), old_text="x", new_text="y")
         assert "Error" in result
         assert "too large" in result.lower() or "size" in result.lower()

@@ -46,9 +46,7 @@ def initialize_workspace_prompt(path: Path, default_prompt: str) -> bool:
     path whose current state cannot be read safely.
     """
     try:
-        if path.exists() and (
-            not path.is_file() or bool(path.read_text(encoding="utf-8").strip())
-        ):
+        if path.exists() and (not path.is_file() or bool(path.read_text(encoding="utf-8").strip())):
             return False
     except (OSError, UnicodeDecodeError):
         return False

@@ -34,14 +34,17 @@ from nanobot.utils.llm_runtime import LLMRuntime
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _make_loop(tmp_path: Path, unified_session: bool = False) -> AgentLoop:
     """Create a minimal AgentLoop for dispatch-level tests."""
     bus = MessageBus()
     provider = MagicMock()
     provider.get_default_model.return_value = "test-model"
 
-    with patch("nanobot.agent.loop.SessionManager"), \
-         patch("nanobot.agent.loop.SubagentManager") as mock_sub_mgr:
+    with (
+        patch("nanobot.agent.loop.SessionManager"),
+        patch("nanobot.agent.loop.SubagentManager") as mock_sub_mgr,
+    ):
         mock_sub_mgr.return_value.cancel_by_session = AsyncMock(return_value=0)
         loop = AgentLoop(
             bus=bus,
@@ -61,8 +64,9 @@ def _runtime(provider) -> LLMRuntime:
     )
 
 
-def _make_msg(channel: str = "telegram", chat_id: str = "111",
-              session_key_override: str | None = None) -> InboundMessage:
+def _make_msg(
+    channel: str = "telegram", chat_id: str = "111", session_key_override: str | None = None
+) -> InboundMessage:
     return InboundMessage(
         channel=channel,
         chat_id=chat_id,
@@ -75,6 +79,7 @@ def _make_msg(channel: str = "telegram", chat_id: str = "111",
 # ---------------------------------------------------------------------------
 # TestUnifiedSessionDispatch — core behaviour
 # ---------------------------------------------------------------------------
+
 
 class TestUnifiedSessionDispatch:
     """AgentLoop._dispatch() session key rewriting logic."""
@@ -147,7 +152,9 @@ class TestUnifiedSessionDispatch:
 
         loop._process_message = fake_process  # type: ignore[method-assign]
 
-        msg = _make_msg(channel="telegram", chat_id="111", session_key_override="telegram:thread:42")
+        msg = _make_msg(
+            channel="telegram", chat_id="111", session_key_override="telegram:thread:42"
+        )
         await loop._dispatch(msg)
 
         assert captured == ["telegram:thread:42"]
@@ -161,6 +168,7 @@ class TestUnifiedSessionDispatch:
 # ---------------------------------------------------------------------------
 # TestUnifiedSessionConfig — schema & serialisation
 # ---------------------------------------------------------------------------
+
 
 class TestUnifiedSessionConfig:
     """Config schema and onboard serialisation for unified_session."""
@@ -217,6 +225,7 @@ class TestUnifiedSessionConfig:
 # TestCmdNewUnifiedSession — /new command behaviour in unified mode
 # ---------------------------------------------------------------------------
 
+
 class TestCmdNewUnifiedSession:
     """/new command routing and session-clear behaviour in unified mode."""
 
@@ -259,7 +268,10 @@ class TestCmdNewUnifiedSession:
         loop._schedule_background = lambda coro: asyncio.ensure_future(coro)
 
         msg = InboundMessage(
-            channel="telegram", sender_id="user1", chat_id="111", content="/new",
+            channel="telegram",
+            sender_id="user1",
+            chat_id="111",
+            content="/new",
             session_key_override="unified:default",  # as _dispatch() would set it
         )
         ctx = CommandContext(
@@ -307,7 +319,10 @@ class TestCmdNewUnifiedSession:
         loop._schedule_background = lambda coro: asyncio.ensure_future(coro)
 
         msg = InboundMessage(
-            channel="telegram", sender_id="user1", chat_id="111", content="/new",
+            channel="telegram",
+            sender_id="user1",
+            chat_id="111",
+            content="/new",
             session_key_override="unified:default",
         )
         ctx = CommandContext(msg=msg, session=None, key="unified:default", raw="/new", loop=loop)
@@ -322,6 +337,7 @@ class TestCmdNewUnifiedSession:
 # ---------------------------------------------------------------------------
 # TestConsolidationUnaffectedByUnifiedSession — consolidation is key-agnostic
 # ---------------------------------------------------------------------------
+
 
 class TestConsolidationUnaffectedByUnifiedSession:
     """maybe_consolidate_by_tokens() behaviour is identical regardless of session key."""
@@ -452,7 +468,11 @@ class TestStopCommandWithUnifiedSession:
         loop._dispatch = fake_dispatch  # type: ignore[method-assign]
 
         # Simulate the task creation flow (from _run loop)
-        effective_key = UNIFIED_SESSION_KEY if loop._unified_session and not msg.session_key_override else msg.session_key
+        effective_key = (
+            UNIFIED_SESSION_KEY
+            if loop._unified_session and not msg.session_key_override
+            else msg.session_key
+        )
         task = asyncio.create_task(loop._dispatch(msg))
         loop._active_tasks.setdefault(effective_key, []).append(task)
 

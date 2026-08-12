@@ -23,7 +23,18 @@ from nanobot.webui.todos_api import (
 )
 
 _TODOS_PARAMETERS = tool_parameters_schema(
-    action=StringSchema("Action", enum=["add_list", "list_lists", "add_item", "list_items", "update_item", "delete_item", "delete_list"]),
+    action=StringSchema(
+        "Action",
+        enum=[
+            "add_list",
+            "list_lists",
+            "add_item",
+            "list_items",
+            "update_item",
+            "delete_item",
+            "delete_list",
+        ],
+    ),
     slug=StringSchema("List slug (required for item/list operations)"),
     name=StringSchema("List display name (add_list)"),
     text=StringSchema("Todo item text (add_item)"),
@@ -76,7 +87,10 @@ class TodosTool(Tool):
                 errors.append("slug is required for this action")
         if action == "add_item" and not str(params.get("text") or "").strip():
             errors.append("text is required when action='add_item'")
-        if action in ("update_item", "delete_item") and not str(params.get("item_id") or "").strip():
+        if (
+            action in ("update_item", "delete_item")
+            and not str(params.get("item_id") or "").strip()
+        ):
             errors.append("item_id is required when action='update_item' or 'delete_item'")
         return errors
 

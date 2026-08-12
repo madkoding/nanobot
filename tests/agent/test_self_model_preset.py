@@ -297,18 +297,18 @@ def test_self_tool_sets_model_preset_for_current_session(tmp_path) -> None:
     loop = _make_loop(tmp_path, presets=presets)
     tool = MyTool(runtime_state=loop, modify_allowed=True)
 
-    with request_context(RequestContext(
-        channel="cli",
-        chat_id="one",
-        session_key="cli:one",
-        metadata={"source": "self-tool"},
-    )):
+    with request_context(
+        RequestContext(
+            channel="cli",
+            chat_id="one",
+            session_key="cli:one",
+            metadata={"source": "self-tool"},
+        )
+    ):
         result = tool._modify("model_preset", "fast")
 
     assert "for the next turn" in result
-    assert model_preset_from_metadata(
-        loop.sessions.get_or_create("cli:one").metadata
-    ) == "fast"
+    assert model_preset_from_metadata(loop.sessions.get_or_create("cli:one").metadata) == "fast"
     assert loop.model_preset is None
     assert loop.model == "base-model"
 
@@ -320,11 +320,13 @@ def test_self_tool_reports_session_preset_provider_configuration_error(tmp_path)
     )
     tool = MyTool(runtime_state=loop, modify_allowed=True)
 
-    with request_context(RequestContext(
-        channel="cli",
-        chat_id="one",
-        session_key="cli:one",
-    )):
+    with request_context(
+        RequestContext(
+            channel="cli",
+            chat_id="one",
+            session_key="cli:one",
+        )
+    ):
         result = tool._modify("model_preset", "broken")
 
     assert result == "Error: No API key configured for provider 'openai'."
@@ -346,12 +348,14 @@ def test_self_tool_rejects_instance_runtime_changes_in_session(
     tool = MyTool(runtime_state=loop, modify_allowed=True)
     session = loop.sessions.get_or_create("cli:one")
 
-    with request_context(RequestContext(
-        channel="cli",
-        chat_id="one",
-        session_key=session.key,
-        runtime=loop.runtime_for_session(session),
-    )):
+    with request_context(
+        RequestContext(
+            channel="cli",
+            chat_id="one",
+            session_key=session.key,
+            runtime=loop.runtime_for_session(session),
+        )
+    ):
         result = tool._modify(key, value)
 
     other_runtime = loop.runtime_for_session(loop.sessions.get_or_create("cli:two"))
@@ -377,9 +381,12 @@ def test_from_config_injects_default_preset(tmp_path) -> None:
     from unittest.mock import patch
 
     from nanobot.config.schema import Config
-    config = Config.model_validate({
-        "agents": {"defaults": {"model": "openai/gpt-4.1", "workspace": str(tmp_path)}},
-    })
+
+    config = Config.model_validate(
+        {
+            "agents": {"defaults": {"model": "openai/gpt-4.1", "workspace": str(tmp_path)}},
+        }
+    )
     fake_provider = _provider("openai/gpt-4.1")
     with patch("nanobot.providers.factory.make_provider", return_value=fake_provider):
         loop = AgentLoop.from_config(config)
@@ -393,10 +400,13 @@ def test_from_config_static_preset_loader_does_not_enable_hot_reload(tmp_path) -
     from unittest.mock import patch
 
     from nanobot.config.schema import Config
-    config = Config.model_validate({
-        "agents": {"defaults": {"model": "openai/gpt-4.1", "workspace": str(tmp_path)}},
-        "model_presets": {"fast": {"model": "openai/gpt-4.1-mini"}},
-    })
+
+    config = Config.model_validate(
+        {
+            "agents": {"defaults": {"model": "openai/gpt-4.1", "workspace": str(tmp_path)}},
+            "model_presets": {"fast": {"model": "openai/gpt-4.1-mini"}},
+        }
+    )
     fake_provider = _provider("openai/gpt-4.1")
     with patch("nanobot.providers.factory.make_provider", return_value=fake_provider):
         loop = AgentLoop.from_config(config)

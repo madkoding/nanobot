@@ -1,8 +1,6 @@
+```
 # Python
 __pycache__/
-*.pyc
-*.pyo
-*.pyd
 *.py[cod]
 *$py.class
 *.so
@@ -13,8 +11,8 @@ dist/
 downloads/
 eggs/
 .eggs/
-/lib/
-/lib64/
+lib/
+lib64/
 parts/
 sdist/
 var/
@@ -22,79 +20,74 @@ wheels/
 *.egg-info/
 .installed.cfg
 *.egg
-.MF
+
+# Virtual environments
+venv/
+ENV/
+env.bak/
+.venv/
+
+# Testing
 .coverage
-.coverage.*
-.cache
-nosetests.xml
-coverage.xml
-*.cover
-*.log
-.git/modules/
-*.sublime-workspace
+coverage/
+htmlcov/
+.nyc_output/
 .pytest_cache/
-.mypy_cache/
 .hypothesis/
 
-# Environment
+# Security
+.nanobot-secrets/
+.secret-key
+
+# Environment variables
 .env
 .env.local
 .env.*
-.venv/
-venv/
-MANIFEST
 
-# Environment
-.venv/
-venv/
-env/
-ENV/
-
-# IDE
+# IDEs
 .vscode/
 .idea/
 *.swp
 *.swo
-*.tmp
 
 # OS
 .DS_Store
 Thumbs.db
 
-# Testing
-.coverage
-htmlcov/
-.coverage.*
-.cache
-nosetests.xml
-coverage.xml
-*.cover
-.hypothesis/
-.pytest_cache/
+# Logs
+*.log
 
-# Docs
-docs/_build/
+# Temporary files
+*.tmp
+*.temp
+
+# WebUI build artifacts
+nanobot/webui/dist/
+nanobot/webui/build/
+
+# Coverage and testing reports
+.coverage.*
+coverage.xml
+htmlcov/
+.reports/
+
+# MyPy
+.mypy_cache/
+
+# Black
+.black_cache/
+
+# Jupyter
+.ipynb_checkpoints/
 
 # Distribution / packaging
 .Python
-build/
-develop-eggs/
-dist/
-downloads/
-eggs/
-.eggs/
-/lib/
-/lib64/
-parts/
-sdist/
-var/
-wheels/
-pip-wheel-metadata/
-share/python-wheels/
-*.egg-info/
-.installed.cfg
-*.egg
-MANIFEST
+env/
+venv/
+ENV/
+.venv/
+env.bak/
+venv.bak/
 
 # PyInstaller
 *.manifest
@@ -105,18 +98,7 @@ pip-log.txt
 pip-delete-this-directory.txt
 
 # Unit test / coverage reports
-htmlcov/
-.tox/
-.nox/
-.coverage
-.coverage.*
-.cache
 nosetests.xml
-coverage.xml
-*.cover
-*.py,cover
-.hypothesis/
-.pytest_cache/
 
 # Translations
 *.mo
@@ -135,19 +117,14 @@ instance/
 # Scrapy
 .scrapy
 
-# Sphinx
+# Sphinx documentation
 docs/_build/
 
 # PyBuilder
-.pybuilder/
 target/
 
 # Jupyter Notebook
 .ipynb_checkpoints
-
-# IPython
-profile_default/
-ipython_config.py
 
 # pyenv
 .python-version
@@ -162,13 +139,14 @@ __pypackages__/
 celerybeat-schedule
 celerybeat.pid
 
-# Sage
+# SageMath parsed files
 *.sage.py
 
 # Environments
 .env
 .venv
 env/
+venv/
 ENV/
 env.bak/
 venv.bak/
@@ -191,51 +169,16 @@ dmypy.json
 # Pyre
 .pyre/
 
-# Windows
-Thumbs.db
-ehthumbs.db
-Desktop.ini
+# IDE
+.vscode/
+.idea/
 
-# Linux
-*~
+# OS generated files
 .DS_Store
-.directory
-.wget-hsts
-
-# macOS
-.DS_Store
-.AppleDouble
-.LSOverride
-
-# Thumbnails
+.DS_Store?
 ._*
-
-# Files that might appear in the root of a volume
-.DocumentRevisions-V100
-.fseventsd
 .Spotlight-V100
-.TemporaryItems
 .Trashes
-.VolumeIcon.icns
-.com.apple.timemachine.donotpresent
-
-# Directories potentially created on remote AFP share
-.AppleDB
-.AppleDesktop
-Network Trash Folder
-Temporary Items
-.apdisk
-
-# Coverage
-coverage/
-*.coverage
-.coverage.*
-
-# Web UI specific
-static/dist/
-static/build/
-public/dist/
-public/build/
-webui/__pycache__/
-webui/*.pyc
+ehthumbs.db
+Thumbs.db
 ```

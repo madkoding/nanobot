@@ -36,21 +36,27 @@ def test_set_chat_project_id_writes_and_resets_flag() -> None:
 
 
 def test_set_chat_project_id_rebind_resets_flag() -> None:
-    session = _FakeSession({CHAT_PROJECT_ID_METADATA_KEY: "alpha", CHAT_PROJECT_INJECTED_FLAG: True})
+    session = _FakeSession(
+        {CHAT_PROJECT_ID_METADATA_KEY: "alpha", CHAT_PROJECT_INJECTED_FLAG: True}
+    )
     set_chat_project_id(session, "beta")
     assert session.metadata[CHAT_PROJECT_ID_METADATA_KEY] == "beta"
     assert session.metadata[CHAT_PROJECT_INJECTED_FLAG] is False
 
 
 def test_set_chat_project_id_unbind_clears_both() -> None:
-    session = _FakeSession({CHAT_PROJECT_ID_METADATA_KEY: "alpha", CHAT_PROJECT_INJECTED_FLAG: True})
+    session = _FakeSession(
+        {CHAT_PROJECT_ID_METADATA_KEY: "alpha", CHAT_PROJECT_INJECTED_FLAG: True}
+    )
     set_chat_project_id(session, None)
     assert CHAT_PROJECT_ID_METADATA_KEY not in session.metadata
     assert CHAT_PROJECT_INJECTED_FLAG not in session.metadata
 
 
 def test_set_chat_project_id_blank_clears_both() -> None:
-    session = _FakeSession({CHAT_PROJECT_ID_METADATA_KEY: "alpha", CHAT_PROJECT_INJECTED_FLAG: True})
+    session = _FakeSession(
+        {CHAT_PROJECT_ID_METADATA_KEY: "alpha", CHAT_PROJECT_INJECTED_FLAG: True}
+    )
     set_chat_project_id(session, "   ")
     assert CHAT_PROJECT_ID_METADATA_KEY not in session.metadata
     assert CHAT_PROJECT_INJECTED_FLAG not in session.metadata
@@ -58,8 +64,10 @@ def test_set_chat_project_id_blank_clears_both() -> None:
 
 def test_set_chat_project_id_handles_missing_metadata() -> None:
     """A session without a metadata dict is a no-op rather than a crash."""
+
     class _Broken:
         pass
+
     set_chat_project_id(_Broken(), "alpha")  # no metadata attribute -> no exception
 
 

@@ -90,7 +90,9 @@ async def test_durable_outbound_fifo_order(bus: MessageBus) -> None:
     # Streamed deltas must be consumed in publication order; the on-disk
     # filenames are random UUIDs, so ordering must come from mtime.
     for i in range(8):
-        await bus.publish_outbound(OutboundMessage(channel="websocket", chat_id="c1", content=f"d{i}"))
+        await bus.publish_outbound(
+            OutboundMessage(channel="websocket", chat_id="c1", content=f"d{i}")
+        )
     consumed = [await bus.consume_outbound() for _ in range(8)]
     assert [m.content for m in consumed] == [f"d{i}" for i in range(8)]
     for m in consumed:

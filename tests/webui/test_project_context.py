@@ -28,7 +28,9 @@ def data_dir(tmp_path: Path) -> Path:
 def test_compile_project_context_returns_block_with_name_and_files(data_dir: Path) -> None:
     c = WebUIProjectsController(data_dir)
     s = c.create_project("alpha", "Always respond in Spanish")
-    c.add_file(s.id, "notes.md", "data:text/markdown;base64," + base64.b64encode(b"# notes").decode())
+    c.add_file(
+        s.id, "notes.md", "data:text/markdown;base64," + base64.b64encode(b"# notes").decode()
+    )
     block = compile_project_context(c, s.id)
     assert block is not None
     assert block.source == PROJECT_CONTEXT_SOURCE
@@ -69,9 +71,9 @@ def test_compile_project_context_includes_file_paths(data_dir: Path) -> None:
     block = compile_project_context(c, s.id)
     assert block is not None
     # Paths are rendered through json.dumps, which escapes backslashes on Windows.
-    assert f'<files_dir path={json.dumps(str(files_dir))} />' in block.content
+    assert f"<files_dir path={json.dumps(str(files_dir))} />" in block.content
     assert f'id="{f.id}"' in block.content
-    assert f'path={json.dumps(str(files_dir / f"{f.id}.bin"))}' in block.content
+    assert f"path={json.dumps(str(files_dir / f'{f.id}.bin'))}" in block.content
 
 
 def test_compile_project_context_truncates_to_budget(data_dir: Path) -> None:

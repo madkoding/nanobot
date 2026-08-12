@@ -10,7 +10,9 @@ from nanobot.webui.file_preview import (
 )
 
 
-def test_restricted_preview_allows_media_file(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_restricted_preview_allows_media_file(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     workspace = tmp_path / "workspace"
     workspace.mkdir()
     media = tmp_path / "media"
@@ -27,7 +29,9 @@ def test_restricted_preview_allows_media_file(tmp_path: Path, monkeypatch: pytes
     assert Path(payload["path"]) == uploaded.resolve()
 
 
-def test_restricted_preview_rejects_other_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_restricted_preview_rejects_other_root(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     workspace = tmp_path / "workspace"
     workspace.mkdir()
     media = tmp_path / "media"

@@ -131,11 +131,13 @@ def test_update_api_settings_requires_key_for_network_access(
     with pytest.raises(WebUISettingsError, match="API key"):
         update_api_settings({"host": ["0.0.0.0"], "port": ["8900"]})
 
-    payload = update_api_settings({
-        "host": ["0.0.0.0"],
-        "port": ["9900"],
-        "api_key": ["secret-token"],
-    })
+    payload = update_api_settings(
+        {
+            "host": ["0.0.0.0"],
+            "port": ["9900"],
+            "api_key": ["secret-token"],
+        }
+    )
     saved = load_config(config_path)
     assert saved.api.host == "0.0.0.0"
     assert saved.api.port == 9900
@@ -261,13 +263,15 @@ def test_create_model_configuration_rejects_dynamic_custom_provider_without_api_
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     config_path = tmp_path / "config.json"
-    config = Config.model_validate({
-        "providers": {
-            DYNAMIC_PROVIDER_NAME: {
-                "apiKey": "sk-test",
+    config = Config.model_validate(
+        {
+            "providers": {
+                DYNAMIC_PROVIDER_NAME: {
+                    "apiKey": "sk-test",
+                }
             }
         }
-    })
+    )
     save_config(config, config_path)
     monkeypatch.setattr("nanobot.config.loader._current_config_path", config_path)
 
@@ -898,15 +902,17 @@ def test_settings_payload_groups_opencode_compatibility_alias(tmp_path, monkeypa
 
 def test_settings_payload_keeps_configured_opencode_legacy_alias(tmp_path, monkeypatch) -> None:
     config_path = tmp_path / "config.json"
-    config = Config.model_validate({
-        "providers": {"opencodeZen": {"apiKey": "legacy-key"}},
-        "agents": {
-            "defaults": {
-                "provider": "opencode_zen",
-                "model": "opencode/deepseek-v4-pro",
-            }
-        },
-    })
+    config = Config.model_validate(
+        {
+            "providers": {"opencodeZen": {"apiKey": "legacy-key"}},
+            "agents": {
+                "defaults": {
+                    "provider": "opencode_zen",
+                    "model": "opencode/deepseek-v4-pro",
+                }
+            },
+        }
+    )
     save_config(config, config_path)
     monkeypatch.setattr("nanobot.config.loader._current_config_path", config_path)
 
@@ -923,13 +929,15 @@ def test_settings_payload_marks_dynamic_custom_provider_without_api_base_unconfi
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     config_path = tmp_path / "config.json"
-    config = Config.model_validate({
-        "providers": {
-            DYNAMIC_PROVIDER_NAME: {
-                "apiKey": "sk-test",
+    config = Config.model_validate(
+        {
+            "providers": {
+                DYNAMIC_PROVIDER_NAME: {
+                    "apiKey": "sk-test",
+                }
             }
         }
-    })
+    )
     save_config(config, config_path)
     monkeypatch.setattr("nanobot.config.loader._current_config_path", config_path)
 
@@ -1596,9 +1604,7 @@ def test_xai_grok_login_reports_upstream_failure_as_bad_gateway(
         login_oauth_provider({"provider": ["xai-grok"]})
 
     assert exc.value.status == 502
-    assert str(exc.value) == (
-        "xAI OAuth login failed: Could not reach xAI sign-in: ConnectError."
-    )
+    assert str(exc.value) == ("xAI OAuth login failed: Could not reach xAI sign-in: ConnectError.")
     assert exc.value.__cause__ is failure
 
 

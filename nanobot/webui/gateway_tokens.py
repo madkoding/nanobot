@@ -25,9 +25,7 @@ class GatewayTokenStore:
 
     def check_api_token(self, request: WsRequest) -> bool:
         self._purge_expired_api_tokens()
-        token = bearer_token(request.headers) or query_first(
-            parse_query(request.path), "token"
-        )
+        token = bearer_token(request.headers) or query_first(parse_query(request.path), "token")
         if not token:
             return False
         expiry = self.api_tokens.get(token)

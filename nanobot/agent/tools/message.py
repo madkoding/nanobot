@@ -17,9 +17,13 @@ from nanobot.security.workspace_access import current_tool_workspace
 
 @tool_parameters(
     tool_parameters_schema(
-        content=StringSchema("Message content for proactive/cross-channel delivery. Not for normal replies."),
+        content=StringSchema(
+            "Message content for proactive/cross-channel delivery. Not for normal replies."
+        ),
         channel=StringSchema("Target channel for cross-channel delivery. Not for current chat."),
-        chat_id=StringSchema("Target chat ID. Omit for current conversation. Not for current chat."),
+        chat_id=StringSchema(
+            "Target chat ID. Omit for current conversation. Not for current chat."
+        ),
         media=ArraySchema(
             StringSchema(""),
             description="File paths to attach (e.g. generated image artifacts).",
@@ -162,21 +166,13 @@ class MessageTool(Tool):
             ):
                 return ToolResult.error("Error: buttons must be a list of list of strings")
         request_ctx = current_request_context()
-        default_channel = (
-            request_ctx.channel if request_ctx is not None else self._fallback_channel
-        )
-        default_chat_id = (
-            request_ctx.chat_id if request_ctx is not None else self._fallback_chat_id
-        )
+        default_channel = request_ctx.channel if request_ctx is not None else self._fallback_channel
+        default_chat_id = request_ctx.chat_id if request_ctx is not None else self._fallback_chat_id
         default_message_id = (
-            request_ctx.message_id
-            if request_ctx is not None
-            else self._fallback_message_id
+            request_ctx.message_id if request_ctx is not None else self._fallback_message_id
         )
         default_metadata = (
-            request_ctx.metadata
-            if request_ctx is not None
-            else self._fallback_metadata
+            request_ctx.metadata if request_ctx is not None else self._fallback_metadata
         )
         channel = channel or default_channel
         explicit_chat_id = chat_id

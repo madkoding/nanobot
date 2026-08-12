@@ -35,16 +35,18 @@ from nanobot.utils.cancellation import task_is_cancelling
 # Transient connection errors that warrant a single retry.
 # These typically happen when an MCP server restarts or a network
 # connection is interrupted between calls.
-_TRANSIENT_EXC_NAMES: frozenset[str] = frozenset((
-    "ClosedResourceError",
-    "BrokenResourceError",
-    "EndOfStream",
-    "BrokenPipeError",
-    "ConnectionResetError",
-    "ConnectionRefusedError",
-    "ConnectionAbortedError",
-    "ConnectionError",
-))
+_TRANSIENT_EXC_NAMES: frozenset[str] = frozenset(
+    (
+        "ClosedResourceError",
+        "BrokenResourceError",
+        "EndOfStream",
+        "BrokenPipeError",
+        "ConnectionResetError",
+        "ConnectionRefusedError",
+        "ConnectionAbortedError",
+        "ConnectionError",
+    )
+)
 
 _WINDOWS_SHELL_LAUNCHERS: frozenset[str] = frozenset(("npx", "npm", "pnpm", "yarn", "bunx"))
 
@@ -479,12 +481,8 @@ class MCPToolWrapper(_MCPWrapperBase):
                     timeout=self._tool_timeout,
                 )
             except asyncio.TimeoutError:
-                logger.warning(
-                    "MCP tool '{}' timed out after {}s", self._name, self._tool_timeout
-                )
-                return ToolResult.error(
-                    f"(MCP tool call timed out after {self._tool_timeout}s)"
-                )
+                logger.warning("MCP tool '{}' timed out after {}s", self._name, self._tool_timeout)
+                return ToolResult.error(f"(MCP tool call timed out after {self._tool_timeout}s)")
             except asyncio.CancelledError:
                 # MCP SDK's anyio cancel scopes can leak CancelledError on timeout/failure.
                 # Re-raise only if our task was externally cancelled (e.g. /stop).
@@ -525,9 +523,7 @@ class MCPToolWrapper(_MCPWrapperBase):
                     type(exc).__name__,
                     exc,
                 )
-                return ToolResult.error(
-                    f"(MCP tool call failed: {type(exc).__name__})"
-                )
+                return ToolResult.error(f"(MCP tool call failed: {type(exc).__name__})")
             else:
                 # Success — extract text and persist any image content as artifacts.
                 try:
@@ -889,7 +885,9 @@ async def connect_mcp_servers(
                 read, write = await server_stack.enter_async_context(stdio_client(params))
             elif transport_type == "sse":
                 if not await _probe_http_url(cfg.url):
-                    logger.warning("MCP server '{}': {} unreachable, skipping", name, _redact_url(cfg.url))
+                    logger.warning(
+                        "MCP server '{}': {} unreachable, skipping", name, _redact_url(cfg.url)
+                    )
                     await server_stack.aclose()
                     return name, None
 
@@ -917,7 +915,9 @@ async def connect_mcp_servers(
                 )
             elif transport_type == "streamableHttp":
                 if not await _probe_http_url(cfg.url):
-                    logger.warning("MCP server '{}': {} unreachable, skipping", name, _redact_url(cfg.url))
+                    logger.warning(
+                        "MCP server '{}': {} unreachable, skipping", name, _redact_url(cfg.url)
+                    )
                     await server_stack.aclose()
                     return name, None
 
@@ -948,7 +948,9 @@ async def connect_mcp_servers(
             registered_count = 0
             matched_enabled_tools: set[str] = set()
             available_raw_names = [tool_def.name for tool_def in tools.tools]
-            available_wrapped_names = [_sanitize_mcp_tool_name(f"mcp_{name}_{tool_def.name}") for tool_def in tools.tools]
+            available_wrapped_names = [
+                _sanitize_mcp_tool_name(f"mcp_{name}_{tool_def.name}") for tool_def in tools.tools
+            ]
             for tool_def in tools.tools:
                 wrapped_name = _sanitize_mcp_tool_name(f"mcp_{name}_{tool_def.name}")
                 if (
@@ -1008,9 +1010,7 @@ async def connect_mcp_servers(
                             name,
                         )
                 except Exception as e:
-                    logger.debug(
-                        "MCP server '{}': resources not supported or failed: {}", name, e
-                    )
+                    logger.debug("MCP server '{}': resources not supported or failed: {}", name, e)
 
                 try:
                     prompts_result = await session.list_prompts()
@@ -1026,9 +1026,7 @@ async def connect_mcp_servers(
                             name,
                         )
                 except Exception as e:
-                    logger.debug(
-                        "MCP server '{}': prompts not supported or failed: {}", name, e
-                    )
+                    logger.debug("MCP server '{}': prompts not supported or failed: {}", name, e)
             else:
                 logger.info(
                     "MCP server '{}': skipping resource/prompt registration "
@@ -1274,11 +1272,15 @@ async def request_mcp_reload(bus: Any, *, timeout: float = 15.0) -> dict[str, An
             "message": "MCP hot reload timed out. Restart nanobot to pick up changes.",
             "requires_restart": True,
         }
-    return result if isinstance(result, dict) else {
-        "ok": False,
-        "message": "MCP hot reload returned an unexpected response.",
-        "requires_restart": True,
-    }
+    return (
+        result
+        if isinstance(result, dict)
+        else {
+            "ok": False,
+            "message": "MCP hot reload returned an unexpected response.",
+            "requires_restart": True,
+        }
+    )
 
 
 async def handle_runtime_control(state: Any, msg: InboundMessage, registry: ToolRegistry) -> bool:
@@ -1373,7 +1375,9 @@ async def _refresh_terminated_server(
         state._mcp_stacks.update(connected)
         _attach_reconnect_handlers(state, registry, connected)
         if server_name not in connected:
-            logger.warning("MCP server '{}' reconnect failed after session termination", server_name)
+            logger.warning(
+                "MCP server '{}' reconnect failed after session termination", server_name
+            )
             return None
         return registry.get(tool_name)
 

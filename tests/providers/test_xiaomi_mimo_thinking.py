@@ -94,8 +94,12 @@ def test_mimo_reasoning_effort_none_disables_thinking():
     provider = _mimo_provider()
     kwargs = provider._build_kwargs(
         messages=_simple_messages(),
-        tools=None, model=None, max_tokens=100,
-        temperature=0.7, reasoning_effort="none", tool_choice=None,
+        tools=None,
+        model=None,
+        max_tokens=100,
+        temperature=0.7,
+        reasoning_effort="none",
+        tool_choice=None,
     )
     # reasoning_effort itself must NOT be sent when value is "none"
     assert "reasoning_effort" not in kwargs
@@ -108,8 +112,12 @@ def test_mimo_reasoning_effort_medium_enables_thinking():
     provider = _mimo_provider()
     kwargs = provider._build_kwargs(
         messages=_simple_messages(),
-        tools=None, model=None, max_tokens=100,
-        temperature=0.7, reasoning_effort="medium", tool_choice=None,
+        tools=None,
+        model=None,
+        max_tokens=100,
+        temperature=0.7,
+        reasoning_effort="medium",
+        tool_choice=None,
     )
     assert kwargs.get("reasoning_effort") == "medium"
     assert kwargs["extra_body"] == {"thinking": {"type": "enabled"}}
@@ -120,8 +128,12 @@ def test_mimo_reasoning_effort_low_enables_thinking():
     provider = _mimo_provider()
     kwargs = provider._build_kwargs(
         messages=_simple_messages(),
-        tools=None, model=None, max_tokens=100,
-        temperature=0.7, reasoning_effort="low", tool_choice=None,
+        tools=None,
+        model=None,
+        max_tokens=100,
+        temperature=0.7,
+        reasoning_effort="low",
+        tool_choice=None,
     )
     assert kwargs["extra_body"] == {"thinking": {"type": "enabled"}}
 
@@ -136,8 +148,12 @@ def test_mimo_reasoning_effort_unset_preserves_provider_default():
     provider = _mimo_provider()
     kwargs = provider._build_kwargs(
         messages=_simple_messages(),
-        tools=None, model=None, max_tokens=100,
-        temperature=0.7, reasoning_effort=None, tool_choice=None,
+        tools=None,
+        model=None,
+        max_tokens=100,
+        temperature=0.7,
+        reasoning_effort=None,
+        tool_choice=None,
     )
     assert "reasoning_effort" not in kwargs
     assert "extra_body" not in kwargs
@@ -157,8 +173,12 @@ def test_mimo_via_openrouter_reasoning_effort_none_disables_thinking():
     provider = _openrouter_provider("xiaomi/mimo-v2.5-pro")
     kwargs = provider._build_kwargs(
         messages=_simple_messages(),
-        tools=None, model=None, max_tokens=100,
-        temperature=0.7, reasoning_effort="none", tool_choice=None,
+        tools=None,
+        model=None,
+        max_tokens=100,
+        temperature=0.7,
+        reasoning_effort="none",
+        tool_choice=None,
     )
     assert "reasoning_effort" not in kwargs
     assert kwargs["extra_body"] == {
@@ -173,8 +193,12 @@ def test_mimo_via_openrouter_reasoning_effort_medium_enables_thinking():
     provider = _openrouter_provider("xiaomi/mimo-v2.5-pro")
     kwargs = provider._build_kwargs(
         messages=_simple_messages(),
-        tools=None, model=None, max_tokens=100,
-        temperature=0.7, reasoning_effort="medium", tool_choice=None,
+        tools=None,
+        model=None,
+        max_tokens=100,
+        temperature=0.7,
+        reasoning_effort="medium",
+        tool_choice=None,
     )
     assert kwargs.get("reasoning_effort") == "medium"
     assert kwargs["extra_body"] == {
@@ -189,8 +213,12 @@ def test_mimo_via_openrouter_bare_slug_also_matches():
     provider = _openrouter_provider("mimo-v2.5-pro")
     kwargs = provider._build_kwargs(
         messages=_simple_messages(),
-        tools=None, model=None, max_tokens=100,
-        temperature=0.7, reasoning_effort="none", tool_choice=None,
+        tools=None,
+        model=None,
+        max_tokens=100,
+        temperature=0.7,
+        reasoning_effort="none",
+        tool_choice=None,
     )
     assert kwargs["extra_body"] == {
         "thinking": {"type": "disabled"},
@@ -205,8 +233,12 @@ def test_mimo_flash_via_openrouter_does_not_inject_thinking():
     provider = _openrouter_provider("xiaomi/mimo-v2-flash")
     kwargs = provider._build_kwargs(
         messages=_simple_messages(),
-        tools=None, model=None, max_tokens=100,
-        temperature=0.7, reasoning_effort="none", tool_choice=None,
+        tools=None,
+        model=None,
+        max_tokens=100,
+        temperature=0.7,
+        reasoning_effort="none",
+        tool_choice=None,
     )
     assert "extra_body" not in kwargs
 
@@ -216,8 +248,12 @@ def test_non_mimo_model_via_openrouter_unaffected():
     provider = _openrouter_provider("openai/gpt-4o")
     kwargs = provider._build_kwargs(
         messages=_simple_messages(),
-        tools=None, model=None, max_tokens=100,
-        temperature=0.7, reasoning_effort="none", tool_choice=None,
+        tools=None,
+        model=None,
+        max_tokens=100,
+        temperature=0.7,
+        reasoning_effort="none",
+        tool_choice=None,
     )
     assert "extra_body" not in kwargs
 
@@ -228,8 +264,12 @@ def test_kimi_via_openrouter_also_injects_reasoning_effort():
     provider = _openrouter_provider("moonshotai/kimi-k2.5")
     kwargs = provider._build_kwargs(
         messages=_simple_messages(),
-        tools=None, model=None, max_tokens=100,
-        temperature=0.7, reasoning_effort="none", tool_choice=None,
+        tools=None,
+        model=None,
+        max_tokens=100,
+        temperature=0.7,
+        reasoning_effort="none",
+        tool_choice=None,
     )
     assert kwargs["extra_body"] == {
         "thinking": {"type": "disabled"},

@@ -63,6 +63,7 @@ class TestAtomicSave:
         ]
 
         import unittest.mock
+
         with unittest.mock.patch("nanobot.session.manager.json.dumps", side_effect=failing_dumps):
             try:
                 mgr.save(session)
@@ -111,21 +112,26 @@ class TestRepairCorruptFile:
         mgr = SessionManager(tmp_path)
         path = mgr._get_session_path("test:trunc")
 
-        valid_meta = json.dumps({
-            "_type": "metadata",
-            "key": "test:trunc",
-            "created_at": datetime.now().isoformat(),
-            "updated_at": datetime.now().isoformat(),
-            "metadata": {},
-            "last_consolidated": 0,
-        })
+        valid_meta = json.dumps(
+            {
+                "_type": "metadata",
+                "key": "test:trunc",
+                "created_at": datetime.now().isoformat(),
+                "updated_at": datetime.now().isoformat(),
+                "metadata": {},
+                "last_consolidated": 0,
+            }
+        )
         valid_msg = json.dumps({"role": "user", "content": "hello"})
 
-        self._write_corrupt_jsonl(path, [
-            valid_meta,
-            valid_msg,
-            '{"role": "assistant", "content": "partial...',
-        ])
+        self._write_corrupt_jsonl(
+            path,
+            [
+                valid_meta,
+                valid_msg,
+                '{"role": "assistant", "content": "partial...',
+            ],
+        )
 
         session = mgr._load("test:trunc")
         assert session is not None
@@ -136,10 +142,13 @@ class TestRepairCorruptFile:
         mgr = SessionManager(tmp_path)
         path = mgr._get_session_path("test:badmeta")
 
-        self._write_corrupt_jsonl(path, [
-            "NOT VALID JSON!!!",
-            '{"role": "user", "content": "survived"}',
-        ])
+        self._write_corrupt_jsonl(
+            path,
+            [
+                "NOT VALID JSON!!!",
+                '{"role": "user", "content": "survived"}',
+            ],
+        )
 
         session = mgr._load("test:badmeta")
         assert session is not None
@@ -150,11 +159,14 @@ class TestRepairCorruptFile:
         mgr = SessionManager(tmp_path)
         path = mgr._get_session_path("test:allbad")
 
-        self._write_corrupt_jsonl(path, [
-            "garbage line 1",
-            "garbage line 2",
-            "{{invalid json",
-        ])
+        self._write_corrupt_jsonl(
+            path,
+            [
+                "garbage line 1",
+                "garbage line 2",
+                "{{invalid json",
+            ],
+        )
 
         session = mgr._load("test:allbad")
         assert session is None
@@ -174,16 +186,25 @@ class TestRepairCorruptFile:
         mgr = SessionManager(tmp_path)
         path = mgr._get_session_path("test:mixed")
 
-        self._write_corrupt_jsonl(path, [
-            json.dumps({"_type": "metadata", "key": "test:mixed",
+        self._write_corrupt_jsonl(
+            path,
+            [
+                json.dumps(
+                    {
+                        "_type": "metadata",
+                        "key": "test:mixed",
                         "created_at": datetime.now().isoformat(),
                         "updated_at": datetime.now().isoformat(),
-                        "metadata": {}, "last_consolidated": 0}),
-            "BROKEN",
-            json.dumps({"role": "user", "content": "msg1"}),
-            '{"role": "assistant", "content": "broken',
-            json.dumps({"role": "user", "content": "msg2"}),
-        ])
+                        "metadata": {},
+                        "last_consolidated": 0,
+                    }
+                ),
+                "BROKEN",
+                json.dumps({"role": "user", "content": "msg1"}),
+                '{"role": "assistant", "content": "broken',
+                json.dumps({"role": "user", "content": "msg2"}),
+            ],
+        )
 
         session = mgr._load("test:mixed")
         assert session is not None
@@ -195,13 +216,22 @@ class TestRepairCorruptFile:
         mgr = SessionManager(tmp_path)
         path = mgr._get_session_path("test:badts")
 
-        self._write_corrupt_jsonl(path, [
-            json.dumps({"_type": "metadata", "key": "test:badts",
+        self._write_corrupt_jsonl(
+            path,
+            [
+                json.dumps(
+                    {
+                        "_type": "metadata",
+                        "key": "test:badts",
                         "created_at": "not-a-date",
                         "updated_at": "also-bad",
-                        "metadata": {}, "last_consolidated": 5}),
-            json.dumps({"role": "user", "content": "hi"}),
-        ])
+                        "metadata": {},
+                        "last_consolidated": 5,
+                    }
+                ),
+                json.dumps({"role": "user", "content": "hi"}),
+            ],
+        )
 
         session = mgr._load("test:badts")
         assert session is not None
@@ -213,18 +243,23 @@ class TestRepairCorruptFile:
         mgr = SessionManager(tmp_path)
         path = mgr._get_session_path("test:read-repair")
 
-        self._write_corrupt_jsonl(path, [
-            json.dumps({
-                "_type": "metadata",
-                "key": "test:read-repair",
-                "created_at": datetime.now().isoformat(),
-                "updated_at": datetime.now().isoformat(),
-                "metadata": {"source": "repair"},
-                "last_consolidated": 0,
-            }),
-            json.dumps({"role": "user", "content": "survived"}),
-            '{"role": "assistant", "content": "partial...',
-        ])
+        self._write_corrupt_jsonl(
+            path,
+            [
+                json.dumps(
+                    {
+                        "_type": "metadata",
+                        "key": "test:read-repair",
+                        "created_at": datetime.now().isoformat(),
+                        "updated_at": datetime.now().isoformat(),
+                        "metadata": {"source": "repair"},
+                        "last_consolidated": 0,
+                    }
+                ),
+                json.dumps({"role": "user", "content": "survived"}),
+                '{"role": "assistant", "content": "partial...',
+            ],
+        )
 
         payload = mgr.read_session_file("test:read-repair")
         assert payload is not None
@@ -236,18 +271,23 @@ class TestRepairCorruptFile:
         mgr = SessionManager(tmp_path)
         path = mgr._get_session_path("test:list-repair")
 
-        self._write_corrupt_jsonl(path, [
-            "NOT VALID JSON",
-            json.dumps({
-                "_type": "metadata",
-                "key": "test:list-repair",
-                "created_at": datetime.now().isoformat(),
-                "updated_at": datetime.now().isoformat(),
-                "metadata": {},
-                "last_consolidated": 0,
-            }),
-            json.dumps({"role": "user", "content": "hello"}),
-        ])
+        self._write_corrupt_jsonl(
+            path,
+            [
+                "NOT VALID JSON",
+                json.dumps(
+                    {
+                        "_type": "metadata",
+                        "key": "test:list-repair",
+                        "created_at": datetime.now().isoformat(),
+                        "updated_at": datetime.now().isoformat(),
+                        "metadata": {},
+                        "last_consolidated": 0,
+                    }
+                ),
+                json.dumps({"role": "user", "content": "hello"}),
+            ],
+        )
 
         sessions = mgr.list_sessions()
         assert any(s["key"] == "test:list-repair" for s in sessions)

@@ -11,6 +11,7 @@ from nanobot.runtime_context import RuntimeContextBlock
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _builder(tmp_path: Path, **kw) -> ContextBuilder:
     return ContextBuilder(workspace=tmp_path, **kw)
 
@@ -193,6 +194,7 @@ class TestIsTemplateContent:
 
     def test_content_matching_template(self):
         from importlib.resources import files as pkg_files
+
         tpl = pkg_files("nanobot") / "templates" / "memory" / "MEMORY.md"
         if not tpl.is_file():
             pytest.skip("MEMORY.md template not bundled")
@@ -201,6 +203,7 @@ class TestIsTemplateContent:
 
     def test_modified_content_returns_false(self):
         from importlib.resources import files as pkg_files
+
         tpl = pkg_files("nanobot") / "templates" / "memory" / "MEMORY.md"
         if not tpl.is_file():
             pytest.skip("MEMORY.md template not bundled")
@@ -426,9 +429,7 @@ class TestExtraBootstrapPaths:
 
     def test_empty_paths_returns_no_override_section(self, tmp_path):
         builder = _builder(tmp_path)
-        prompt = builder.build_system_prompt(
-            workspace=tmp_path, extra_bootstrap_paths=[]
-        )
+        prompt = builder.build_system_prompt(workspace=tmp_path, extra_bootstrap_paths=[])
         assert "Workspace Overrides" not in prompt
 
     def test_missing_files_returns_no_override_section(self, tmp_path):
@@ -436,9 +437,7 @@ class TestExtraBootstrapPaths:
         empty_ws = tmp_path / "empty_group_ws"
         empty_ws.mkdir()
         builder = _builder(tmp_path)
-        prompt = builder.build_system_prompt(
-            workspace=tmp_path, extra_bootstrap_paths=[empty_ws]
-        )
+        prompt = builder.build_system_prompt(workspace=tmp_path, extra_bootstrap_paths=[empty_ws])
         assert "Workspace Overrides" not in prompt
 
     def test_agents_md_loaded_into_override_section(self, tmp_path):
@@ -448,9 +447,7 @@ class TestExtraBootstrapPaths:
             "Solo programación. Respuestas breves. No código listo.", encoding="utf-8"
         )
         builder = _builder(tmp_path)
-        prompt = builder.build_system_prompt(
-            workspace=tmp_path, extra_bootstrap_paths=[group_ws]
-        )
+        prompt = builder.build_system_prompt(workspace=tmp_path, extra_bootstrap_paths=[group_ws])
         assert "Workspace Overrides" in prompt
         assert "Solo programación" in prompt
         assert "grupo_dev" in prompt
@@ -461,9 +458,7 @@ class TestExtraBootstrapPaths:
         (group_ws / "AGENTS.md").write_text("rules here", encoding="utf-8")
         (group_ws / "SOUL.md").write_text("tone here", encoding="utf-8")
         builder = _builder(tmp_path)
-        prompt = builder.build_system_prompt(
-            workspace=tmp_path, extra_bootstrap_paths=[group_ws]
-        )
+        prompt = builder.build_system_prompt(workspace=tmp_path, extra_bootstrap_paths=[group_ws])
         assert "rules here" in prompt
         assert "tone here" in prompt
 
@@ -474,9 +469,7 @@ class TestExtraBootstrapPaths:
         # A file with invalid UTF-8 bytes — must not raise.
         (group_ws / "SOUL.md").write_bytes(b"\xff\xfe\x00bad")
         builder = _builder(tmp_path)
-        prompt = builder.build_system_prompt(
-            workspace=tmp_path, extra_bootstrap_paths=[group_ws]
-        )
+        prompt = builder.build_system_prompt(workspace=tmp_path, extra_bootstrap_paths=[group_ws])
         assert "ok" in prompt
         assert "Workspace Overrides" in prompt
 
@@ -485,16 +478,12 @@ class TestExtraBootstrapPaths:
         group_ws.mkdir()
         (group_ws / "AGENTS.md").write_text("group A rules", encoding="utf-8")
         builder = _builder(tmp_path)
-        first = builder.build_system_prompt(
-            workspace=tmp_path, extra_bootstrap_paths=[group_ws]
-        )
+        first = builder.build_system_prompt(workspace=tmp_path, extra_bootstrap_paths=[group_ws])
         # Different group → different prompt, no stale cache hit.
         other_ws = tmp_path / "grupo_b"
         other_ws.mkdir()
         (other_ws / "AGENTS.md").write_text("group B rules", encoding="utf-8")
-        second = builder.build_system_prompt(
-            workspace=tmp_path, extra_bootstrap_paths=[other_ws]
-        )
+        second = builder.build_system_prompt(workspace=tmp_path, extra_bootstrap_paths=[other_ws])
         assert "group A rules" in first
         assert "group B rules" in second
         assert first != second
@@ -504,9 +493,7 @@ class TestExtraBootstrapPaths:
         group_ws.mkdir()
         (group_ws / "AGENTS.md").write_text("propagated", encoding="utf-8")
         builder = _builder(tmp_path)
-        messages = builder.build_messages(
-            [], "hi", extra_bootstrap_paths=[group_ws]
-        )
+        messages = builder.build_messages([], "hi", extra_bootstrap_paths=[group_ws])
         system_msg = messages[0]["content"]
         assert "propagated" in system_msg
         assert "Workspace Overrides" in system_msg

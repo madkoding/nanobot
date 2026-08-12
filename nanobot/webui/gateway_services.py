@@ -92,7 +92,9 @@ def build_gateway_services(
         result = projects.migrate_worktrees()
         if result.get("moved") or result.get("skipped"):
             logger.info(
-                "Worktree migration: moved={} skipped={}", result.get("moved"), result.get("skipped")
+                "Worktree migration: moved={} skipped={}",
+                result.get("moved"),
+                result.get("skipped"),
             )
     except Exception as exc:
         logger.warning("Worktree migration failed: {}", exc)
@@ -108,9 +110,8 @@ def build_gateway_services(
             return ()
 
     if agent_loop is not None:
-        if (
-            session_manager is not None
-            and callable(getattr(agent_loop, "register_runtime_context_provider", None))
+        if session_manager is not None and callable(
+            getattr(agent_loop, "register_runtime_context_provider", None)
         ):
             try:
                 agent_loop.register_runtime_context_provider(

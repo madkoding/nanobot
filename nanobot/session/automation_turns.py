@@ -80,8 +80,7 @@ def is_automation_history_message(message: Mapping[str, Any] | None) -> bool:
     if marker is True or isinstance(marker, Mapping):
         return True
     return any(
-        spec.legacy_history_meta_key
-        and message.get(spec.legacy_history_meta_key) is True
+        spec.legacy_history_meta_key and message.get(spec.legacy_history_meta_key) is True
         for spec in _automation_specs()
     )
 

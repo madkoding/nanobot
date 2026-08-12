@@ -253,6 +253,7 @@ async def test_list_shows_last_run_state(tmp_path) -> None:
     assert "ok" in result
     assert "(UTC)" in result
 
+
 @pytest.mark.asyncio
 async def test_list_shows_error_message(tmp_path) -> None:
     tool = _make_tool(tmp_path)
@@ -288,12 +289,14 @@ def test_list_shows_next_run(tmp_path) -> None:
 
 def test_list_includes_protected_dream_system_job_with_memory_purpose(tmp_path) -> None:
     tool = _make_tool(tmp_path)
-    tool._cron.register_system_job(CronJob(
-        id="dream",
-        name="dream",
-        schedule=CronSchedule(kind="cron", expr="0 */2 * * *", tz="UTC"),
-        payload=CronPayload(kind="system_event"),
-    ))
+    tool._cron.register_system_job(
+        CronJob(
+            id="dream",
+            name="dream",
+            schedule=CronSchedule(kind="cron", expr="0 */2 * * *", tz="UTC"),
+            payload=CronPayload(kind="system_event"),
+        )
+    )
 
     result = tool._list_jobs()
 
@@ -304,12 +307,14 @@ def test_list_includes_protected_dream_system_job_with_memory_purpose(tmp_path) 
 
 def test_remove_protected_dream_job_returns_clear_feedback(tmp_path) -> None:
     tool = _make_tool(tmp_path)
-    tool._cron.register_system_job(CronJob(
-        id="dream",
-        name="dream",
-        schedule=CronSchedule(kind="cron", expr="0 */2 * * *", tz="UTC"),
-        payload=CronPayload(kind="system_event"),
-    ))
+    tool._cron.register_system_job(
+        CronJob(
+            id="dream",
+            name="dream",
+            schedule=CronSchedule(kind="cron", expr="0 */2 * * *", tz="UTC"),
+            payload=CronPayload(kind="system_event"),
+        )
+    )
 
     result = tool._remove_job("dream")
 
@@ -336,9 +341,7 @@ def test_add_at_job_uses_default_timezone_for_naive_datetime(tmp_path) -> None:
     with request_context(
         RequestContext(channel="telegram", chat_id="chat-1", session_key="telegram:chat-1")
     ):
-        result = tool._add_job(
-            None, "Morning reminder", None, None, None, "2026-03-25T08:00:00"
-        )
+        result = tool._add_job(None, "Morning reminder", None, None, None, "2026-03-25T08:00:00")
 
     assert result.startswith("Created job")
     job = tool._cron.list_jobs()[0]

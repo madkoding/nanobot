@@ -98,6 +98,7 @@ def _looks_like_retryable_tool_error(content: Any) -> bool:
     head = content.strip().lower()[:500]
     return any(marker in head for marker in _RETRYABLE_TOOL_ERROR_MARKERS)
 
+
 @dataclass(slots=True)
 class AgentRunSpec:
     """Configuration for a single agent execution."""
@@ -279,7 +280,10 @@ class AgentRunner:
         if real_injection:
             logger.info(
                 "Injected {} follow-up message(s) {} ({}/{})",
-                len(injections), phase, injection_cycles, _MAX_INJECTION_CYCLES,
+                len(injections),
+                phase,
+                injection_cycles,
+                _MAX_INJECTION_CYCLES,
             )
         else:
             logger.info("Injected sustained-goal continuation {}", phase)
@@ -307,12 +311,9 @@ class AgentRunner:
             return []
         try:
             signature = inspect.signature(spec.injection_callback)
-            accepts_limit = (
-                "limit" in signature.parameters
-                or any(
-                    parameter.kind is inspect.Parameter.VAR_KEYWORD
-                    for parameter in signature.parameters.values()
-                )
+            accepts_limit = "limit" in signature.parameters or any(
+                parameter.kind is inspect.Parameter.VAR_KEYWORD
+                for parameter in signature.parameters.values()
             )
             if accepts_limit:
                 items = await spec.injection_callback(limit=_MAX_INJECTIONS_PER_TURN)
@@ -340,7 +341,9 @@ class AgentRunner:
             dropped = len(injected_messages) - _MAX_INJECTIONS_PER_TURN
             logger.warning(
                 "Injection callback returned {} messages, capping to {} ({} dropped)",
-                len(injected_messages), _MAX_INJECTIONS_PER_TURN, dropped,
+                len(injected_messages),
+                _MAX_INJECTIONS_PER_TURN,
+                dropped,
             )
             injected_messages = injected_messages[:_MAX_INJECTIONS_PER_TURN]
         return injected_messages
@@ -512,16 +515,18 @@ class AgentRunner:
                     break
                 if repeat_count >= _REPEAT_TOOL_NUDGE_LIMIT and not repeat_nudge_done:
                     repeat_nudge_done = True
-                    messages.append({
-                        "role": "user",
-                        "content": (
-                            "Estás repitiendo la misma llamada a tool con los mismos "
-                            "argumentos. El archivo/resultado no va a cambiar. "
-                            "Revisa el contexto de lo que estabas haciendo, retoma "
-                            "el objetivo de la tarea y avanza al siguiente paso con "
-                            "otra tool o enfoque."
-                        ),
-                    })
+                    messages.append(
+                        {
+                            "role": "user",
+                            "content": (
+                                "Estás repitiendo la misma llamada a tool con los mismos "
+                                "argumentos. El archivo/resultado no va a cambiar. "
+                                "Revisa el contexto de lo que estabas haciendo, retoma "
+                                "el objetivo de la tarea y avanza al siguiente paso con "
+                                "otra tool o enfoque."
+                            ),
+                        }
+                    )
                     logger.warning(
                         "Repeated tool call nudge injected ({}x) for {}",
                         repeat_count,
@@ -546,7 +551,9 @@ class AgentRunner:
                         "model": spec.runtime.model,
                         "assistant_message": assistant_message,
                         "completed_tool_results": [],
-                        "pending_tool_calls": [tc.to_openai_tool_call() for tc in response.tool_calls],
+                        "pending_tool_calls": [
+                            tc.to_openai_tool_call() for tc in response.tool_calls
+                        ],
                     },
                 )
 
@@ -593,7 +600,10 @@ class AgentRunner:
                     context.stop_reason = stop_reason
                     await hook.after_iteration(context)
                     should_continue, injection_cycles = await self._try_drain_injections(
-                        spec, messages, None, injection_cycles,
+                        spec,
+                        messages,
+                        None,
+                        injection_cycles,
                         phase="after tool error",
                     )
                     if should_continue:
@@ -615,7 +625,10 @@ class AgentRunner:
                 length_recovery_count = 0
                 # Checkpoint 1: drain injections after tools, before next LLM call
                 _drained, injection_cycles = await self._try_drain_injections(
-                    spec, messages, None, injection_cycles,
+                    spec,
+                    messages,
+                    None,
+                    injection_cycles,
                     phase="after tool execution",
                 )
                 if _drained:
@@ -650,17 +663,19 @@ class AgentRunner:
                     "instead of a tool_call for {}; injecting re-prompt nudge",
                     spec.session_key or "default",
                 )
-                messages.append({
-                    "role": "user",
-                    "content": (
-                        "Tu última tool devolvió un error. NO narres en texto "
-                        "lo que ibas a hacer: el texto no ejecuta nada. Re-emite "
-                        "el tool_call inmediatamente con argumentos ajustados, "
-                        "o llama otra tool equivalente. Si tras 2 reintentos "
-                        "la tool sigue fallando, ahí sí explica al operador y "
-                        "pide guía."
-                    ),
-                })
+                messages.append(
+                    {
+                        "role": "user",
+                        "content": (
+                            "Tu última tool devolvió un error. NO narres en texto "
+                            "lo que ibas a hacer: el texto no ejecuta nada. Re-emite "
+                            "el tool_call inmediatamente con argumentos ajustados, "
+                            "o llama otra tool equivalente. Si tras 2 reintentos "
+                            "la tool sigue fallando, ahí sí explica al operador y "
+                            "pide guía."
+                        ),
+                    }
+                )
                 tool_error_nudge_done = True
                 if hook.wants_streaming():
                     await hook.on_stream_end(context, resuming=False)
@@ -712,11 +727,13 @@ class AgentRunner:
                     )
                     if hook.wants_streaming():
                         await hook.on_stream_end(context, resuming=True)
-                    messages.append(build_assistant_message(
-                        clean,
-                        reasoning_content=response.reasoning_content,
-                        thinking_blocks=response.thinking_blocks,
-                    ))
+                    messages.append(
+                        build_assistant_message(
+                            clean,
+                            reasoning_content=response.reasoning_content,
+                            thinking_blocks=response.thinking_blocks,
+                        )
+                    )
                     messages.append(build_length_recovery_message())
                     await hook.after_iteration(context)
                     continue
@@ -733,7 +750,10 @@ class AgentRunner:
             # If injections are found we keep the stream alive (resuming=True)
             # so streaming channels don't prematurely finalize the card.
             should_continue, injection_cycles = await self._try_drain_injections(
-                spec, messages, assistant_message, injection_cycles,
+                spec,
+                messages,
+                assistant_message,
+                injection_cycles,
                 phase="after final response",
                 iteration=iteration,
                 allow_goal_continue=True,
@@ -761,7 +781,10 @@ class AgentRunner:
                 context.stop_reason = stop_reason
                 await hook.after_iteration(context)
                 should_continue, injection_cycles = await self._try_drain_injections(
-                    spec, messages, None, injection_cycles,
+                    spec,
+                    messages,
+                    None,
+                    injection_cycles,
                     phase="after LLM error",
                 )
                 if should_continue:
@@ -778,7 +801,10 @@ class AgentRunner:
                 context.stop_reason = stop_reason
                 await hook.after_iteration(context)
                 should_continue, injection_cycles = await self._try_drain_injections(
-                    spec, messages, None, injection_cycles,
+                    spec,
+                    messages,
+                    None,
+                    injection_cycles,
                     phase="after empty response",
                 )
                 if should_continue:
@@ -786,11 +812,14 @@ class AgentRunner:
                     continue
                 break
 
-            messages.append(assistant_message or build_assistant_message(
-                clean,
-                reasoning_content=response.reasoning_content,
-                thinking_blocks=response.thinking_blocks,
-            ))
+            messages.append(
+                assistant_message
+                or build_assistant_message(
+                    clean,
+                    reasoning_content=response.reasoning_content,
+                    thinking_blocks=response.thinking_blocks,
+                )
+            )
             await self._emit_checkpoint(
                 spec,
                 {
@@ -815,7 +844,10 @@ class AgentRunner:
             # We include them before the no-tools finalization pass so the
             # final response can account for every known follow-up.
             drained_after_max_iterations, injection_cycles = await self._try_drain_injections(
-                spec, messages, None, injection_cycles,
+                spec,
+                messages,
+                None,
+                injection_cycles,
                 phase="after max_iterations",
             )
             if drained_after_max_iterations:
@@ -929,7 +961,7 @@ class AgentRunner:
                 prev_clean = strip_reasoning_tags(thinking_buf)
                 thinking_buf += delta
                 new_clean = strip_reasoning_tags(thinking_buf)
-                incremental = new_clean[len(prev_clean):]
+                incremental = new_clean[len(prev_clean) :]
                 if incremental:
                     context.streamed_reasoning = True
                     await hook.emit_reasoning(incremental)
@@ -956,7 +988,7 @@ class AgentRunner:
                 prev_clean = strip_think(stream_buf)
                 stream_buf += delta
                 new_clean = strip_think(stream_buf)
-                incremental = new_clean[len(prev_clean):]
+                incremental = new_clean[len(prev_clean) :]
 
                 if await think_extractor.feed(stream_buf, hook.emit_reasoning):
                     context.streamed_reasoning = True
@@ -990,7 +1022,8 @@ class AgentRunner:
         )
         try:
             response = (
-                await coro if outer_timeout_s is None
+                await coro
+                if outer_timeout_s is None
                 else await asyncio.wait_for(coro, timeout=outer_timeout_s)
             )
         except asyncio.TimeoutError:
@@ -1010,18 +1043,18 @@ class AgentRunner:
         # hosted calls after the provider returns its final error response.
         if response.finish_reason == "error":
             for event in list(active_hosted_tools.values()):
-                await _provider_tool_event({
-                    **event,
-                    "phase": "error",
-                    "result": None,
-                    "error": response.content
-                    or "Model request failed before the provider-hosted tool completed.",
-                })
+                await _provider_tool_event(
+                    {
+                        **event,
+                        "phase": "error",
+                        "result": None,
+                        "error": response.content
+                        or "Model request failed before the provider-hosted tool completed.",
+                    }
+                )
         if progress_state and progress_state.get("reasoning_open"):
             await hook.emit_reasoning_end()
-        dropped, all_dropped, original_finish_reason = (
-            self._drop_malformed_tool_calls(response)
-        )
+        dropped, all_dropped, original_finish_reason = self._drop_malformed_tool_calls(response)
         if (
             all_dropped
             and original_finish_reason in ("tool_calls", "function_call")
@@ -1032,10 +1065,14 @@ class AgentRunner:
                 dropped,
             )
             retry_messages = self._malformed_tool_call_retry_messages(
-                messages, response.content,
+                messages,
+                response.content,
             )
             return await self._request_model(
-                spec, retry_messages, hook, context,
+                spec,
+                retry_messages,
+                hook,
+                context,
                 malformed_retry=True,
             )
         if (
@@ -1047,7 +1084,8 @@ class AgentRunner:
                 "Malformed tool calls persisted after retry; falling back to no-tools request",
             )
             fallback_messages = self._malformed_tool_call_retry_messages(
-                messages, response.content,
+                messages,
+                response.content,
             )
             return await self._request_no_tools(spec, fallback_messages)
         return response
@@ -1100,10 +1138,7 @@ class AgentRunner:
             "a final answer only if no tool is required."
         )
         if assistant_text:
-            note += (
-                f"\n\nPrevious assistant text before the malformed calls:\n"
-                f"{assistant_text}"
-            )
+            note += f"\n\nPrevious assistant text before the malformed calls:\n{assistant_text}"
         retry_messages.append({"role": "user", "content": note})
         return retry_messages
 
@@ -1253,9 +1288,11 @@ class AgentRunner:
 
     @staticmethod
     def _usage_total(usage: dict[str, int]) -> int:
-        return max(0, usage.get("total_tokens", 0) or (
-            usage.get("prompt_tokens", 0) + usage.get("completion_tokens", 0)
-        ))
+        return max(
+            0,
+            usage.get("total_tokens", 0)
+            or (usage.get("prompt_tokens", 0) + usage.get("completion_tokens", 0)),
+        )
 
     @staticmethod
     def _accumulate_usage(target: dict[str, int], addition: dict[str, int]) -> None:
@@ -1284,17 +1321,19 @@ class AgentRunner:
         tool_results: list[tuple[Any, dict[str, str], BaseException | None]] = []
         for batch in batches:
             if spec.concurrent_tools and len(batch) > 1:
-                batch_results = await asyncio.gather(*(
-                    self._run_tool(
-                        spec,
-                        tool_call,
-                        external_lookup_counts,
-                        workspace_violation_counts,
-                        hook,
-                        context,
+                batch_results = await asyncio.gather(
+                    *(
+                        self._run_tool(
+                            spec,
+                            tool_call,
+                            external_lookup_counts,
+                            workspace_violation_counts,
+                            hook,
+                            context,
+                        )
+                        for tool_call in batch
                     )
-                    for tool_call in batch
-                ))
+                )
                 tool_results.extend(batch_results)
             else:
                 batch_results = []
@@ -1367,8 +1406,10 @@ class AgentRunner:
             )
             if handled is not None:
                 return handled
-            return prep_error + hint, event, (
-                RuntimeError(prep_error) if spec.fail_on_tool_error else None
+            return (
+                prep_error + hint,
+                event,
+                (RuntimeError(prep_error) if spec.fail_on_tool_error else None),
             )
         await hook.before_execute_tool(context, tool_call, tool, params)
         try:
@@ -1548,7 +1589,11 @@ class AgentRunner:
 
     @staticmethod
     def _append_model_error_placeholder(messages: list[dict[str, Any]]) -> None:
-        if messages and messages[-1].get("role") == "assistant" and not messages[-1].get("tool_calls"):
+        if (
+            messages
+            and messages[-1].get("role") == "assistant"
+            and not messages[-1].get("tool_calls")
+        ):
             return
         messages.append(build_assistant_message(_PERSISTED_MODEL_ERROR_PLACEHOLDER))
 

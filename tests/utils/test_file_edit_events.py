@@ -94,7 +94,8 @@ def test_unified_diff_payload_truncates_large_diffs() -> None:
     assert diff["truncated"] is True
     assert "hunks" not in diff
     body_lines = [
-        line for line in diff["text"].splitlines()
+        line
+        for line in diff["text"].splitlines()
         if line.startswith((" ", "+", "-")) and not line.startswith(("+++", "---"))
     ]
     assert len(body_lines) == 5
@@ -233,10 +234,13 @@ def test_oversized_file_is_reported_but_not_counted(tmp_path: Path) -> None:
 
 
 def test_untracked_tools_do_not_prepare_file_edit_tracker(tmp_path: Path) -> None:
-    assert prepare_file_edit_tracker(
-        call_id="call-exec",
-        tool_name="exec",
-        tool=None,
-        workspace=tmp_path,
-        params={"path": "created-by-shell.txt"},
-    ) is None
+    assert (
+        prepare_file_edit_tracker(
+            call_id="call-exec",
+            tool_name="exec",
+            tool=None,
+            workspace=tmp_path,
+            params={"path": "created-by-shell.txt"},
+        )
+        is None
+    )

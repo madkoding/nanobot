@@ -38,7 +38,9 @@ _CRON_PARAMETERS = tool_parameters_schema(
         "ISO datetime for one-time execution (e.g. '2026-02-12T10:30:00'). "
         "Naive values use the tool's default timezone."
     ),
-    job_id=StringSchema("REQUIRED when action='remove'. Job ID to remove (obtain via action='list')."),
+    job_id=StringSchema(
+        "REQUIRED when action='remove'. Job ID to remove (obtain via action='list')."
+    ),
     required=["action"],
     description=(
         "Action-specific parameters: add requires a non-empty message plus one schedule "
@@ -74,9 +76,7 @@ class CronTool(Tool):
         if ctx is None:
             return "", "", "", {}
         raw_key = f"{ctx.channel}:{ctx.chat_id}" if ctx.channel and ctx.chat_id else ""
-        session_key = (
-            raw_key if ctx.session_key == UNIFIED_SESSION_KEY else (ctx.session_key or "")
-        )
+        session_key = raw_key if ctx.session_key == UNIFIED_SESSION_KEY else (ctx.session_key or "")
         return session_key, ctx.channel or "", ctx.chat_id or "", dict(ctx.metadata or {})
 
     def set_cron_context(self, active: bool):
@@ -143,7 +143,9 @@ class CronTool(Tool):
     ) -> str:
         if action == "add":
             if self._in_cron_context.get():
-                return ToolResult.error("Error: cannot schedule new jobs from within a cron job execution")
+                return ToolResult.error(
+                    "Error: cannot schedule new jobs from within a cron job execution"
+                )
             return self._add_job(name, message, every_seconds, cron_expr, tz, at)
         elif action == "list":
             return self._list_jobs()
@@ -164,13 +166,17 @@ class CronTool(Tool):
             return ToolResult.error(
                 "Error: cron action='add' requires a non-empty 'message' parameter "
                 "describing what to do when the job triggers "
-                "(e.g. the reminder text). Retry including message=\"...\"."
+                '(e.g. the reminder text). Retry including message="...".'
             )
         session_key, origin_channel, origin_chat_id, origin_metadata = self._request_route()
         if not session_key:
-            return ToolResult.error("Error: scheduled cron jobs must be created from a chat session")
+            return ToolResult.error(
+                "Error: scheduled cron jobs must be created from a chat session"
+            )
         if not origin_channel or not origin_chat_id:
-            return ToolResult.error("Error: scheduled cron jobs must be created from a chat session")
+            return ToolResult.error(
+                "Error: scheduled cron jobs must be created from a chat session"
+            )
         if tz and not cron_expr:
             return ToolResult.error("Error: tz can only be used with cron_expr")
         if tz:
@@ -192,7 +198,9 @@ class CronTool(Tool):
             try:
                 dt = datetime.fromisoformat(at)
             except ValueError:
-                return ToolResult.error(f"Error: invalid ISO datetime format '{at}'. Expected format: YYYY-MM-DDTHH:MM:SS")
+                return ToolResult.error(
+                    f"Error: invalid ISO datetime format '{at}'. Expected format: YYYY-MM-DDTHH:MM:SS"
+                )
             if dt.tzinfo is None:
                 if err := self._validate_timezone(self._default_timezone):
                     return err
@@ -284,8 +292,5 @@ class CronTool(Tool):
                     "This is a system-managed Dream memory consolidation job for long-term memory.\n"
                     "It remains visible so you can inspect it, but it cannot be removed."
                 )
-            return (
-                f"Cannot remove job `{job_id}`.\n"
-                "This is a protected system-managed cron job."
-            )
+            return f"Cannot remove job `{job_id}`.\nThis is a protected system-managed cron job."
         return f"Job {job_id} not found"

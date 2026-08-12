@@ -91,7 +91,10 @@ class OpenAICodexProvider(LLMProvider):
             stage = "codex_request"
             try:
                 content, tool_calls, finish_reason, usage, reasoning_content = await _request_codex(
-                    DEFAULT_CODEX_URL, headers, body, verify=True,
+                    DEFAULT_CODEX_URL,
+                    headers,
+                    body,
+                    verify=True,
                     proxy=self.proxy,
                     on_content_delta=on_content_delta,
                     on_thinking_delta=on_thinking_delta,
@@ -102,7 +105,10 @@ class OpenAICodexProvider(LLMProvider):
                     raise
                 logger.warning("SSL verification failed for Codex API; retrying with verify=False")
                 content, tool_calls, finish_reason, usage, reasoning_content = await _request_codex(
-                    DEFAULT_CODEX_URL, headers, body, verify=False,
+                    DEFAULT_CODEX_URL,
+                    headers,
+                    body,
+                    verify=False,
                     proxy=self.proxy,
                     on_content_delta=on_content_delta,
                     on_thinking_delta=on_thinking_delta,
@@ -134,16 +140,24 @@ class OpenAICodexProvider(LLMProvider):
             return response
 
     async def chat(
-        self, messages: list[dict[str, Any]], tools: list[dict[str, Any]] | None = None,
-        model: str | None = None, max_tokens: int = 4096, temperature: float = 0.7,
+        self,
+        messages: list[dict[str, Any]],
+        tools: list[dict[str, Any]] | None = None,
+        model: str | None = None,
+        max_tokens: int = 4096,
+        temperature: float = 0.7,
         reasoning_effort: str | None = None,
         tool_choice: str | dict[str, Any] | None = None,
     ) -> LLMResponse:
         return await self._call_codex(messages, tools, model, reasoning_effort, tool_choice)
 
     async def chat_stream(
-        self, messages: list[dict[str, Any]], tools: list[dict[str, Any]] | None = None,
-        model: str | None = None, max_tokens: int = 4096, temperature: float = 0.7,
+        self,
+        messages: list[dict[str, Any]],
+        tools: list[dict[str, Any]] | None = None,
+        model: str | None = None,
+        max_tokens: int = 4096,
+        temperature: float = 0.7,
         reasoning_effort: str | None = None,
         tool_choice: str | dict[str, Any] | None = None,
         on_content_delta: Callable[[str], Awaitable[None]] | None = None,
@@ -272,7 +286,9 @@ def _codex_error_response(exc: Exception) -> LLMResponse:
         default_detail = "HTTP request failed"
 
     if status_code is not None and should_retry is None:
-        retry_content = None if int(status_code) == 429 and isinstance(exc, _CodexHTTPError) else detail
+        retry_content = (
+            None if int(status_code) == 429 and isinstance(exc, _CodexHTTPError) else detail
+        )
         should_retry = LLMProvider.should_retry_status(
             int(status_code),
             getattr(exc, "error_type", None),
@@ -311,4 +327,3 @@ def _codex_log_summary(exc_type: str, response: LLMResponse) -> str:
         return f"{exc_type} {kind}"
 
     return exc_type
-

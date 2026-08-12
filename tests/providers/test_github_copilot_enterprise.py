@@ -17,7 +17,9 @@ def test_resolve_falls_back_to_default_without_env(monkeypatch):
 
 
 def test_resolve_uses_env_override_and_strips(monkeypatch):
-    monkeypatch.setenv("NANOBOT_COPILOT_TOKEN_URL", "  https://api.acme.ghe.com/copilot_internal/v2/token  ")
+    monkeypatch.setenv(
+        "NANOBOT_COPILOT_TOKEN_URL", "  https://api.acme.ghe.com/copilot_internal/v2/token  "
+    )
     assert gc._resolve("NANOBOT_COPILOT_TOKEN_URL", gc.DEFAULT_COPILOT_TOKEN_URL) == (
         "https://api.acme.ghe.com/copilot_internal/v2/token"
     )

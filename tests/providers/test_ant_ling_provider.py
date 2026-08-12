@@ -33,18 +33,20 @@ def test_find_by_name_accepts_ant_ling_spellings() -> None:
 
 
 def test_ant_ling_model_auto_matches_with_default_api_base() -> None:
-    config = Config.model_validate({
-        "providers": {
-            "antLing": {
-                "apiKey": "ling-key",
+    config = Config.model_validate(
+        {
+            "providers": {
+                "antLing": {
+                    "apiKey": "ling-key",
+                },
             },
-        },
-        "agents": {
-            "defaults": {
-                "model": "Ling-2.6-flash",
+            "agents": {
+                "defaults": {
+                    "model": "Ling-2.6-flash",
+                },
             },
-        },
-    })
+        }
+    )
 
     assert config.get_provider_name("Ling-2.6-flash") == "ant_ling"
     assert config.get_api_key("Ling-2.6-flash") == "ling-key"

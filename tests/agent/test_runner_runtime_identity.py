@@ -57,13 +57,15 @@ async def test_active_run_keeps_provider_captured_at_admission() -> None:
     tools.get_definitions.return_value = []
     tools.execute = AsyncMock(return_value="contents")
 
-    await runner.run(AgentRunSpec(
-        initial_messages=[{"role": "user", "content": "read it"}],
-        tools=tools,
-        runtime=selected_runtime,
-        max_iterations=2,
-        max_tool_result_chars=AgentDefaults().max_tool_result_chars,
-    ))
+    await runner.run(
+        AgentRunSpec(
+            initial_messages=[{"role": "user", "content": "read it"}],
+            tools=tools,
+            runtime=selected_runtime,
+            max_iterations=2,
+            max_tool_result_chars=AgentDefaults().max_tool_result_chars,
+        )
+    )
 
     assert first_calls == 2
     assert second_calls == 0

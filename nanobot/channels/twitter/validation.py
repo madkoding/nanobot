@@ -40,7 +40,9 @@ def validate(
     checks, missing = required_checks("twitter", values)
     bot = string_value(values.get("botUsername")).lstrip("@")
     if bot:
-        checks.append(check("bot_username", "Bot username", "pass", f"Will poll mentions of @{bot}."))
+        checks.append(
+            check("bot_username", "Bot username", "pass", f"Will poll mentions of @{bot}.")
+        )
     interval = int_value(values.get("pollIntervalSeconds")) or 900
     if interval < 60:
         checks.append(

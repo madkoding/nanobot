@@ -168,7 +168,9 @@ class FeishuConnectStore:
 
     def _cleanup(self) -> None:
         now = time.monotonic()
-        expired = [session_id for session_id, session in self._sessions.items() if now >= session.deadline]
+        expired = [
+            session_id for session_id, session in self._sessions.items() if now >= session.deadline
+        ]
         for session_id in expired:
             self._sessions.pop(session_id, None)
 

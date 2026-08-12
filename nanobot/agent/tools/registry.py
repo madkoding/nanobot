@@ -58,11 +58,7 @@ class ToolRegistry:
         key = self._lookup_key(str(name or ""))
         if not key:
             return None
-        matches = [
-            registered
-            for registered in self._tools
-            if self._lookup_key(registered) == key
-        ]
+        matches = [registered for registered in self._tools if self._lookup_key(registered) == key]
         if len(matches) == 1:
             return matches[0]
         return None
@@ -116,28 +112,46 @@ class ToolRegistry:
         tool = self._tools.get(name)
         if not tool:
             suggestion = self._suggest_name(str(name))
-            hint = f" Did you mean '{suggestion}'? Tool names must match exactly." if suggestion else ""
-            return None, params, (
-                ToolResult.error(
-                    f"Error: Tool '{name}' not found.{hint} Available: {', '.join(self.tool_names)}"
-                )
+            hint = (
+                f" Did you mean '{suggestion}'? Tool names must match exactly."
+                if suggestion
+                else ""
+            )
+            return (
+                None,
+                params,
+                (
+                    ToolResult.error(
+                        f"Error: Tool '{name}' not found.{hint} Available: {', '.join(self.tool_names)}"
+                    )
+                ),
             )
 
         params = self._coerce_params(tool, params)
         if not isinstance(params, dict):
-            return tool, params, (
-                ToolResult.error(
-                    f"Error: Tool '{name}' parameters must be a JSON object, got "
-                    f"{type(params).__name__}. Use named parameters like "
-                    'tool_name(param1="value1", param2="value2") matching the tool schema.'
-                )
+            return (
+                tool,
+                params,
+                (
+                    ToolResult.error(
+                        f"Error: Tool '{name}' parameters must be a JSON object, got "
+                        f"{type(params).__name__}. Use named parameters like "
+                        'tool_name(param1="value1", param2="value2") matching the tool schema.'
+                    )
+                ),
             )
 
         cast_params = tool.cast_params(params)
         errors = tool.validate_params(cast_params)
         if errors:
-            return tool, cast_params, (
-                ToolResult.error(f"Error: Invalid parameters for tool '{name}': " + "; ".join(errors))
+            return (
+                tool,
+                cast_params,
+                (
+                    ToolResult.error(
+                        f"Error: Invalid parameters for tool '{name}': " + "; ".join(errors)
+                    )
+                ),
             )
         return tool, cast_params, None
 

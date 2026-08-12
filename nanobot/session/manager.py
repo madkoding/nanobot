@@ -71,11 +71,7 @@ def _sanitize_assistant_replay_text(content: str) -> str:
     in assistant examples they become demonstrations for the model to repeat.
     """
     content = _MESSAGE_TIME_PREFIX_RE.sub("", content, count=1)
-    lines = [
-        line
-        for line in content.splitlines()
-        if not _LOCAL_IMAGE_BREADCRUMB_RE.match(line)
-    ]
+    lines = [line for line in content.splitlines() if not _LOCAL_IMAGE_BREADCRUMB_RE.match(line)]
     return "\n".join(lines).strip()
 
 
@@ -150,12 +146,7 @@ class Session:
 
     def add_message(self, role: str, content: str, **kwargs: Any) -> None:
         """Add a message to the session."""
-        msg = {
-            "role": role,
-            "content": content,
-            "timestamp": datetime.now().isoformat(),
-            **kwargs
-        }
+        msg = {"role": role, "content": content, "timestamp": datetime.now().isoformat(), **kwargs}
         self.messages.append(msg)
         self.updated_at = datetime.now()
 
@@ -172,7 +163,7 @@ class Session:
         History is sliced by message count first (``max_messages``), then by
         token budget from the tail (``max_tokens``) when provided.
         """
-        unconsolidated = self.messages[self.last_consolidated:]
+        unconsolidated = self.messages[self.last_consolidated :]
         max_messages = max_messages if max_messages > 0 else FILE_MAX_MESSAGES
         start_idx = recent_message_start_index(
             unconsolidated,
@@ -246,7 +237,9 @@ class Session:
                     breadcrumbs = "\n".join(cli_lines)
                     content = f"{content}\n{breadcrumbs}" if content else breadcrumbs
             if role == "assistant" and isinstance(content, str) and not content.strip():
-                if not any(key in message for key in ("tool_calls", "reasoning_content", "thinking_blocks")):
+                if not any(
+                    key in message for key in ("tool_calls", "reasoning_content", "thinking_blocks")
+                ):
                     continue
             entry: dict[str, Any] = {"role": message["role"], "content": content}
             for key in ("tool_calls", "tool_call_id", "name", "thinking_blocks"):
@@ -345,12 +338,15 @@ class Session:
             # If the hard-capped tail is assistant/tool-only, anchor to the
             # latest user in the full session and take a capped forward window.
             latest_user = next(
-                (i for i in range(len(self.messages) - 1, -1, -1)
-                 if self.messages[i].get("role") == "user"),
+                (
+                    i
+                    for i in range(len(self.messages) - 1, -1, -1)
+                    if self.messages[i].get("role") == "user"
+                ),
                 None,
             )
             if latest_user is not None:
-                retained = self.messages[latest_user: latest_user + max_messages]
+                retained = self.messages[latest_user : latest_user + max_messages]
 
         # Mirror get_history(): avoid persisting orphan tool results at the front.
         start = find_legal_message_start(retained)
@@ -375,16 +371,12 @@ class Session:
         # dropped may include messages from *after* the consolidated prefix
         # (e.g. in the else branch).
         already_consolidated = sum(
-            1 for i, m in enumerate(original)
-            if i < before_lc and id(m) not in retained_ids
+            1 for i, m in enumerate(original) if i < before_lc and id(m) not in retained_ids
         )
 
         # New last_consolidated = count of retained messages that were inside
         # the old consolidated prefix.
-        new_lc = sum(
-            1 for i, m in enumerate(original)
-            if i < before_lc and id(m) in retained_ids
-        )
+        new_lc = sum(1 for i, m in enumerate(original) if i < before_lc and id(m) in retained_ids)
 
         self.messages = retained
         self.last_consolidated = new_lc
@@ -407,7 +399,7 @@ class Session:
         if not result.dropped:
             return
 
-        archive_chunk = result.dropped[result.already_consolidated_count:]
+        archive_chunk = result.dropped[result.already_consolidated_count :]
         if archive_chunk and on_archive:
             on_archive(archive_chunk)
         logger.info(
@@ -590,8 +582,16 @@ class SessionManager:
 
                     if data.get("_type") == "metadata":
                         metadata = data.get("metadata", {})
-                        created_at = datetime.fromisoformat(data["created_at"]) if data.get("created_at") else None
-                        updated_at = datetime.fromisoformat(data["updated_at"]) if data.get("updated_at") else None
+                        created_at = (
+                            datetime.fromisoformat(data["created_at"])
+                            if data.get("created_at")
+                            else None
+                        )
+                        updated_at = (
+                            datetime.fromisoformat(data["updated_at"])
+                            if data.get("updated_at")
+                            else None
+                        )
                         last_consolidated = data.get("last_consolidated", 0)
                     else:
                         messages.append(data)
@@ -602,13 +602,17 @@ class SessionManager:
                 created_at=created_at or datetime.now(),
                 updated_at=updated_at or datetime.now(),
                 metadata=metadata,
-                last_consolidated=last_consolidated
+                last_consolidated=last_consolidated,
             )
         except _SESSION_DATA_ERRORS as e:
             logger.warning("Failed to load session {}: {}", key, e)
             repaired = self._repair(key)
             if repaired is not None:
-                logger.info("Recovered session {} from corrupt file ({} messages)", key, len(repaired.messages))
+                logger.info(
+                    "Recovered session {} from corrupt file ({} messages)",
+                    key,
+                    len(repaired.messages),
+                )
             return repaired
 
     def _repair(self, key: str, *, path: Path | None = None) -> Session | None:
@@ -664,7 +668,7 @@ class SessionManager:
                 created_at=created_at or datetime.now(),
                 updated_at=updated_at or datetime.now(),
                 metadata=metadata,
-                last_consolidated=last_consolidated
+                last_consolidated=last_consolidated,
             )
         except _SESSION_DATA_ERRORS as e:
             logger.warning("Repair failed for session {}: {}", key, e)
@@ -709,7 +713,7 @@ class SessionManager:
                     "created_at": session.created_at.isoformat(),
                     "updated_at": session.updated_at.isoformat(),
                     "metadata": session.metadata,
-                    "last_consolidated": session.last_consolidated
+                    "last_consolidated": session.last_consolidated,
                 }
                 f.write(json.dumps(metadata_line, ensure_ascii=False) + "\n")
                 for msg in session.messages:

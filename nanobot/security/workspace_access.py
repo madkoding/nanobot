@@ -412,12 +412,12 @@ def current_tool_workspace(
     project_path = (
         scope.project_path
         if scope is not None
-        else Path(default_workspace).expanduser() if default_workspace is not None else None
+        else Path(default_workspace).expanduser()
+        if default_workspace is not None
+        else None
     )
     restrict = (
-        scope.restrict_to_workspace
-        if scope is not None
-        else bool(restrict_to_workspace)
+        scope.restrict_to_workspace if scope is not None else bool(restrict_to_workspace)
     ) or sandbox_restricts_workspace
     return ToolWorkspace(
         project_path=project_path,

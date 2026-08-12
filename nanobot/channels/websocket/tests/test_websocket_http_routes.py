@@ -127,7 +127,8 @@ def _ch(
     }
     cfg.update(extra)
     gateway = _make_handler(
-        cfg, bus,
+        cfg,
+        bus,
         session_manager=session_manager,
         static_dist_path=static_dist_path,
         workspace_path=workspace_path,
@@ -207,15 +208,15 @@ def _stub_matrix_feature(
     if install_calls is not None:
         monkeypatch.setattr(
             "nanobot.optional_features.install_extra",
-            lambda name, _deps, *, runner: install_calls.append(name)
-            or InstallResult(True, f"{name} support", ["python", "-m", "pip", "install", name]),
+            lambda name, _deps, *, runner: (
+                install_calls.append(name)
+                or InstallResult(True, f"{name} support", ["python", "-m", "pip", "install", name])
+            ),
         )
 
 
 @pytest.mark.asyncio
-async def test_bootstrap_returns_token_for_localhost(
-    bus: MagicMock, tmp_path: Path
-) -> None:
+async def test_bootstrap_returns_token_for_localhost(bus: MagicMock, tmp_path: Path) -> None:
     sm = _seed_session(tmp_path)
     channel = _ch(
         bus,
@@ -255,9 +256,7 @@ async def test_bootstrap_returns_token_for_localhost(
 
 
 @pytest.mark.asyncio
-async def test_sessions_routes_require_bearer_token(
-    bus: MagicMock, tmp_path: Path
-) -> None:
+async def test_sessions_routes_require_bearer_token(bus: MagicMock, tmp_path: Path) -> None:
     sm = _seed_session(tmp_path, key="websocket:abc")
     channel = _ch(bus, session_manager=sm, port=29902)
     server_task = asyncio.create_task(channel.start())
@@ -337,9 +336,7 @@ async def test_session_automations_route_filters_by_webui_session(
     )
     server_task = asyncio.create_task(channel.start())
     try:
-        deny = await _http_get(
-            "http://127.0.0.1:29914/api/sessions/websocket:abc/automations"
-        )
+        deny = await _http_get("http://127.0.0.1:29914/api/sessions/websocket:abc/automations")
         assert deny.status_code == 401
 
         token = channel.gateway.tokens.issue_api_token(300)
@@ -431,9 +428,7 @@ async def test_session_automations_route_lists_local_triggers(
         bus,
         session_manager=_seed_session(tmp_path, key="websocket:abc"),
         local_trigger_store=trigger_store,
-        local_trigger_pending_ids=lambda key: (
-            {trigger.id} if key == "websocket:abc" else set()
-        ),
+        local_trigger_pending_ids=lambda key: {trigger.id} if key == "websocket:abc" else set(),
         port=port,
     )
     server_task = asyncio.create_task(channel.start())
@@ -473,20 +468,22 @@ async def test_webui_skills_route_requires_token_and_hides_paths(
     unavailable_skill = tmp_path / "skills" / "zz-unavailable-skill"
     unavailable_skill.mkdir(parents=True)
     (unavailable_skill / "SKILL.md").write_text(
-        "\n".join([
-            "---",
-            "name: zz-unavailable-skill",
-            "description: Missing CLI skill.",
-            "metadata:",
-            "  nanobot:",
-            "    requires:",
-            "      bins:",
-            "        - definitely-missing-nanobot-skill-cli",
-            "      env:",
-            "        - DEFINITELY_MISSING_NANOBOT_SKILL_ENV",
-            "---",
-            "Use the missing CLI and env var.",
-        ]),
+        "\n".join(
+            [
+                "---",
+                "name: zz-unavailable-skill",
+                "description: Missing CLI skill.",
+                "metadata:",
+                "  nanobot:",
+                "    requires:",
+                "      bins:",
+                "        - definitely-missing-nanobot-skill-cli",
+                "      env:",
+                "        - DEFINITELY_MISSING_NANOBOT_SKILL_ENV",
+                "---",
+                "Use the missing CLI and env var.",
+            ]
+        ),
         encoding="utf-8",
     )
     channel = _ch(
@@ -523,11 +520,12 @@ async def test_webui_skills_route_requires_token_and_hides_paths(
             "unavailable_reason": "",
             "disabled": False,
         }
-        unavailable = next(skill for skill in body["skills"] if skill["name"] == "zz-unavailable-skill")
+        unavailable = next(
+            skill for skill in body["skills"] if skill["name"] == "zz-unavailable-skill"
+        )
         assert unavailable["available"] is False
         assert unavailable["unavailable_reason"] == (
-            "CLI: definitely-missing-nanobot-skill-cli, "
-            "ENV: DEFINITELY_MISSING_NANOBOT_SKILL_ENV"
+            "CLI: definitely-missing-nanobot-skill-cli, ENV: DEFINITELY_MISSING_NANOBOT_SKILL_ENV"
         )
 
         detail = await _http_get(
@@ -553,9 +551,7 @@ async def test_webui_skills_route_requires_token_and_hides_paths(
             "http://127.0.0.1:29920/api/webui/skills/toggle",
             headers={
                 "Authorization": f"Bearer {token}",
-                "X-Nanobot-Clawhub-Data": json.dumps(
-                    {"name": "workspace-skill", "enabled": False}
-                ),
+                "X-Nanobot-Clawhub-Data": json.dumps({"name": "workspace-skill", "enabled": False}),
             },
         )
         assert toggle_off.status_code == 200
@@ -573,9 +569,7 @@ async def test_webui_skills_route_requires_token_and_hides_paths(
             "http://127.0.0.1:29920/api/webui/skills/toggle",
             headers={
                 "Authorization": f"Bearer {token}",
-                "X-Nanobot-Clawhub-Data": json.dumps(
-                    {"name": "workspace-skill", "enabled": True}
-                ),
+                "X-Nanobot-Clawhub-Data": json.dumps({"name": "workspace-skill", "enabled": True}),
             },
         )
         assert toggle_on.status_code == 200
@@ -721,9 +715,7 @@ async def test_clawhub_routes_require_token_and_return_results(
             "http://127.0.0.1:29921/api/webui/clawhub/install",
             headers={
                 **auth,
-                "X-Nanobot-Clawhub-Data": json.dumps(
-                    {"reference": "zhangqixin9527/web-scraping"}
-                ),
+                "X-Nanobot-Clawhub-Data": json.dumps({"reference": "zhangqixin9527/web-scraping"}),
             },
         )
         assert install_resp.status_code == 200
@@ -781,9 +773,7 @@ async def test_clawhub_routes_require_token_and_return_results(
             "http://127.0.0.1:29921/api/webui/clawhub/install",
             headers={
                 **auth,
-                "X-Nanobot-Clawhub-Data": json.dumps(
-                    {"reference": "zhangqixin9527/web-scraping"}
-                ),
+                "X-Nanobot-Clawhub-Data": json.dumps({"reference": "zhangqixin9527/web-scraping"}),
             },
         )
         assert reinstall.status_code == 200
@@ -1046,9 +1036,10 @@ async def test_nanobot_feature_routes_require_token_and_enable(
         body = disabled.json()
         assert body["last_action"]["message"] == "Disabled channel 'matrix'"
         assert body["restart_required_sections"] == ["runtime"]
-        assert json.loads(config_path.read_text(encoding="utf-8"))["channels"]["matrix"][
-            "enabled"
-        ] is False
+        assert (
+            json.loads(config_path.read_text(encoding="utf-8"))["channels"]["matrix"]["enabled"]
+            is False
+        )
     finally:
         await channel.stop()
         await server_task
@@ -1308,9 +1299,9 @@ async def test_nanobot_feature_local_install_allowed_by_default(
     assert response is not None
     assert response.status_code == 200
     assert install_calls == ["matrix"]
-    assert json.loads(config_path.read_text(encoding="utf-8"))["channels"]["matrix"][
-        "enabled"
-    ] is True
+    assert (
+        json.loads(config_path.read_text(encoding="utf-8"))["channels"]["matrix"]["enabled"] is True
+    )
 
 
 @pytest.mark.asyncio
@@ -1445,17 +1436,19 @@ async def test_feishu_connect_routes_write_config_and_hot_reload(
     monkeypatch.setattr(
         "nanobot.webui.settings_routes.nanobot_features_action",
         lambda _action, _query, *, allow_install=True: {
-            "features": [{
-                "name": "feishu",
-                "display_name": "Feishu",
-                "type": "channel",
-                "enabled": True,
-                "installed": True,
-                "ready": True,
-                "status": "enabled",
-                "install_supported": True,
-                "requires_restart": True,
-            }],
+            "features": [
+                {
+                    "name": "feishu",
+                    "display_name": "Feishu",
+                    "type": "channel",
+                    "enabled": True,
+                    "installed": True,
+                    "ready": True,
+                    "status": "enabled",
+                    "install_supported": True,
+                    "requires_restart": True,
+                }
+            ],
             "enabled_count": 1,
             "requires_restart": True,
             "last_action": {"ok": True, "message": "Enabled channel 'feishu'", "enabled": True},
@@ -1520,7 +1513,9 @@ async def test_feishu_connect_routes_write_config_and_hot_reload(
     assert data["channels"]["feishu"]["instances"][0]["appSecret"] == "secret"
     assert data["channels"]["feishu"]["instances"][0]["enabled"] is True
     assert data["channels"]["feishu"]["instances"][0]["displayName"] == "Voraflare Bot"
-    assert data["channels"]["feishu"]["instances"][0]["avatarUrl"] == "https://example.com/feishu.png"
+    assert (
+        data["channels"]["feishu"]["instances"][0]["avatarUrl"] == "https://example.com/feishu.png"
+    )
 
 
 def test_feishu_connect_create_appends_instance(
@@ -1533,19 +1528,23 @@ def test_feishu_connect_create_appends_instance(
 
     config_path = tmp_path / "config.json"
     config_path.write_text(
-        json.dumps({
-            "channels": {
-                "feishu": {
-                    "instances": [{
-                        "id": "default",
-                        "name": "nanobot",
-                        "enabled": True,
-                        "appId": "cli_default",
-                        "appSecret": "default-secret",
-                    }]
+        json.dumps(
+            {
+                "channels": {
+                    "feishu": {
+                        "instances": [
+                            {
+                                "id": "default",
+                                "name": "nanobot",
+                                "enabled": True,
+                                "appId": "cli_default",
+                                "appSecret": "default-secret",
+                            }
+                        ]
+                    }
                 }
             }
-        }),
+        ),
         encoding="utf-8",
     )
     monkeypatch.setattr(loader, "_current_config_path", config_path)
@@ -1597,9 +1596,9 @@ def test_feishu_connect_create_appends_instance(
 
     duplicate_started = store.start(mode="create")
     duplicate_polled = store.poll(duplicate_started["session_id"])
-    duplicate_instances = json.loads(config_path.read_text(encoding="utf-8"))[
-        "channels"
-    ]["feishu"]["instances"]
+    duplicate_instances = json.loads(config_path.read_text(encoding="utf-8"))["channels"]["feishu"][
+        "instances"
+    ]
 
     assert duplicate_polled["instance_id"] == polled["instance_id"]
     assert len(duplicate_instances) == 2
@@ -1632,23 +1631,27 @@ async def test_channel_configure_route_saves_discord_config_and_hot_reloads(
         setattr(cfg.channels, "discord", section)
         loader.save_config(cfg)
         return {
-            "features": [{
-                "name": "discord",
-                "display_name": "Discord",
-                "type": "channel",
-                "enabled": True,
-                "installed": True,
-                "ready": True,
-                "status": "enabled",
-                "install_supported": True,
-                "requires_restart": True,
-            }],
+            "features": [
+                {
+                    "name": "discord",
+                    "display_name": "Discord",
+                    "type": "channel",
+                    "enabled": True,
+                    "installed": True,
+                    "ready": True,
+                    "status": "enabled",
+                    "install_supported": True,
+                    "requires_restart": True,
+                }
+            ],
             "enabled_count": 1,
             "requires_restart": True,
             "last_action": {"ok": True, "message": "Enabled channel 'discord'", "enabled": True},
         }
 
-    monkeypatch.setattr("nanobot.webui.settings_routes.nanobot_features_action", fake_feature_action)
+    monkeypatch.setattr(
+        "nanobot.webui.settings_routes.nanobot_features_action", fake_feature_action
+    )
     calls: list[tuple[str, str, str]] = []
 
     async def channel_feature_action(action: str, name: str, instance_id: str) -> dict[str, Any]:
@@ -1756,9 +1759,7 @@ async def test_channel_configure_route_preserves_existing_channel_values(
     body = json.loads(response.body.decode())
     assert body["saved_keys"] == ["channels.discord.allowChannels"]
     discord = next(
-        feature
-        for feature in body["nanobot_features"]["features"]
-        if feature["name"] == "discord"
+        feature for feature in body["nanobot_features"]["features"] if feature["name"] == "discord"
     )
     assert discord["configured"] is True
     assert discord["config_values"]["channels.discord.allowChannels"] == "new-channel"
@@ -1951,9 +1952,9 @@ async def test_nanobot_feature_remote_enable_without_install_is_allowed(
     assert response is not None
     assert response.status_code == 200
     assert install_calls == []
-    assert json.loads(config_path.read_text(encoding="utf-8"))["channels"]["matrix"][
-        "enabled"
-    ] is True
+    assert (
+        json.loads(config_path.read_text(encoding="utf-8"))["channels"]["matrix"]["enabled"] is True
+    )
 
 
 @pytest.mark.asyncio
@@ -2158,9 +2159,7 @@ async def test_mcp_presets_routes_require_token_and_return_payload(
             "http://127.0.0.1:29913/api/settings/mcp-presets/enable?name=browserbase",
             headers={
                 **auth,
-                "X-Nanobot-MCP-Values": json.dumps(
-                    {"browserbase_api_key": "bb_live_secret"}
-                ),
+                "X-Nanobot-MCP-Values": json.dumps({"browserbase_api_key": "bb_live_secret"}),
             },
         )
         assert enabled.status_code == 200
@@ -2181,9 +2180,7 @@ async def test_mcp_presets_routes_require_token_and_return_payload(
             "http://127.0.0.1:29913/api/settings/mcp-presets/custom",
             headers={
                 **auth,
-                "X-Nanobot-MCP-Values": json.dumps(
-                    {"name": "docs", "command": "npx"}
-                ),
+                "X-Nanobot-MCP-Values": json.dumps({"name": "docs", "command": "npx"}),
             },
         )
         assert custom.status_code == 200
@@ -2201,9 +2198,7 @@ async def test_mcp_presets_routes_require_token_and_return_payload(
             "http://127.0.0.1:29913/api/settings/mcp-presets/tools",
             headers={
                 **auth,
-                "X-Nanobot-MCP-Values": json.dumps(
-                    {"name": "docs", "enabled_tools": []}
-                ),
+                "X-Nanobot-MCP-Values": json.dumps({"name": "docs", "enabled_tools": []}),
             },
         )
         assert tools.status_code == 200
@@ -2235,9 +2230,7 @@ async def test_sessions_list_only_returns_websocket_sessions_by_default(
         token = channel.gateway.tokens.issue_api_token(300)
         auth = {"Authorization": f"Bearer {token}"}
 
-        listing = await _http_get(
-            "http://127.0.0.1:29906/api/sessions", headers=auth
-        )
+        listing = await _http_get("http://127.0.0.1:29906/api/sessions", headers=auth)
         assert listing.status_code == 200
         keys = {s["key"] for s in listing.json()["sessions"]}
         # Only websocket-channel sessions are part of the webui surface; CLI /
@@ -2303,7 +2296,9 @@ async def test_session_delete_removes_file(
     sm = _seed_session(tmp_path, key="websocket:doomed")
     from nanobot.webui.transcript import append_transcript_object
 
-    append_transcript_object("websocket:doomed", {"event": "user", "chat_id": "doomed", "text": "x"})
+    append_transcript_object(
+        "websocket:doomed", {"event": "user", "chat_id": "doomed", "text": "x"}
+    )
     channel = _ch(bus, session_manager=sm, port=29903)
     server_task = asyncio.create_task(channel.start())
     try:
@@ -2593,9 +2588,7 @@ async def test_webui_automations_route_manages_local_triggers(
         bus,
         session_manager=_seed_session(tmp_path, key="websocket:abc"),
         local_trigger_store=trigger_store,
-        local_trigger_pending_ids=lambda key: (
-            {trigger.id} if key == "websocket:abc" else set()
-        ),
+        local_trigger_pending_ids=lambda key: {trigger.id} if key == "websocket:abc" else set(),
         port=port,
     )
     server_task = asyncio.create_task(channel.start())
@@ -2960,9 +2953,7 @@ async def test_webui_thread_resigns_assistant_media_urls(
 
 
 @pytest.mark.asyncio
-async def test_session_routes_reject_non_websocket_keys(
-    bus: MagicMock, tmp_path: Path
-) -> None:
+async def test_session_routes_reject_non_websocket_keys(bus: MagicMock, tmp_path: Path) -> None:
     sm = _seed_many(
         tmp_path,
         [
@@ -2999,9 +2990,7 @@ async def test_session_routes_reject_non_websocket_keys(
 
 
 @pytest.mark.asyncio
-async def test_session_routes_reject_invalid_key(
-    bus: MagicMock, tmp_path: Path
-) -> None:
+async def test_session_routes_reject_invalid_key(bus: MagicMock, tmp_path: Path) -> None:
     sm = _seed_session(tmp_path)
     channel = _ch(bus, session_manager=sm, port=29904)
     server_task = asyncio.create_task(channel.start())
@@ -3022,9 +3011,7 @@ async def test_session_routes_reject_invalid_key(
 
 
 @pytest.mark.asyncio
-async def test_static_serves_index_when_dist_present(
-    bus: MagicMock, tmp_path: Path
-) -> None:
+async def test_static_serves_index_when_dist_present(bus: MagicMock, tmp_path: Path) -> None:
     dist = tmp_path / "dist"
     dist.mkdir()
     (dist / "index.html").write_text("<!doctype html><title>nbweb</title>")
@@ -3051,9 +3038,7 @@ async def test_static_serves_index_when_dist_present(
 
 
 @pytest.mark.asyncio
-async def test_static_rejects_path_traversal(
-    bus: MagicMock, tmp_path: Path
-) -> None:
+async def test_static_rejects_path_traversal(bus: MagicMock, tmp_path: Path) -> None:
     dist = tmp_path / "dist"
     dist.mkdir()
     (dist / "index.html").write_text("ok")
@@ -3088,6 +3073,7 @@ async def test_api_token_pool_purges_expired(bus: MagicMock, tmp_path: Path) -> 
     channel = _ch(bus, session_manager=sm, port=29908)
     # Don't start a server — directly inject and validate.
     import time as _time
+
     channel.gateway.tokens.api_tokens["expired"] = _time.monotonic() - 1
     channel.gateway.tokens.api_tokens["live"] = _time.monotonic() + 60
 
@@ -3195,9 +3181,7 @@ def test_wildcard_ipv6_without_auth_raises(bus: MagicMock) -> None:
 
 def test_wildcard_ipv6_with_secret_is_valid(bus: MagicMock) -> None:
     channel = _ch(bus, host="::", tokenIssueSecret="s3cret")
-    resp = channel.gateway.http._handle_bootstrap(
-        _REMOTE, _FakeReq({"X-Nanobot-Auth": "s3cret"})
-    )
+    resp = channel.gateway.http._handle_bootstrap(_REMOTE, _FakeReq({"X-Nanobot-Auth": "s3cret"}))
     assert resp.status_code == 200
 
 
@@ -3280,7 +3264,9 @@ def test_authenticated_bootstrap_returns_distinct_api_token(bus: MagicMock) -> N
     )
 
 
-def test_bootstrap_prefers_runtime_model_name(bus: MagicMock, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_bootstrap_prefers_runtime_model_name(
+    bus: MagicMock, monkeypatch: pytest.MonkeyPatch
+) -> None:
     monkeypatch.setattr(
         "nanobot.webui.ws_http._default_model_name_from_config",
         lambda: "from-disk",
@@ -3292,7 +3278,9 @@ def test_bootstrap_prefers_runtime_model_name(bus: MagicMock, monkeypatch: pytes
     assert body["model_name"] == "live/model"
 
 
-def test_bootstrap_falls_back_when_runtime_returns_empty(bus: MagicMock, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_bootstrap_falls_back_when_runtime_returns_empty(
+    bus: MagicMock, monkeypatch: pytest.MonkeyPatch
+) -> None:
     monkeypatch.setattr(
         "nanobot.webui.ws_http._default_model_name_from_config",
         lambda: "from-disk",
@@ -3304,7 +3292,9 @@ def test_bootstrap_falls_back_when_runtime_returns_empty(bus: MagicMock, monkeyp
     assert body["model_name"] == "from-disk"
 
 
-def test_bootstrap_falls_back_when_runtime_raises(bus: MagicMock, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_bootstrap_falls_back_when_runtime_raises(
+    bus: MagicMock, monkeypatch: pytest.MonkeyPatch
+) -> None:
     monkeypatch.setattr(
         "nanobot.webui.ws_http._default_model_name_from_config",
         lambda: "from-disk",
@@ -3340,9 +3330,7 @@ def test_bootstrap_accepts_remote_with_valid_secret(bus: MagicMock) -> None:
 
 def test_bootstrap_accepts_x_nanobot_auth_header(bus: MagicMock) -> None:
     channel = _ch(bus, host="0.0.0.0", tokenIssueSecret="s3cret")
-    resp = channel.gateway.http._handle_bootstrap(
-        _REMOTE, _FakeReq({"X-Nanobot-Auth": "s3cret"})
-    )
+    resp = channel.gateway.http._handle_bootstrap(_REMOTE, _FakeReq({"X-Nanobot-Auth": "s3cret"}))
     assert resp.status_code == 200
 
 
@@ -3363,10 +3351,14 @@ async def test_agenda_routes_crud(tmp_path: Path) -> None:
     try:
         token = channel.gateway.tokens.issue_api_token(300)
         auth = {"Authorization": f"Bearer {token}"}
-        data = {"X-Nanobot-Agenda-Data": json.dumps(
-            {"title": "Dentist", "date": "2026-08-10", "time": "09:30"}
-        )}
-        create = await _http_get("http://127.0.0.1:29940/api/agenda/create", headers={**auth, **data})
+        data = {
+            "X-Nanobot-Agenda-Data": json.dumps(
+                {"title": "Dentist", "date": "2026-08-10", "time": "09:30"}
+            )
+        }
+        create = await _http_get(
+            "http://127.0.0.1:29940/api/agenda/create", headers={**auth, **data}
+        )
         assert create.status_code == 201
         appt = create.json()["appointment"]
         appt_id = appt["id"]
@@ -3375,9 +3367,7 @@ async def test_agenda_routes_crud(tmp_path: Path) -> None:
         assert listing.status_code == 200
         assert any(a["id"] == appt_id for a in listing.json()["appointments"])
 
-        fetched = await _http_get(
-            f"http://127.0.0.1:29940/api/agenda/{appt_id}", headers=auth
-        )
+        fetched = await _http_get(f"http://127.0.0.1:29940/api/agenda/{appt_id}", headers=auth)
         assert fetched.status_code == 200
         assert fetched.json()["appointment"]["title"] == "Dentist"
 

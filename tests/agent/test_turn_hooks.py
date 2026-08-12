@@ -18,10 +18,12 @@ class RecordingHook(AgentHook):
 async def test_turn_hook_builder_runs_progress_hook_before_extra_hooks() -> None:
     events: list[str] = []
 
-    hook = build_agent_turn_hook(AgentTurnHookSpec(
-        on_iteration=lambda iteration: events.append(f"progress:{iteration}"),
-        registered_hooks=[RecordingHook(events)],
-    ))
+    hook = build_agent_turn_hook(
+        AgentTurnHookSpec(
+            on_iteration=lambda iteration: events.append(f"progress:{iteration}"),
+            registered_hooks=[RecordingHook(events)],
+        )
+    )
 
     await hook.before_iteration(AgentHookContext(iteration=2, messages=[]))
 
@@ -32,11 +34,13 @@ async def test_turn_hook_builder_runs_progress_hook_before_extra_hooks() -> None
 async def test_turn_hook_builder_runs_registered_hooks_before_turn_hooks() -> None:
     events: list[str] = []
 
-    hook = build_agent_turn_hook(AgentTurnHookSpec(
-        on_iteration=lambda iteration: events.append(f"progress:{iteration}"),
-        registered_hooks=[RecordingHook(events, "registered")],
-        turn_hooks=[RecordingHook(events, "turn")],
-    ))
+    hook = build_agent_turn_hook(
+        AgentTurnHookSpec(
+            on_iteration=lambda iteration: events.append(f"progress:{iteration}"),
+            registered_hooks=[RecordingHook(events, "registered")],
+            turn_hooks=[RecordingHook(events, "turn")],
+        )
+    )
 
     await hook.before_iteration(AgentHookContext(iteration=2, messages=[]))
 
@@ -57,19 +61,21 @@ async def test_turn_hook_builder_runs_factories_with_matching_registration_order
 
         return _create
 
-    hook = build_agent_turn_hook(AgentTurnHookSpec(
-        on_iteration=lambda iteration: events.append(f"progress:{iteration}"),
-        channel="websocket",
-        chat_id="chat-1",
-        message_id="msg-1",
-        session_key="websocket:chat-1",
-        workspace=tmp_path,
-        metadata={"source": "test"},
-        registered_hook_factories=[factory("registered_factory")],
-        registered_hooks=[RecordingHook(events, "registered")],
-        turn_hook_factories=[factory("turn_factory")],
-        turn_hooks=[RecordingHook(events, "turn")],
-    ))
+    hook = build_agent_turn_hook(
+        AgentTurnHookSpec(
+            on_iteration=lambda iteration: events.append(f"progress:{iteration}"),
+            channel="websocket",
+            chat_id="chat-1",
+            message_id="msg-1",
+            session_key="websocket:chat-1",
+            workspace=tmp_path,
+            metadata={"source": "test"},
+            registered_hook_factories=[factory("registered_factory")],
+            registered_hooks=[RecordingHook(events, "registered")],
+            turn_hook_factories=[factory("turn_factory")],
+            turn_hooks=[RecordingHook(events, "turn")],
+        )
+    )
 
     await hook.before_iteration(AgentHookContext(iteration=2, messages=[]))
 
@@ -103,11 +109,13 @@ async def test_turn_hook_builder_skips_extra_hooks_for_ephemeral_turns_by_defaul
         factory_calls.append(context.channel)
         return RecordingHook(events, "factory")
 
-    hook = build_agent_turn_hook(AgentTurnHookSpec(
-        registered_hook_factories=[factory],
-        registered_hooks=[RecordingHook(events)],
-        ephemeral=True,
-    ))
+    hook = build_agent_turn_hook(
+        AgentTurnHookSpec(
+            registered_hook_factories=[factory],
+            registered_hooks=[RecordingHook(events)],
+            ephemeral=True,
+        )
+    )
 
     await hook.before_iteration(AgentHookContext(iteration=1, messages=[]))
 
@@ -119,11 +127,13 @@ async def test_turn_hook_builder_skips_extra_hooks_for_ephemeral_turns_by_defaul
 async def test_turn_hook_builder_can_include_extra_hooks_for_ephemeral_turns() -> None:
     events: list[str] = []
 
-    hook = build_agent_turn_hook(AgentTurnHookSpec(
-        registered_hooks=[RecordingHook(events)],
-        ephemeral=True,
-        run_extra_hooks_for_ephemeral=True,
-    ))
+    hook = build_agent_turn_hook(
+        AgentTurnHookSpec(
+            registered_hooks=[RecordingHook(events)],
+            ephemeral=True,
+            run_extra_hooks_for_ephemeral=True,
+        )
+    )
 
     await hook.before_iteration(AgentHookContext(iteration=1, messages=[]))
 

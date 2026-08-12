@@ -106,7 +106,10 @@ async def test_codex_request_non_200_populates_http_metadata(monkeypatch) -> Non
         await _request_codex("https://codex.example/responses", {}, {"input": []}, verify=True)
 
     error = caught.value
-    assert str(error) == "ChatGPT usage quota exceeded or rate limit triggered. Please try again later."
+    assert (
+        str(error)
+        == "ChatGPT usage quota exceeded or rate limit triggered. Please try again later."
+    )
     assert error.status_code == 429
     assert error.retry_after == 2.0
     assert error.error_type == "rate_limit_exceeded"
@@ -234,19 +237,21 @@ async def test_codex_provider_applies_extra_body_from_config(monkeypatch) -> Non
         return "ok", [], "stop", {}, None
 
     monkeypatch.setattr("nanobot.providers.openai_codex_provider._request_codex", fake_request)
-    config = Config.model_validate({
-        "agents": {
-            "defaults": {
-                "model": "openai-codex/gpt-5.6-sol",
-                "provider": "openai_codex",
+    config = Config.model_validate(
+        {
+            "agents": {
+                "defaults": {
+                    "model": "openai-codex/gpt-5.6-sol",
+                    "provider": "openai_codex",
+                },
             },
-        },
-        "providers": {
-            "openaiCodex": {
-                "extraBody": {"service_tier": "priority"},
+            "providers": {
+                "openaiCodex": {
+                    "extraBody": {"service_tier": "priority"},
+                },
             },
-        },
-    })
+        }
+    )
 
     provider = make_provider(config)
     response = await provider.chat([{"role": "user", "content": "hello"}])
@@ -268,9 +273,7 @@ async def test_codex_timeout_error_is_typed_and_retryable(monkeypatch) -> None:
     response = await provider.chat([{"role": "user", "content": "hello"}])
 
     assert response.finish_reason == "error"
-    assert response.content == (
-        "Error calling Codex (ReadTimeout): timed out waiting for response"
-    )
+    assert response.content == ("Error calling Codex (ReadTimeout): timed out waiting for response")
     assert response.error_kind == "timeout"
     assert response.error_should_retry is True
 
@@ -322,9 +325,7 @@ async def test_codex_timeout_error_writes_diagnostic_log(monkeypatch) -> None:
     provider = OpenAICodexProvider()
     response = await provider.chat([{"role": "user", "content": "hello"}])
 
-    assert response.content == (
-        "Error calling Codex (ReadTimeout): timed out waiting for response"
-    )
+    assert response.content == ("Error calling Codex (ReadTimeout): timed out waiting for response")
     assert log_capture.calls == [
         (
             "Codex API request failed: stage={} type={} kind={} retryable={} status={} "
@@ -445,7 +446,10 @@ async def test_codex_http_diagnostic_log_omits_raw_body(monkeypatch) -> None:
     provider = OpenAICodexProvider()
     response = await provider.chat([{"role": "user", "content": "hello"}])
 
-    assert response.content == "Error calling Codex (CodexHTTPError): HTTP 500: Codex API request failed"
+    assert (
+        response.content
+        == "Error calling Codex (CodexHTTPError): HTTP 500: Codex API request failed"
+    )
     assert log_capture.calls == [
         (
             "Codex API request failed: stage={} type={} kind={} retryable={} status={} "
@@ -502,9 +506,7 @@ async def test_codex_429_preserves_retry_semantics(
 
 
 def test_codex_429_friendly_message_fallback_does_not_override_unknown_retry() -> None:
-    response = _codex_error_response(
-        _CodexHTTPError(_friendly_error(429, ""), status_code=429)
-    )
+    response = _codex_error_response(_CodexHTTPError(_friendly_error(429, ""), status_code=429))
 
     assert response.error_status_code == 429
     assert response.error_should_retry is True
@@ -523,7 +525,10 @@ def test_codex_429_classification_uses_raw_error_semantics(
 ) -> None:
     error_type, error_code = provider_base.LLMProvider._extract_error_type_code(raw)
 
-    assert provider_base.LLMProvider.should_retry_status(429, error_type, error_code, raw) is expected_retry
+    assert (
+        provider_base.LLMProvider.should_retry_status(429, error_type, error_code, raw)
+        is expected_retry
+    )
 
 
 def test_codex_reasoning_options_request_summary_without_forcing_effort() -> None:

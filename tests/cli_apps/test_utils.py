@@ -47,11 +47,13 @@ def test_structured_cli_app_attachment_injects_runtime_metadata(tmp_path):
         SimpleNamespace(
             content="please use @zoom tonight",
             metadata={
-                "cli_apps": [{
-                    "name": "zoom",
-                    "entry_point": "cli-anything-zoom",
-                    "display_name": "Zoom",
-                }],
+                "cli_apps": [
+                    {
+                        "name": "zoom",
+                        "entry_point": "cli-anything-zoom",
+                        "display_name": "Zoom",
+                    }
+                ],
             },
         ),
         tmp_path,

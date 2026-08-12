@@ -134,8 +134,12 @@ async def test_download_and_save_success() -> None:
     fake_data = b"\x89PNG\r\nfake image"
     client.download_file.return_value = (fake_data, "raw_photo.png")
 
-    with patch("nanobot.channels.wecom.runtime.get_media_dir", return_value=Path(tempfile.gettempdir())):
-        path = await channel._download_and_save_media("https://example.com/img.png", "aes_key", "image", "photo.png")
+    with patch(
+        "nanobot.channels.wecom.runtime.get_media_dir", return_value=Path(tempfile.gettempdir())
+    ):
+        path = await channel._download_and_save_media(
+            "https://example.com/img.png", "aes_key", "image", "photo.png"
+        )
 
     assert path is not None
     assert os.path.isfile(path)
@@ -154,8 +158,12 @@ async def test_download_and_save_oversized_rejected() -> None:
     big_data = b"\x00" * (200 * 1024 * 1024 + 1)  # 200MB + 1 byte
     client.download_file.return_value = (big_data, "big.bin")
 
-    with patch("nanobot.channels.wecom.runtime.get_media_dir", return_value=Path(tempfile.gettempdir())):
-        result = await channel._download_and_save_media("https://example.com/big.bin", "key", "file", "big.bin")
+    with patch(
+        "nanobot.channels.wecom.runtime.get_media_dir", return_value=Path(tempfile.gettempdir())
+    ):
+        result = await channel._download_and_save_media(
+            "https://example.com/big.bin", "key", "file", "big.bin"
+        )
 
     assert result is None
 
@@ -169,8 +177,12 @@ async def test_download_and_save_failure() -> None:
 
     client.download_file.return_value = (None, None)
 
-    with patch("nanobot.channels.wecom.runtime.get_media_dir", return_value=Path(tempfile.gettempdir())):
-        result = await channel._download_and_save_media("https://example.com/fail.png", "key", "image")
+    with patch(
+        "nanobot.channels.wecom.runtime.get_media_dir", return_value=Path(tempfile.gettempdir())
+    ):
+        result = await channel._download_and_save_media(
+            "https://example.com/fail.png", "key", "image"
+        )
 
     assert result is None
 
@@ -209,8 +221,10 @@ async def test_upload_media_ws_success() -> None:
 async def test_upload_media_ws_oversized_file() -> None:
     """File >200MB triggers ValueError → returns (None, None)."""
     # Instead of creating a real 200MB+ file, mock os.path.getsize and open
-    with patch("os.path.getsize", return_value=200 * 1024 * 1024 + 1), \
-         patch("builtins.open", MagicMock()):
+    with (
+        patch("os.path.getsize", return_value=200 * 1024 * 1024 + 1),
+        patch("builtins.open", MagicMock()),
+    ):
         client = _FakeWeComClient()
         channel = WecomChannel(WecomConfig(bot_id="b", secret="s", allow_from=["*"]), MessageBus())
         channel._client = client
@@ -306,9 +320,7 @@ async def test_send_text_with_frame() -> None:
     channel._generate_req_id = lambda x: f"req_{x}"
     channel._chat_frames["chat1"] = _FakeFrame()
 
-    await channel.send(
-        OutboundMessage(channel="wecom", chat_id="chat1", content="hello")
-    )
+    await channel.send(OutboundMessage(channel="wecom", chat_id="chat1", content="hello"))
 
     client.reply_stream.assert_called_once()
     call_args = client.reply_stream.call_args
@@ -346,9 +358,7 @@ async def test_send_proactive_without_frame() -> None:
     client = _FakeWeComClient()
     channel._client = client
 
-    await channel.send(
-        OutboundMessage(channel="wecom", chat_id="chat1", content="proactive msg")
-    )
+    await channel.send(OutboundMessage(channel="wecom", chat_id="chat1", content="proactive msg"))
 
     client.send_message.assert_called_once()
     call_args = client.send_message.call_args
@@ -401,13 +411,19 @@ async def test_send_media_file_not_found() -> None:
     channel._chat_frames["chat1"] = _FakeFrame()
 
     await channel.send(
-        OutboundMessage(channel="wecom", chat_id="chat1", content="hello", media=["/nonexistent/file.png"])
+        OutboundMessage(
+            channel="wecom", chat_id="chat1", content="hello", media=["/nonexistent/file.png"]
+        )
     )
 
     # reply_stream should still be called for the text part
     client.reply_stream.assert_called_once()
     # No media reply should happen
-    media_calls = [c for c in client.reply.call_args_list if c[0][1].get("msgtype") in ("image", "file", "video")]
+    media_calls = [
+        c
+        for c in client.reply.call_args_list
+        if c[0][1].get("msgtype") in ("image", "file", "video")
+    ]
     assert len(media_calls) == 0
 
 
@@ -424,9 +440,7 @@ async def test_send_exception_propagates_for_manager_retry() -> None:
     client.reply_stream.side_effect = RuntimeError("boom")
 
     with pytest.raises(RuntimeError, match="boom"):
-        await channel.send(
-            OutboundMessage(channel="wecom", chat_id="chat1", content="fail test")
-        )
+        await channel.send(OutboundMessage(channel="wecom", chat_id="chat1", content="fail test"))
     client.reply_stream.assert_called_once()
 
 
@@ -440,13 +454,15 @@ async def test_process_text_message() -> None:
     client = _FakeWeComClient()
     channel._client = client
 
-    frame = _FakeFrame(body={
-        "msgid": "msg_text_1",
-        "chatid": "chat1",
-        "chattype": "single",
-        "from": {"userid": "user1"},
-        "text": {"content": "hello wecom"},
-    })
+    frame = _FakeFrame(
+        body={
+            "msgid": "msg_text_1",
+            "chatid": "chat1",
+            "chattype": "single",
+            "from": {"userid": "user1"},
+            "text": {"content": "hello wecom"},
+        }
+    )
 
     await channel._process_message(frame, "text")
 
@@ -459,7 +475,9 @@ async def test_process_text_message() -> None:
 
 @pytest.mark.asyncio
 async def test_enter_chat_ignores_unauthorized_user_before_welcome() -> None:
-    channel = WecomChannel(WecomConfig(bot_id="b", secret="s", allow_from=["allowed"]), MessageBus())
+    channel = WecomChannel(
+        WecomConfig(bot_id="b", secret="s", allow_from=["allowed"]), MessageBus()
+    )
     client = _FakeWeComClient()
     channel._client = client
     channel.config.welcome_message = "hello"
@@ -471,17 +489,21 @@ async def test_enter_chat_ignores_unauthorized_user_before_welcome() -> None:
 
 @pytest.mark.asyncio
 async def test_process_message_ignores_unauthorized_sender_before_download() -> None:
-    channel = WecomChannel(WecomConfig(bot_id="b", secret="s", allow_from=["allowed"]), MessageBus())
+    channel = WecomChannel(
+        WecomConfig(bot_id="b", secret="s", allow_from=["allowed"]), MessageBus()
+    )
     client = _FakeWeComClient()
     channel._client = client
     channel._handle_message = AsyncMock()
 
-    frame = _FakeFrame(body={
-        "msgid": "msg_blocked",
-        "chatid": "chat1",
-        "from": {"userid": "blocked"},
-        "image": {"url": "https://example.com/img.png", "aeskey": "key123"},
-    })
+    frame = _FakeFrame(
+        body={
+            "msgid": "msg_blocked",
+            "chatid": "chat1",
+            "from": {"userid": "blocked"},
+            "image": {"url": "https://example.com/img.png", "aeskey": "key123"},
+        }
+    )
 
     await channel._process_message(frame, "image")
 
@@ -504,13 +526,18 @@ async def test_process_image_message() -> None:
     channel._client = client
 
     try:
-        with patch("nanobot.channels.wecom.runtime.get_media_dir", return_value=Path(os.path.dirname(saved))):
-            frame = _FakeFrame(body={
-                "msgid": "msg_img_1",
-                "chatid": "chat1",
-                "from": {"userid": "user1"},
-                "image": {"url": "https://example.com/img.png", "aeskey": "key123"},
-            })
+        with patch(
+            "nanobot.channels.wecom.runtime.get_media_dir",
+            return_value=Path(os.path.dirname(saved)),
+        ):
+            frame = _FakeFrame(
+                body={
+                    "msgid": "msg_img_1",
+                    "chatid": "chat1",
+                    "from": {"userid": "user1"},
+                    "image": {"url": "https://example.com/img.png", "aeskey": "key123"},
+                }
+            )
             await channel._process_message(frame, "image")
 
         msg = await channel.bus.consume_inbound()
@@ -540,13 +567,22 @@ async def test_process_file_message() -> None:
     channel._client = client
 
     try:
-        with patch("nanobot.channels.wecom.runtime.get_media_dir", return_value=Path(os.path.dirname(saved))):
-            frame = _FakeFrame(body={
-                "msgid": "msg_file_1",
-                "chatid": "chat1",
-                "from": {"userid": "user1"},
-                "file": {"url": "https://example.com/report.pdf", "aeskey": "key456", "name": "report.pdf"},
-            })
+        with patch(
+            "nanobot.channels.wecom.runtime.get_media_dir",
+            return_value=Path(os.path.dirname(saved)),
+        ):
+            frame = _FakeFrame(
+                body={
+                    "msgid": "msg_file_1",
+                    "chatid": "chat1",
+                    "from": {"userid": "user1"},
+                    "file": {
+                        "url": "https://example.com/report.pdf",
+                        "aeskey": "key456",
+                        "name": "report.pdf",
+                    },
+                }
+            )
             await channel._process_message(frame, "file")
 
         msg = await channel.bus.consume_inbound()
@@ -568,10 +604,14 @@ async def test_process_file_message_uses_sdk_filename_when_name_missing(tmp_path
     channel._client = client
 
     with patch("nanobot.channels.wecom.runtime.get_media_dir", return_value=tmp_path):
-        frame = _FakeFrame(body={
-            "msgid": "msg_file_2", "chatid": "chat1", "from": {"userid": "user1"},
-            "file": {"url": "https://example.com/x", "aeskey": "key456"},
-        })
+        frame = _FakeFrame(
+            body={
+                "msgid": "msg_file_2",
+                "chatid": "chat1",
+                "from": {"userid": "user1"},
+                "file": {"url": "https://example.com/x", "aeskey": "key456"},
+            }
+        )
         await channel._process_message(frame, "file")
 
     msg = await channel.bus.consume_inbound()
@@ -586,12 +626,14 @@ async def test_process_voice_message() -> None:
     client = _FakeWeComClient()
     channel._client = client
 
-    frame = _FakeFrame(body={
-        "msgid": "msg_voice_1",
-        "chatid": "chat1",
-        "from": {"userid": "user1"},
-        "voice": {"content": "transcribed text here"},
-    })
+    frame = _FakeFrame(
+        body={
+            "msgid": "msg_voice_1",
+            "chatid": "chat1",
+            "from": {"userid": "user1"},
+            "voice": {"content": "transcribed text here"},
+        }
+    )
 
     await channel._process_message(frame, "voice")
 
@@ -614,19 +656,27 @@ async def test_process_mixed_message() -> None:
     channel._client = client
 
     try:
-        with patch("nanobot.channels.wecom.runtime.get_media_dir", return_value=Path(os.path.dirname(saved))):
-            frame = _FakeFrame(body={
-                "msgid": "msg_mixed_1",
-                "chatid": "chat1",
-                "msgtype": "mixed",
-                "from": {"userid": "user1"},
-                "mixed": {
-                    "msg_item": [
-                        {"msgtype": "text", "text": {"content": "hello wecom"}},
-                        {"msgtype": "image", "image": {"url": "https://example.com/img.png", "aeskey": "key123"}}
-                    ]
+        with patch(
+            "nanobot.channels.wecom.runtime.get_media_dir",
+            return_value=Path(os.path.dirname(saved)),
+        ):
+            frame = _FakeFrame(
+                body={
+                    "msgid": "msg_mixed_1",
+                    "chatid": "chat1",
+                    "msgtype": "mixed",
+                    "from": {"userid": "user1"},
+                    "mixed": {
+                        "msg_item": [
+                            {"msgtype": "text", "text": {"content": "hello wecom"}},
+                            {
+                                "msgtype": "image",
+                                "image": {"url": "https://example.com/img.png", "aeskey": "key123"},
+                            },
+                        ]
+                    },
                 }
-            })
+            )
             await channel._process_message(frame, "mixed")
 
         msg = await channel.bus.consume_inbound()
@@ -651,12 +701,14 @@ async def test_process_message_deduplication() -> None:
     client = _FakeWeComClient()
     channel._client = client
 
-    frame = _FakeFrame(body={
-        "msgid": "msg_dup_1",
-        "chatid": "chat1",
-        "from": {"userid": "user1"},
-        "text": {"content": "once"},
-    })
+    frame = _FakeFrame(
+        body={
+            "msgid": "msg_dup_1",
+            "chatid": "chat1",
+            "from": {"userid": "user1"},
+            "text": {"content": "once"},
+        }
+    )
 
     await channel._process_message(frame, "text")
     await channel._process_message(frame, "text")
@@ -675,12 +727,14 @@ async def test_process_message_empty_content_skipped() -> None:
     client = _FakeWeComClient()
     channel._client = client
 
-    frame = _FakeFrame(body={
-        "msgid": "msg_empty_1",
-        "chatid": "chat1",
-        "from": {"userid": "user1"},
-        "text": {"content": ""},
-    })
+    frame = _FakeFrame(
+        body={
+            "msgid": "msg_empty_1",
+            "chatid": "chat1",
+            "from": {"userid": "user1"},
+            "text": {"content": ""},
+        }
+    )
 
     await channel._process_message(frame, "text")
 

@@ -37,7 +37,7 @@ def test_sse_chunk_with_delta() -> None:
     raw = _sse_chunk("hello", "test-model", "chatcmpl-abc123")
     line = raw.decode()
     assert line.startswith("data: ")
-    payload = json.loads(line[len("data: "):])
+    payload = json.loads(line[len("data: ") :])
     assert payload["id"] == "chatcmpl-abc123"
     assert payload["object"] == "chat.completion.chunk"
     assert payload["model"] == "test-model"
@@ -67,9 +67,17 @@ def _make_streaming_agent(tokens: list[str]) -> MagicMock:
     agent._connect_mcp = AsyncMock()
     agent.close_mcp = AsyncMock()
 
-    async def fake_process_direct(*, content="", media=None, session_key="",
-                                  channel="", chat_id="", on_stream=None,
-                                  on_stream_end=None, **kwargs):
+    async def fake_process_direct(
+        *,
+        content="",
+        media=None,
+        session_key="",
+        channel="",
+        chat_id="",
+        on_stream=None,
+        on_stream_end=None,
+        **kwargs,
+    ):
         if on_stream:
             for token in tokens:
                 await on_stream(token)
@@ -119,7 +127,7 @@ async def test_stream_true_returns_sse(aiohttp_client) -> None:
     lines = [line for line in body.split("\n") if line.startswith("data: ")]
 
     # Should have: 2 token chunks + 1 finish chunk + [DONE]
-    data_lines = [line[len("data: "):] for line in lines]
+    data_lines = [line[len("data: ") :] for line in lines]
     assert data_lines[-1] == "[DONE]"
 
     chunks = [json.loads(line) for line in data_lines[:-1]]
@@ -192,7 +200,7 @@ async def test_stream_sse_chunk_ids_are_consistent(aiohttp_client) -> None:
     )
     body = await resp.text()
     data_lines = [
-        line[len("data: "):]
+        line[len("data: ") :]
         for line in body.split("\n")
         if line.startswith("data: ") and line != "data: [DONE]"
     ]
@@ -266,9 +274,7 @@ async def test_stream_segment_end_does_not_close_sse(aiohttp_client) -> None:
 
     assert resp.status == 200
     body = await resp.text()
-    data_lines = [
-        line[len("data: "):] for line in body.split("\n") if line.startswith("data: ")
-    ]
+    data_lines = [line[len("data: ") :] for line in body.split("\n") if line.startswith("data: ")]
     assert data_lines[-1] == "[DONE]"
 
     chunks = [json.loads(line) for line in data_lines[:-1]]
@@ -306,9 +312,7 @@ async def test_stream_uses_final_response_when_no_deltas(aiohttp_client) -> None
 
     assert resp.status == 200
     body = await resp.text()
-    data_lines = [
-        line[len("data: "):] for line in body.split("\n") if line.startswith("data: ")
-    ]
+    data_lines = [line[len("data: ") :] for line in body.split("\n") if line.startswith("data: ")]
     chunks = [json.loads(line) for line in data_lines[:-1]]
     deltas = [c["choices"][0]["delta"].get("content", "") for c in chunks]
 

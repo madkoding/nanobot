@@ -155,7 +155,7 @@ async def test_gateway_webui_bootstrap_message_and_thread_hydration(tmp_path: Pa
         bootstrap = _wait_for_bootstrap(base_url, process, log_path)
         assert bootstrap["model_name"] == "custom/smoke-model"
 
-        ws_url = f'{bootstrap["ws_url"]}?token={bootstrap["token"]}&client_id=smoke'
+        ws_url = f"{bootstrap['ws_url']}?token={bootstrap['token']}&client_id=smoke"
         async with websockets.connect(ws_url) as ws:
             ready = await _recv_until(ws, "ready")
             assert ready["client_id"] == "smoke"
@@ -165,13 +165,17 @@ async def test_gateway_webui_bootstrap_message_and_thread_hydration(tmp_path: Pa
             chat_id = attached["chat_id"]
             await _recv_until(ws, "session_updated")
 
-            await ws.send(json.dumps({
-                "type": "message",
-                "chat_id": chat_id,
-                "content": "/model",
-                "webui": True,
-                "turn_id": "smoke-turn",
-            }))
+            await ws.send(
+                json.dumps(
+                    {
+                        "type": "message",
+                        "chat_id": chat_id,
+                        "content": "/model",
+                        "webui": True,
+                        "turn_id": "smoke-turn",
+                    }
+                )
+            )
             answer = await _recv_until(ws, "message")
             assert "Current model: `custom/smoke-model`" in answer["text"]
             await _recv_until(ws, "turn_end")

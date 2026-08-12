@@ -57,9 +57,7 @@ async def test_concurrent_token_refresh_fetches_once(monkeypatch):
 
     assert token_a == "copilot-token"
     assert token_b == "copilot-token"
-    assert fetch_count == 1, (
-        f"Expected exactly 1 token fetch under concurrency, got {fetch_count}"
-    )
+    assert fetch_count == 1, f"Expected exactly 1 token fetch under concurrency, got {fetch_count}"
 
 
 @pytest.mark.asyncio

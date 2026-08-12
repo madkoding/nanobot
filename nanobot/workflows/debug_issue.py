@@ -12,7 +12,9 @@ PHASES = ["reproduce", "hypothesize", "fix", "verify"]
 async def run(args: dict, ctx):
     symptom = str(args.get("symptom") or "").strip()
     if not symptom:
-        return AgentResult(text="No symptom provided. Usage: /workflow debug_issue symptom=<symptom>")
+        return AgentResult(
+            text="No symptom provided. Usage: /workflow debug_issue symptom=<symptom>"
+        )
 
     ctx.set_phase("reproduce")
     repro = await ctx.agent(

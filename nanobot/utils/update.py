@@ -50,7 +50,9 @@ class RemoteInfo:
     date: str | None
 
 
-def _run(cmd: list[str], *, check: bool = False, capture: bool = True, cwd: str | None = None) -> subprocess.CompletedProcess:
+def _run(
+    cmd: list[str], *, check: bool = False, capture: bool = True, cwd: str | None = None
+) -> subprocess.CompletedProcess:
     """Run a subprocess, returning the result without raising on failure."""
     try:
         return subprocess.run(
@@ -103,7 +105,7 @@ def _find_repo_path() -> Path | None:
     if not isinstance(url, str) or not url:
         return None
     if url.startswith("file://"):
-        return Path(url[len("file://"):]).resolve(strict=False)
+        return Path(url[len("file://") :]).resolve(strict=False)
     return None
 
 
@@ -206,7 +208,16 @@ def _pip_install(source: str, venv_python: str) -> tuple[bool, str]:
     instead of a bare "pip install failed".
     """
     result = _run(
-        [venv_python, "-m", "pip", "install", "--force-reinstall", "--no-deps", "--upgrade", source],
+        [
+            venv_python,
+            "-m",
+            "pip",
+            "install",
+            "--force-reinstall",
+            "--no-deps",
+            "--upgrade",
+            source,
+        ],
     )
     if result.returncode == 0:
         return True, ""
@@ -325,6 +336,7 @@ def perform_update(
         return 1
 
     if confirm is None:
+
         def confirm(prompt: str) -> bool:
             if yes:
                 return True
@@ -371,7 +383,9 @@ def perform_update(
         else:
             print("Gateway: skipped (--no-restart)")
 
-        print(f"Updated nanobot to {_format_remote(remote)}. Hard-refresh the browser (Ctrl+Shift+R).")
+        print(
+            f"Updated nanobot to {_format_remote(remote)}. Hard-refresh the browser (Ctrl+Shift+R)."
+        )
         return 0
     finally:
         shutil.rmtree(tmp, ignore_errors=True)

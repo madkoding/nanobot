@@ -25,9 +25,7 @@ _DISCONNECT_TYPES: tuple[type[BaseException], ...] = (
 # noise from the internet, not an operational error.
 _MALFORMED_HANDSHAKE_TYPES: tuple[type[BaseException], ...] = (InvalidMessage,)
 
-_SUPPRESSED_TYPES: tuple[type[BaseException], ...] = (
-    _DISCONNECT_TYPES + _MALFORMED_HANDSHAKE_TYPES
-)
+_SUPPRESSED_TYPES: tuple[type[BaseException], ...] = _DISCONNECT_TYPES + _MALFORMED_HANDSHAKE_TYPES
 
 
 def _exception_chain_has(exc: BaseException | None, types: tuple[type[BaseException], ...]) -> bool:

@@ -69,14 +69,10 @@ class LLMRuntime:
         return replace(
             self,
             generation=GenerationSettings(
-                temperature=(
-                    generation.temperature if temperature is None else temperature
-                ),
+                temperature=(generation.temperature if temperature is None else temperature),
                 max_tokens=generation.max_tokens if max_tokens is None else max_tokens,
                 reasoning_effort=(
-                    generation.reasoning_effort
-                    if reasoning_effort is None
-                    else reasoning_effort
+                    generation.reasoning_effort if reasoning_effort is None else reasoning_effort
                 ),
             ),
         )

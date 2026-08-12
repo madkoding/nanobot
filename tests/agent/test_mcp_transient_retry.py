@@ -209,9 +209,7 @@ async def test_tool_retry_on_connection_reset():
     """ConnectionResetError (a stdlib exception) should also trigger retry."""
     session = AsyncMock()
     result = _make_tool_result("recovered")
-    session.call_tool = AsyncMock(
-        side_effect=[ConnectionResetError("reset by peer"), result]
-    )
+    session.call_tool = AsyncMock(side_effect=[ConnectionResetError("reset by peer"), result])
 
     wrapper = MCPToolWrapper(session, "test_server", _make_tool_def(), tool_timeout=5)
 
@@ -280,9 +278,7 @@ def _make_resource_def(name="test_resource"):
 
 
 def _make_resource_result(text):
-    return SimpleNamespace(
-        contents=[mcp_types.TextResourceContents(uri="file:///test", text=text)]
-    )
+    return SimpleNamespace(contents=[mcp_types.TextResourceContents(uri="file:///test", text=text)])
 
 
 @pytest.mark.asyncio
@@ -417,9 +413,7 @@ async def test_prompt_fails_after_retry_exhausted():
 async def test_prompt_no_retry_on_mcp_error():
     """McpError (application-level) should NOT trigger retry."""
     session = AsyncMock()
-    session.get_prompt = AsyncMock(
-        side_effect=McpError(ErrorData(code=-1, message="not found"))
-    )
+    session.get_prompt = AsyncMock(side_effect=McpError(ErrorData(code=-1, message="not found")))
 
     wrapper = MCPPromptWrapper(session, "test_server", _make_prompt_def())
     output = await wrapper.execute()

@@ -97,8 +97,7 @@ class CodexStreamingCompleteThenErrorResponse(FakeResponse):
         yield 'data: {"type":"response.completed","response":{"status":"completed"}}'
         yield ""
         raise httpx.RemoteProtocolError(
-            "peer closed connection without sending complete message body "
-            "(incomplete chunked read)"
+            "peer closed connection without sending complete message body (incomplete chunked read)"
         )
 
 
@@ -147,7 +146,9 @@ async def test_openrouter_image_generation_payload_and_response(tmp_path: Path) 
     assert body["modalities"] == ["image", "text"]
     assert body["image_config"] == {"aspect_ratio": "16:9", "image_size": "2K"}
     assert body["messages"][0]["content"][0] == {"type": "text", "text": "make this blue"}
-    assert body["messages"][0]["content"][1]["image_url"]["url"].startswith("data:image/png;base64,")
+    assert body["messages"][0]["content"][1]["image_url"]["url"].startswith(
+        "data:image/png;base64,"
+    )
 
 
 @pytest.mark.asyncio
@@ -492,6 +493,7 @@ async def test_minimax_base64_response_uses_detected_mime() -> None:
 # StepFun (阶跃星辰)
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.asyncio
 async def test_stepfun_payload_and_response_with_aspect_ratio() -> None:
     fake = FakeClient(FakeResponse({"data": [{"b64_json": RAW_B64}]}))
@@ -702,12 +704,16 @@ async def test_openai_url_download_fallback() -> None:
 
 @pytest.mark.asyncio
 async def test_openai_multiple_images() -> None:
-    fake = FakeClient(FakeResponse({
-        "data": [
-            {"b64_json": RAW_B64},
-            {"b64_json": RAW_B64},
-        ]
-    }))
+    fake = FakeClient(
+        FakeResponse(
+            {
+                "data": [
+                    {"b64_json": RAW_B64},
+                    {"b64_json": RAW_B64},
+                ]
+            }
+        )
+    )
     client = OpenAIImageGenerationClient(
         api_key="sk-openai-test",
         client=fake,  # type: ignore[arg-type]
@@ -1148,7 +1154,7 @@ async def test_codex_payload_and_response(monkeypatch) -> None:
         "",
         f'data: {{"type":"response.output_item.done","item":{{"id":"ig_1","type":"image_generation_call","result":"{PNG_DATA_URL}","status":"completed"}}}}',
         "",
-        'data: [DONE]',
+        "data: [DONE]",
         "",
     ]
     fake = FakeClient(FakeResponse({}, sse_lines=sse_lines))
@@ -1257,7 +1263,8 @@ async def test_codex_stops_reading_after_completed_event(monkeypatch) -> None:
 
     fake = FakeClient(CodexStreamingCompleteThenErrorResponse({}, sse_lines=[]))
     client = CodexImageGenerationClient(
-        api_key=None, client=fake  # type: ignore[arg-type]
+        api_key=None,
+        client=fake,  # type: ignore[arg-type]
     )
 
     response = await client.generate(prompt="draw a cat", model="gpt-5.4")
@@ -1284,14 +1291,20 @@ async def test_codex_strips_model_prefix(monkeypatch) -> None:
     fake_oauth = SimpleNamespace(get_token=lambda: FakeToken())
     monkeypatch.setitem(sys.modules, "oauth_cli_kit", fake_oauth)
 
-    fake = FakeClient(FakeResponse({}, sse_lines=[
-        f'data: {{"type":"response.output_item.done","item":{{"type":"image_generation_call","result":"{PNG_DATA_URL}"}}}}',
-        "",
-        'data: [DONE]',
-        "",
-    ]))
+    fake = FakeClient(
+        FakeResponse(
+            {},
+            sse_lines=[
+                f'data: {{"type":"response.output_item.done","item":{{"type":"image_generation_call","result":"{PNG_DATA_URL}"}}}}',
+                "",
+                "data: [DONE]",
+                "",
+            ],
+        )
+    )
     client = CodexImageGenerationClient(
-        api_key=None, client=fake  # type: ignore[arg-type]
+        api_key=None,
+        client=fake,  # type: ignore[arg-type]
     )
 
     await client.generate(prompt="draw", model="openai-codex/gpt-5.4")
@@ -1330,14 +1343,20 @@ async def test_codex_no_images_raises(monkeypatch) -> None:
     fake_oauth = SimpleNamespace(get_token=lambda: FakeToken())
     monkeypatch.setitem(sys.modules, "oauth_cli_kit", fake_oauth)
 
-    fake = FakeClient(FakeResponse({}, sse_lines=[
-        'data: {"type":"response.completed","response":{"status":"completed"}}',
-        "",
-        'data: [DONE]',
-        "",
-    ]))
+    fake = FakeClient(
+        FakeResponse(
+            {},
+            sse_lines=[
+                'data: {"type":"response.completed","response":{"status":"completed"}}',
+                "",
+                "data: [DONE]",
+                "",
+            ],
+        )
+    )
     client = CodexImageGenerationClient(
-        api_key=None, client=fake  # type: ignore[arg-type]
+        api_key=None,
+        client=fake,  # type: ignore[arg-type]
     )
 
     with pytest.raises(ImageGenerationError, match="returned no images"):
@@ -1362,18 +1381,24 @@ async def test_codex_extracts_text_content(monkeypatch) -> None:
     fake_oauth = SimpleNamespace(get_token=lambda: FakeToken())
     monkeypatch.setitem(sys.modules, "oauth_cli_kit", fake_oauth)
 
-    fake = FakeClient(FakeResponse({}, sse_lines=[
-        'data: {"type":"response.output_text.delta","delta":"Here "}',
-        "",
-        'data: {"type":"response.output_text.delta","delta":"is your cat image."}',
-        "",
-        f'data: {{"type":"response.output_item.done","item":{{"type":"image_generation_call","result":"{PNG_DATA_URL}"}}}}',
-        "",
-        'data: [DONE]',
-        "",
-    ]))
+    fake = FakeClient(
+        FakeResponse(
+            {},
+            sse_lines=[
+                'data: {"type":"response.output_text.delta","delta":"Here "}',
+                "",
+                'data: {"type":"response.output_text.delta","delta":"is your cat image."}',
+                "",
+                f'data: {{"type":"response.output_item.done","item":{{"type":"image_generation_call","result":"{PNG_DATA_URL}"}}}}',
+                "",
+                "data: [DONE]",
+                "",
+            ],
+        )
+    )
     client = CodexImageGenerationClient(
-        api_key=None, client=fake  # type: ignore[arg-type]
+        api_key=None,
+        client=fake,  # type: ignore[arg-type]
     )
 
     response = await client.generate(prompt="draw a cat", model="gpt-5.4")
@@ -1401,14 +1426,20 @@ async def test_codex_json_result_format(monkeypatch) -> None:
     fake_oauth = SimpleNamespace(get_token=lambda: FakeToken())
     monkeypatch.setitem(sys.modules, "oauth_cli_kit", fake_oauth)
 
-    fake = FakeClient(FakeResponse({}, sse_lines=[
-        f'data: {{"type":"response.output_item.done","item":{{"type":"image_generation_call","result":{{"image_url":"{PNG_DATA_URL}"}}}}}}',
-        "",
-        'data: [DONE]',
-        "",
-    ]))
+    fake = FakeClient(
+        FakeResponse(
+            {},
+            sse_lines=[
+                f'data: {{"type":"response.output_item.done","item":{{"type":"image_generation_call","result":{{"image_url":"{PNG_DATA_URL}"}}}}}}',
+                "",
+                "data: [DONE]",
+                "",
+            ],
+        )
+    )
     client = CodexImageGenerationClient(
-        api_key=None, client=fake  # type: ignore[arg-type]
+        api_key=None,
+        client=fake,  # type: ignore[arg-type]
     )
 
     response = await client.generate(prompt="draw", model="gpt-5.4")
@@ -1569,9 +1600,7 @@ class ModelScopeFakeClient:
 @pytest.fixture(autouse=True)
 def _modelscope_fast_poll(monkeypatch) -> None:
     """Skip the real asyncio.sleep between ModelScope poll attempts."""
-    monkeypatch.setattr(
-        "nanobot.providers.image_generation._MODELSCOPE_POLL_INTERVAL_S", 0.0
-    )
+    monkeypatch.setattr("nanobot.providers.image_generation._MODELSCOPE_POLL_INTERVAL_S", 0.0)
 
 
 @pytest.mark.asyncio
@@ -1579,10 +1608,12 @@ async def test_modelscope_image_generation_submit_and_poll() -> None:
     submit = FakeResponse({"task_id": "abc123"})
     poll_responses = [
         FakeResponse({"task_status": "PENDING"}),
-        FakeResponse({
-            "task_status": "SUCCEED",
-            "output_images": ["https://cdn.example/image.png"],
-        }),
+        FakeResponse(
+            {
+                "task_status": "SUCCEED",
+                "output_images": ["https://cdn.example/image.png"],
+            }
+        ),
     ]
     fake = ModelScopeFakeClient(submit, poll_responses)
     client = ModelScopeImageGenerationClient(
@@ -1709,6 +1740,7 @@ async def test_modelscope_image_generation_with_reference_image() -> None:
 
     # Create a temporary image file
     import tempfile
+
     with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as f:
         f.write(PNG_BYTES)
         ref_path = f.name
@@ -1749,9 +1781,7 @@ async def test_modelscope_image_generation_extra_body_passthrough() -> None:
 @pytest.mark.asyncio
 async def test_modelscope_image_generation_poll_timeout(monkeypatch) -> None:
     """Polling that never reaches SUCCEED/FAILED raises a timeout error."""
-    monkeypatch.setattr(
-        "nanobot.providers.image_generation._MODELSCOPE_POLL_MAX_ATTEMPTS", 3
-    )
+    monkeypatch.setattr("nanobot.providers.image_generation._MODELSCOPE_POLL_MAX_ATTEMPTS", 3)
     submit = FakeResponse({"task_id": "t1"})
     # Always PENDING — never resolves.
     poll = [FakeResponse({"task_status": "PENDING"})]

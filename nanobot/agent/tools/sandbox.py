@@ -46,13 +46,28 @@ def _bwrap(command: str, workspace: str, cwd: str) -> str:
     for p in optional:
         args += ["--ro-bind-try", p, p]
     args += [
-        "--proc", "/proc", "--dev", "/dev", "--tmpfs", "/tmp",
-        "--tmpfs", str(ws.parent),        # mask config dir
-        "--dir", str(ws),                 # recreate workspace mount point
-        "--bind", str(ws), str(ws),
-        "--ro-bind-try", str(media), str(media),  # read-only access to media
-        "--chdir", sandbox_cwd,
-        "--", "sh", "-c", command,
+        "--proc",
+        "/proc",
+        "--dev",
+        "/dev",
+        "--tmpfs",
+        "/tmp",
+        "--tmpfs",
+        str(ws.parent),  # mask config dir
+        "--dir",
+        str(ws),  # recreate workspace mount point
+        "--bind",
+        str(ws),
+        str(ws),
+        "--ro-bind-try",
+        str(media),
+        str(media),  # read-only access to media
+        "--chdir",
+        sandbox_cwd,
+        "--",
+        "sh",
+        "-c",
+        command,
     ]
     return shlex.join(args)
 

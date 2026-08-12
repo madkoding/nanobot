@@ -111,6 +111,7 @@ def _response_text(value: Any) -> str:
         return str(getattr(value, "content") or "")
     return str(value)
 
+
 # ---------------------------------------------------------------------------
 # SSE helpers
 # ---------------------------------------------------------------------------
@@ -272,7 +273,10 @@ async def handle_chat_completions(request: web.Request) -> web.Response:
 
     logger.info(
         "API request session_key={} media={} text={} stream={}",
-        session_key, len(media_paths), text[:80], stream,
+        session_key,
+        len(media_paths),
+        text[:80],
+        stream,
     )
     # -- streaming path --
     if stream:
@@ -372,7 +376,9 @@ async def handle_chat_completions(request: web.Request) -> web.Response:
         return _error_json(500, "Internal server error", err_type="server_error")
 
     return web.json_response(
-        _chat_completion_response(response_text, model_name, getattr(agent_loop, "_last_usage", None))
+        _chat_completion_response(
+            response_text, model_name, getattr(agent_loop, "_last_usage", None)
+        )
     )
 
 
@@ -434,7 +440,7 @@ def create_app(
         auth = request.headers.get("Authorization", "")
         if not auth.startswith("Bearer "):
             return _error_json(401, "Missing Authorization header. Use: Bearer <api_key>")
-        if not hmac.compare_digest(auth[len("Bearer "):], api_key):
+        if not hmac.compare_digest(auth[len("Bearer ") :], api_key):
             return _error_json(401, "Invalid API key")
         return await handler(request)
 

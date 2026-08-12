@@ -85,22 +85,26 @@ async def test_spawn_tool_keeps_task_local_context() -> None:
     tool = SpawnTool(_Manager())
 
     async def task_one() -> str:
-        with request_context(RequestContext(
-            channel="whatsapp",
-            chat_id="chat-a",
-            runtime=_runtime("model-a"),
-        )):
+        with request_context(
+            RequestContext(
+                channel="whatsapp",
+                chat_id="chat-a",
+                runtime=_runtime("model-a"),
+            )
+        ):
             entered.set()
             await release.wait()
             return await tool.execute(task="one")
 
     async def task_two() -> str:
         await entered.wait()
-        with request_context(RequestContext(
-            channel="telegram",
-            chat_id="chat-b",
-            runtime=_runtime("model-b"),
-        )):
+        with request_context(
+            RequestContext(
+                channel="telegram",
+                chat_id="chat-b",
+                runtime=_runtime("model-b"),
+            )
+        ):
             release.set()
             return await tool.execute(task="two")
 
@@ -215,11 +219,13 @@ async def test_spawn_tool_basic_request_context_and_execute() -> None:
             return f"ok: {task}"
 
     tool = SpawnTool(_Manager())
-    with request_context(RequestContext(
-        channel="feishu",
-        chat_id="chat-abc",
-        runtime=_runtime(),
-    )):
+    with request_context(
+        RequestContext(
+            channel="feishu",
+            chat_id="chat-abc",
+            runtime=_runtime(),
+        )
+    ):
         result = await tool.execute(task="do something")
     assert result == "ok: do something"
     assert seen == [("feishu", "chat-abc", "feishu:chat-abc")]

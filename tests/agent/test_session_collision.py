@@ -55,7 +55,9 @@ def test_storage_key_is_collision_resistant() -> None:
     }
 
     assert len(encoded) == 3
-    assert SessionManager._storage_key("telegram:a_b") != SessionManager._storage_key("telegram:a:b")
+    assert SessionManager._storage_key("telegram:a_b") != SessionManager._storage_key(
+        "telegram:a:b"
+    )
 
 
 def test_storage_paths_are_distinct_when_keys_collide_under_safe_key(

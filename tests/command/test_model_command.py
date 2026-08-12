@@ -64,7 +64,12 @@ def _ctx(loop: AgentLoop, raw: str, args: str = "") -> CommandContext:
 def _ctx_session(loop: AgentLoop, raw: str, args: str = "") -> CommandContext:
     msg = InboundMessage(channel="cli", sender_id="user", chat_id="direct", content=raw)
     return CommandContext(
-        msg=msg, session=MagicMock(), key=msg.session_key, raw=raw, args=args, loop=loop,
+        msg=msg,
+        session=MagicMock(),
+        key=msg.session_key,
+        raw=raw,
+        args=args,
+        loop=loop,
         is_user_turn=True,
     )
 
@@ -127,7 +132,7 @@ async def test_model_command_unknown_preset_keeps_old_state(tmp_path) -> None:
     out = await cmd_model(_ctx(loop, "/model missing", args="missing"))
 
     assert "Could not switch model preset" in out.content
-    assert "\"model_preset" not in out.content
+    assert '"model_preset' not in out.content
     assert "Available presets: `default`, `fast`" in out.content
     assert loop.model_preset is None
     assert loop.model == "base-model"
@@ -173,13 +178,15 @@ async def test_model_command_registered_as_exact_and_prefix(tmp_path) -> None:
     assert out.channel == "cli"
     assert out.chat_id == "direct"
     assert out.metadata == {"render_as": "text"}
-    assert out.content == "\n".join([
-        "Switched model preset to `fast`.",
-        "- Scope: current session",
-        "- Model: `openai/gpt-4.1`",
-        "- Context window: 32768",
-        "- Max output tokens: 4096",
-    ])
+    assert out.content == "\n".join(
+        [
+            "Switched model preset to `fast`.",
+            "- Scope: current session",
+            "- Model: `openai/gpt-4.1`",
+            "- Context window: 32768",
+            "- Max output tokens: 4096",
+        ]
+    )
     assert _saved_model_preset(loop) == "fast"
 
 

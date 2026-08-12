@@ -101,6 +101,7 @@ def _channel_connect_route(path: str) -> tuple[str, str] | None:
     channel_name = parts[0].strip()
     return (channel_name, parts[2]) if channel_name else None
 
+
 _MCP_PRESET_ACTIONS_BY_PATH = {
     "/api/settings/mcp-presets/enable": "enable",
     "/api/settings/mcp-presets/remove": "remove",
@@ -200,9 +201,13 @@ class WebUISettingsRouter:
         if path == "/api/settings/nanobot-features":
             return await self._handle_settings_nanobot_features(request)
         if path == "/api/settings/nanobot-features/enable":
-            return await self._handle_settings_nanobot_features_action(connection, request, "enable")
+            return await self._handle_settings_nanobot_features_action(
+                connection, request, "enable"
+            )
         if path == "/api/settings/nanobot-features/disable":
-            return await self._handle_settings_nanobot_features_action(connection, request, "disable")
+            return await self._handle_settings_nanobot_features_action(
+                connection, request, "disable"
+            )
         channel_connect = _channel_connect_route(path)
         if channel_connect is not None:
             channel_name, action = channel_connect
@@ -358,25 +363,29 @@ class WebUISettingsRouter:
                 return self._error_response(404, "Pairing code not found or expired")
             channel, sender_id = result
             return self._json_response(
-                _pairing_payload({
-                    "ok": True,
-                    "action": "approve",
-                    "message": f"Approved {sender_id} for {channel}",
-                    "channel": channel,
-                    "sender_id": sender_id,
-                    "code": code,
-                })
+                _pairing_payload(
+                    {
+                        "ok": True,
+                        "action": "approve",
+                        "message": f"Approved {sender_id} for {channel}",
+                        "channel": channel,
+                        "sender_id": sender_id,
+                        "code": code,
+                    }
+                )
             )
 
         if not deny_code(code):
             return self._error_response(404, "Pairing code not found or expired")
         return self._json_response(
-            _pairing_payload({
-                "ok": True,
-                "action": "deny",
-                "message": f"Denied pairing code {code}",
-                "code": code,
-            })
+            _pairing_payload(
+                {
+                    "ok": True,
+                    "action": "deny",
+                    "message": f"Denied pairing code {code}",
+                    "code": code,
+                }
+            )
         )
 
     def _handle_settings_update(self, request: WsRequest) -> Response:
@@ -824,7 +833,9 @@ class WebUISettingsRouter:
         payload["requires_restart"] = True
         last_action = dict(payload.get("last_action") or {})
         previous = last_action.get("message")
-        last_action["message"] = f"{previous}. {message}" if isinstance(previous, str) and previous else message
+        last_action["message"] = (
+            f"{previous}. {message}" if isinstance(previous, str) and previous else message
+        )
         last_action["hot_reload"] = False
         payload["last_action"] = last_action
         return payload
@@ -938,7 +949,9 @@ class WebUISettingsRouter:
             raise WebUISettingsError(f"unknown channel '{name}'", status=404) from None
         setup_spec = channel_setup_spec(name, plugin=plugin)
         if setup_spec is None:
-            raise WebUISettingsError(f"channel '{name}' cannot be configured from WebUI", status=404)
+            raise WebUISettingsError(
+                f"channel '{name}' cannot be configured from WebUI", status=404
+            )
         field_types = setup_spec.route_field_types
         if not raw_values:
             return []
@@ -956,7 +969,7 @@ class WebUISettingsRouter:
         for raw_key, raw_value in raw_values.items():
             if not isinstance(raw_key, str) or not raw_key:
                 raise WebUISettingsError("channel settings payload contains an invalid key")
-            field = raw_key[len(prefix):] if raw_key.startswith(prefix) else raw_key
+            field = raw_key[len(prefix) :] if raw_key.startswith(prefix) else raw_key
             value_type = field_types.get(field)
             if value_type is None:
                 raise WebUISettingsError(f"'{raw_key}' cannot be configured from WebUI")
@@ -1036,7 +1049,9 @@ class WebUISettingsRouter:
         raise WebUISettingsError(f"'{raw_key}' has an unsupported field type")
 
     @staticmethod
-    def _assign_channel_config_value(channel_config: dict[str, Any], field: str, value: Any) -> None:
+    def _assign_channel_config_value(
+        channel_config: dict[str, Any], field: str, value: Any
+    ) -> None:
         target = channel_config
         parts = field.split(".")
         for part in parts[:-1]:
@@ -1108,8 +1123,7 @@ class WebUISettingsRouter:
             features = self._feature_runtime_fallback(
                 nanobot_features_payload(),
                 message=(
-                    f"{channel_name} connected, but enabling channel support failed: "
-                    f"{exc.message}"
+                    f"{channel_name} connected, but enabling channel support failed: {exc.message}"
                 ),
             )
         else:
@@ -1163,9 +1177,11 @@ class WebUISettingsRouter:
         except Exception:
             self.logger.exception("version check failed")
             return self._error_response(500, "version check failed")
-        return self._json_response({
-            "updateAvailable": update_info,
-        })
+        return self._json_response(
+            {
+                "updateAvailable": update_info,
+            }
+        )
 
 
 def _pairing_payload(last_action: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -1174,14 +1190,16 @@ def _pairing_payload(last_action: dict[str, Any] | None = None) -> dict[str, Any
     for item in list_pending():
         expires_at = float(item.get("expires_at", 0) or 0)
         created_at = float(item.get("created_at", 0) or 0)
-        requests.append({
-            "code": str(item.get("code", "")),
-            "channel": str(item.get("channel", "")),
-            "sender_id": str(item.get("sender_id", "")),
-            "created_at_ms": int(created_at * 1000) if created_at else None,
-            "expires_at_ms": int(expires_at * 1000) if expires_at else None,
-            "expires_in_seconds": max(0, int(expires_at - now)) if expires_at else None,
-        })
+        requests.append(
+            {
+                "code": str(item.get("code", "")),
+                "channel": str(item.get("channel", "")),
+                "sender_id": str(item.get("sender_id", "")),
+                "created_at_ms": int(created_at * 1000) if created_at else None,
+                "expires_at_ms": int(expires_at * 1000) if expires_at else None,
+                "expires_in_seconds": max(0, int(expires_at - now)) if expires_at else None,
+            }
+        )
     payload: dict[str, Any] = {"requests": requests}
     if last_action is not None:
         payload["last_action"] = last_action

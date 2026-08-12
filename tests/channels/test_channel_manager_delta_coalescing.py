@@ -216,11 +216,13 @@ class TestDeltaCoalescing:
     @pytest.mark.asyncio
     async def test_non_delta_message_preserved(self, manager, bus):
         await bus.publish_outbound(_delta("Delta"))
-        await bus.publish_outbound(OutboundMessage(
-            channel="mock",
-            chat_id="chat1",
-            content="Final message",
-        ))
+        await bus.publish_outbound(
+            OutboundMessage(
+                channel="mock",
+                chat_id="chat1",
+                content="Final message",
+            )
+        )
 
         first_msg = await bus.consume_outbound()
         merged, pending = manager._coalesce_stream_deltas(first_msg)
@@ -248,11 +250,13 @@ class TestDispatchOutboundWithCoalescing:
     async def test_dispatch_coalesces_and_processes_pending(self, manager, bus):
         await bus.publish_outbound(_delta("A"))
         await bus.publish_outbound(_delta("B"))
-        await bus.publish_outbound(OutboundMessage(
-            channel="mock",
-            chat_id="chat1",
-            content="Final",
-        ))
+        await bus.publish_outbound(
+            OutboundMessage(
+                channel="mock",
+                chat_id="chat1",
+                content="Final",
+            )
+        )
 
         pending = []
         processed = []
@@ -302,9 +306,16 @@ class TestProgressFiltering:
 
     def test_resolve_bool_override_dict(self, manager):
         assert manager._resolve_bool_override({}, "send_progress", True) is True
-        assert manager._resolve_bool_override({"send_progress": False}, "send_progress", True) is False
-        assert manager._resolve_bool_override({"sendProgress": False}, "send_progress", True) is False
-        assert manager._resolve_bool_override({"send_progress": "false"}, "send_progress", True) is True
+        assert (
+            manager._resolve_bool_override({"send_progress": False}, "send_progress", True) is False
+        )
+        assert (
+            manager._resolve_bool_override({"sendProgress": False}, "send_progress", True) is False
+        )
+        assert (
+            manager._resolve_bool_override({"send_progress": "false"}, "send_progress", True)
+            is True
+        )
 
     def test_resolve_bool_override_model(self, manager):
         class FakeSection:
@@ -318,16 +329,20 @@ class TestProgressFiltering:
     @pytest.mark.asyncio
     async def test_channel_override_can_drop_progress_message(self, manager, bus):
         manager.channels["mock"].send_progress = False
-        await bus.publish_outbound(outbound_message_for_event(
-            channel="mock",
-            chat_id="chat1",
-            event=ProgressEvent(content="thinking"),
-        ))
-        await bus.publish_outbound(OutboundMessage(
-            channel="mock",
-            chat_id="chat1",
-            content="final answer",
-        ))
+        await bus.publish_outbound(
+            outbound_message_for_event(
+                channel="mock",
+                chat_id="chat1",
+                event=ProgressEvent(content="thinking"),
+            )
+        )
+        await bus.publish_outbound(
+            OutboundMessage(
+                channel="mock",
+                chat_id="chat1",
+                content="final answer",
+            )
+        )
 
         task = asyncio.create_task(manager._dispatch_outbound())
         try:
@@ -349,11 +364,13 @@ class TestProgressFiltering:
     @pytest.mark.asyncio
     async def test_channel_override_can_enable_tool_hints(self, manager, bus):
         manager.channels["mock"].send_tool_hints = True
-        await bus.publish_outbound(outbound_message_for_event(
-            channel="mock",
-            chat_id="chat1",
-            event=ProgressEvent(content="read_file(foo.py)", tool_hint=True),
-        ))
+        await bus.publish_outbound(
+            outbound_message_for_event(
+                channel="mock",
+                chat_id="chat1",
+                event=ProgressEvent(content="read_file(foo.py)", tool_hint=True),
+            )
+        )
 
         task = asyncio.create_task(manager._dispatch_outbound())
         try:

@@ -525,7 +525,7 @@ def _arg_value(args: list[str], flag: str) -> str | None:
         if item == flag and index + 1 < len(args):
             return args[index + 1]
         if item.startswith(prefix):
-            return item[len(prefix):]
+            return item[len(prefix) :]
     return None
 
 
@@ -685,24 +685,28 @@ def _preset_manifest(preset: McpPreset, *, logo_url: str) -> dict[str, Any]:
     server = preset.server
     managed_paths = _managed_mcp_path(preset.name, server)
     field_specs = [
-        compact_dict({
-            "name": field.name,
-            "target": field.target[0],
-            "required": field.required,
-            "secret": field.secret,
-            "env_var": field.env_var,
-        })
+        compact_dict(
+            {
+                "name": field.name,
+                "target": field.target[0],
+                "required": field.required,
+                "secret": field.secret,
+                "env_var": field.env_var,
+            }
+        )
         for field in preset.fields
     ]
     capabilities = [
-        compact_dict({
-            "type": "mcp",
-            "transport": preset.transport,
-            "command": server.command if server and server.command else None,
-            "args": list(server.args) if server and server.command else None,
-            "url": _connection_summary(server) if server and server.url else None,
-            "fields": field_specs,
-        })
+        compact_dict(
+            {
+                "type": "mcp",
+                "transport": preset.transport,
+                "command": server.command if server and server.command else None,
+                "args": list(server.args) if server and server.command else None,
+                "url": _connection_summary(server) if server and server.url else None,
+                "fields": field_specs,
+            }
+        )
     ]
     return app_manifest(
         app_id=preset.name,
@@ -714,18 +718,24 @@ def _preset_manifest(preset: McpPreset, *, logo_url: str) -> dict[str, Any]:
         logo_url=logo_url,
         brand_color=preset.brand_color,
         capabilities=capabilities,
-        install=compact_dict({
-            "supported": preset.install_supported,
-            "strategy": "config",
-            "managed_paths": managed_paths,
-            "verification": ["config_present", "dependency_available"],
-        }),
-        remove=compact_dict({
-            "supported": True,
-            "strategy": "config",
-            "managed_paths": managed_paths,
-            "verification": ["config_absent", "managed_paths_absent"] if managed_paths else ["config_absent"],
-        }),
+        install=compact_dict(
+            {
+                "supported": preset.install_supported,
+                "strategy": "config",
+                "managed_paths": managed_paths,
+                "verification": ["config_present", "dependency_available"],
+            }
+        ),
+        remove=compact_dict(
+            {
+                "supported": True,
+                "strategy": "config",
+                "managed_paths": managed_paths,
+                "verification": ["config_absent", "managed_paths_absent"]
+                if managed_paths
+                else ["config_absent"],
+            }
+        ),
         trust={
             "registry": "mcp-presets",
             "level": "builtin",
@@ -745,25 +755,33 @@ def _custom_manifest(name: str, cfg: MCPServerConfig) -> dict[str, Any]:
         source="mcp-custom",
         brand_color="#64748B",
         capabilities=[
-            compact_dict({
-                "type": "mcp",
-                "transport": transport,
-                "command": cfg.command or None,
-                "url": _connection_summary(cfg) if cfg.url else None,
-            })
+            compact_dict(
+                {
+                    "type": "mcp",
+                    "transport": transport,
+                    "command": cfg.command or None,
+                    "url": _connection_summary(cfg) if cfg.url else None,
+                }
+            )
         ],
-        install=compact_dict({
-            "supported": True,
-            "strategy": "config",
-            "managed_paths": managed_paths,
-            "verification": ["config_present", "dependency_available"],
-        }),
-        remove=compact_dict({
-            "supported": True,
-            "strategy": "config",
-            "managed_paths": managed_paths,
-            "verification": ["config_absent", "managed_paths_absent"] if managed_paths else ["config_absent"],
-        }),
+        install=compact_dict(
+            {
+                "supported": True,
+                "strategy": "config",
+                "managed_paths": managed_paths,
+                "verification": ["config_present", "dependency_available"],
+            }
+        ),
+        remove=compact_dict(
+            {
+                "supported": True,
+                "strategy": "config",
+                "managed_paths": managed_paths,
+                "verification": ["config_absent", "managed_paths_absent"]
+                if managed_paths
+                else ["config_absent"],
+            }
+        ),
         trust={
             "registry": "user-config",
             "level": "user",
@@ -772,7 +790,9 @@ def _custom_manifest(name: str, cfg: MCPServerConfig) -> dict[str, Any]:
     )
 
 
-def _preset_payload(preset: McpPreset, configured_servers: dict[str, MCPServerConfig]) -> dict[str, Any]:
+def _preset_payload(
+    preset: McpPreset, configured_servers: dict[str, MCPServerConfig]
+) -> dict[str, Any]:
     cfg = configured_servers.get(preset.name)
     status = _status_for(preset, cfg)
     configured = cfg is not None and status not in {"missing_credentials"}
@@ -809,8 +829,16 @@ def _custom_payload(
 ) -> dict[str, Any]:
     transport = cfg.type
     if not transport:
-        transport = "stdio" if cfg.command else ("sse" if cfg.url.rstrip("/").endswith("/sse") else "streamableHttp")
-    status = "missing_dependency" if cfg.command and not _command_available(cfg.command) else "configured"
+        transport = (
+            "stdio"
+            if cfg.command
+            else ("sse" if cfg.url.rstrip("/").endswith("/sse") else "streamableHttp")
+        )
+    status = (
+        "missing_dependency"
+        if cfg.command and not _command_available(cfg.command)
+        else "configured"
+    )
     return {
         "name": name,
         "display_name": name,
@@ -845,7 +873,11 @@ def mcp_presets_payload(
     known = _known_preset_names()
     preset_rows = [
         _preset_payload(preset, config.tools.mcp_servers)
-        | ({"tool_names": tool_preview.get(preset.name, [])} if tool_preview and preset.name in tool_preview else {})
+        | (
+            {"tool_names": tool_preview.get(preset.name, [])}
+            if tool_preview and preset.name in tool_preview
+            else {}
+        )
         for preset in MCP_PRESETS
     ]
     custom_rows = [
@@ -942,21 +974,29 @@ async def mcp_presets_test_action(query: QueryParams) -> dict[str, Any]:
     try:
         config = resolve_config_env_vars(load_config())
     except ValueError as exc:
-        return mcp_presets_payload(last_action={
-            "ok": False,
-            "message": _scrub_test_error(str(exc)),
-            "error": _scrub_test_error(str(exc)),
-            "tool_count": 0,
-            "tool_names": [],
-            "checked_at": _checked_at(),
-        })
+        return mcp_presets_payload(
+            last_action={
+                "ok": False,
+                "message": _scrub_test_error(str(exc)),
+                "error": _scrub_test_error(str(exc)),
+                "tool_count": 0,
+                "tool_names": [],
+                "checked_at": _checked_at(),
+            }
+        )
 
     cfg = config.tools.mcp_servers.get(name)
     if cfg is None:
         raise McpPresetError(f"{display_name} is not enabled", status=404)
 
-    status = _status_for(preset, cfg) if preset is not None else (
-        "missing_dependency" if cfg.command and not _command_available(cfg.command) else "configured"
+    status = (
+        _status_for(preset, cfg)
+        if preset is not None
+        else (
+            "missing_dependency"
+            if cfg.command and not _command_available(cfg.command)
+            else "configured"
+        )
     )
     if status == "missing_credentials":
         last_action = {
@@ -1079,7 +1119,9 @@ def _parse_enabled_tools(raw: str | None) -> list[str]:
     return values
 
 
-def _normalize_transport(value: str | None, *, command: str = "", url: str = "") -> Literal["stdio", "sse", "streamableHttp"]:
+def _normalize_transport(
+    value: str | None, *, command: str = "", url: str = ""
+) -> Literal["stdio", "sse", "streamableHttp"]:
     raw = (value or "").strip()
     if not raw:
         if command:
@@ -1161,11 +1203,17 @@ def _mcp_server_config(name: str, raw: Any) -> tuple[str, MCPServerConfig]:
         timeout_int = _DEFAULT_CUSTOM_TIMEOUT
     if not isinstance(args, list) or not all(isinstance(item, str) for item in args):
         raise McpPresetError(f"MCP server '{server_name}' args must be a string array")
-    if not isinstance(env, dict) or not all(isinstance(k, str) and isinstance(v, str) for k, v in env.items()):
+    if not isinstance(env, dict) or not all(
+        isinstance(k, str) and isinstance(v, str) for k, v in env.items()
+    ):
         raise McpPresetError(f"MCP server '{server_name}' env must be a string object")
-    if not isinstance(headers, dict) or not all(isinstance(k, str) and isinstance(v, str) for k, v in headers.items()):
+    if not isinstance(headers, dict) or not all(
+        isinstance(k, str) and isinstance(v, str) for k, v in headers.items()
+    ):
         raise McpPresetError(f"MCP server '{server_name}' headers must be a string object")
-    if not isinstance(enabled_tools, list) or not all(isinstance(item, str) for item in enabled_tools):
+    if not isinstance(enabled_tools, list) or not all(
+        isinstance(item, str) for item in enabled_tools
+    ):
         enabled_tools = ["*"]
     return server_name, MCPServerConfig(
         type=transport,
@@ -1212,10 +1260,12 @@ def custom_mcp_action(action: str, query: QueryParams) -> dict[str, Any]:
         servers = _import_mcp_servers(_query_first(query, "config"))
         config.tools.mcp_servers.update(servers)
         save_config(config)
-        payload = mcp_presets_payload(last_action={
-            "ok": True,
-            "message": f"Imported {len(servers)} MCP server(s).",
-        })
+        payload = mcp_presets_payload(
+            last_action={
+                "ok": True,
+                "message": f"Imported {len(servers)} MCP server(s).",
+            }
+        )
         payload["requires_restart"] = True
         return payload
 

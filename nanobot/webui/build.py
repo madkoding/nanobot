@@ -237,8 +237,7 @@ def ensure_webui_bundle(
     if mode == "warn":
         _emit(
             output,
-            f"Warning: {detail} Run `cd {status.source_dir} && bun run build` "
-            "to refresh it.",
+            f"Warning: {detail} Run `cd {status.source_dir} && bun run build` to refresh it.",
         )
         return status
 
@@ -280,9 +279,7 @@ def _run_frontend_command(
     try:
         subprocess_run(command, cwd=cwd, check=True)
     except subprocess.CalledProcessError as exc:
-        raise WebUIBuildError(
-            f"command failed ({exc.returncode}): {' '.join(command)}"
-        ) from exc
+        raise WebUIBuildError(f"command failed ({exc.returncode}): {' '.join(command)}") from exc
     except OSError as exc:
         raise WebUIBuildError(f"command failed: {' '.join(command)} ({exc})") from exc
 

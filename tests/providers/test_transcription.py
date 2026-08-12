@@ -542,8 +542,9 @@ async def test_returns_empty_when_file_unreadable(audio_file: Path) -> None:
     """Existing file that cannot be read (PermissionError/OSError): "" with no HTTP attempt."""
     provider = OpenAITranscriptionProvider(api_key="sk-test")
     post = AsyncMock()
-    with patch("pathlib.Path.read_bytes", side_effect=PermissionError("denied")), patch(
-        "httpx.AsyncClient.post", post
+    with (
+        patch("pathlib.Path.read_bytes", side_effect=PermissionError("denied")),
+        patch("httpx.AsyncClient.post", post),
     ):
         result = await provider.transcribe(audio_file)
     assert result == ""
@@ -581,9 +582,7 @@ async def test_provider_forwards_language_in_multipart(
     ids=["openai", "groq"],
 )
 @pytest.mark.asyncio
-async def test_provider_omits_language_when_unset(
-    audio_file: Path, provider_cls: type
-) -> None:
+async def test_provider_omits_language_when_unset(audio_file: Path, provider_cls: type) -> None:
     """When ``language`` is None, no ``language`` field is sent."""
     provider = provider_cls(api_key="k")
     post = AsyncMock(return_value=_response(200, {"text": "ok"}))
@@ -714,7 +713,9 @@ def test_openrouter_defaults_and_chat_base_normalization() -> None:
     assert default.model == "openai/whisper-1"
 
     # A chat-style base (what users copy from provider config) gets the path appended.
-    chat_base = OpenRouterTranscriptionProvider(api_key="k", api_base="https://openrouter.ai/api/v1")
+    chat_base = OpenRouterTranscriptionProvider(
+        api_key="k", api_base="https://openrouter.ai/api/v1"
+    )
     assert chat_base.api_url == "https://openrouter.ai/api/v1/audio/transcriptions"
 
 
@@ -844,7 +845,9 @@ async def test_assemblyai_uploads_creates_and_polls(audio_file: Path) -> None:
     )
     post = AsyncMock(
         side_effect=[
-            _json_response(200, {"upload_url": "https://cdn.example/audio"}, url=provider.upload_url),
+            _json_response(
+                200, {"upload_url": "https://cdn.example/audio"}, url=provider.upload_url
+            ),
             _json_response(200, {"id": "tr_123"}, url=provider.transcript_url),
         ]
     )
@@ -857,8 +860,10 @@ async def test_assemblyai_uploads_creates_and_polls(audio_file: Path) -> None:
         )
     )
 
-    with patch("httpx.AsyncClient.post", post), patch("httpx.AsyncClient.get", get), patch(
-        "asyncio.sleep", AsyncMock()
+    with (
+        patch("httpx.AsyncClient.post", post),
+        patch("httpx.AsyncClient.get", get),
+        patch("asyncio.sleep", AsyncMock()),
     ):
         result = await provider.transcribe(audio_file)
 
@@ -884,7 +889,9 @@ async def test_assemblyai_polls_until_completed(audio_file: Path) -> None:
     provider = AssemblyAITranscriptionProvider(api_key="aai-test")
     post = AsyncMock(
         side_effect=[
-            _json_response(200, {"upload_url": "https://cdn.example/audio"}, url=provider.upload_url),
+            _json_response(
+                200, {"upload_url": "https://cdn.example/audio"}, url=provider.upload_url
+            ),
             _json_response(200, {"id": "tr_123"}, url=provider.transcript_url),
         ]
     )
@@ -896,8 +903,10 @@ async def test_assemblyai_polls_until_completed(audio_file: Path) -> None:
     )
     sleep = AsyncMock()
 
-    with patch("httpx.AsyncClient.post", post), patch("httpx.AsyncClient.get", get), patch(
-        "asyncio.sleep", sleep
+    with (
+        patch("httpx.AsyncClient.post", post),
+        patch("httpx.AsyncClient.get", get),
+        patch("asyncio.sleep", sleep),
     ):
         assert await provider.transcribe(audio_file) == "done"
 
@@ -910,7 +919,9 @@ async def test_assemblyai_returns_empty_on_failed_transcript(audio_file: Path) -
     provider = AssemblyAITranscriptionProvider(api_key="aai-test")
     post = AsyncMock(
         side_effect=[
-            _json_response(200, {"upload_url": "https://cdn.example/audio"}, url=provider.upload_url),
+            _json_response(
+                200, {"upload_url": "https://cdn.example/audio"}, url=provider.upload_url
+            ),
             _json_response(200, {"id": "tr_123"}, url=provider.transcript_url),
         ]
     )
@@ -922,8 +933,10 @@ async def test_assemblyai_returns_empty_on_failed_transcript(audio_file: Path) -
         )
     )
 
-    with patch("httpx.AsyncClient.post", post), patch("httpx.AsyncClient.get", get), patch(
-        "asyncio.sleep", AsyncMock()
+    with (
+        patch("httpx.AsyncClient.post", post),
+        patch("httpx.AsyncClient.get", get),
+        patch("asyncio.sleep", AsyncMock()),
     ):
         assert await provider.transcribe(audio_file) == ""
 
@@ -940,9 +953,7 @@ async def test_assemblyai_missing_api_key_short_circuits(audio_file: Path) -> No
 
 @pytest.mark.parametrize("status", [408, 429, 500, 502, 503, 504])
 @pytest.mark.asyncio
-async def test_retries_on_every_advertised_transient_status(
-    audio_file: Path, status: int
-) -> None:
+async def test_retries_on_every_advertised_transient_status(audio_file: Path, status: int) -> None:
     provider = OpenAITranscriptionProvider(api_key="sk-test")
     post = AsyncMock(side_effect=[_response(status), _response(200, {"text": "ok"})])
     with patch("httpx.AsyncClient.post", post), patch("asyncio.sleep", AsyncMock()):
@@ -987,12 +998,16 @@ def test_resolve_transcription_url_falls_back_to_default() -> None:
 
 def test_resolve_transcription_url_appends_path_to_chat_style_base() -> None:
     assert (
-        _resolve_transcription_url("https://api.groq.com/openai/v1", "https://x/audio/transcriptions")
+        _resolve_transcription_url(
+            "https://api.groq.com/openai/v1", "https://x/audio/transcriptions"
+        )
         == "https://api.groq.com/openai/v1/audio/transcriptions"
     )
     # Trailing slash must not produce a doubled separator.
     assert (
-        _resolve_transcription_url("https://api.groq.com/openai/v1/", "https://x/audio/transcriptions")
+        _resolve_transcription_url(
+            "https://api.groq.com/openai/v1/", "https://x/audio/transcriptions"
+        )
         == "https://api.groq.com/openai/v1/audio/transcriptions"
     )
 
@@ -1004,5 +1019,7 @@ def test_resolve_transcription_url_keeps_full_endpoint() -> None:
 
 def test_groq_provider_normalizes_chat_style_api_base() -> None:
     """Regression for #3637: apiBase set to the v1 base resolves to the audio endpoint."""
-    provider = GroqTranscriptionProvider(api_key="gsk-test", api_base="https://api.groq.com/openai/v1")
+    provider = GroqTranscriptionProvider(
+        api_key="gsk-test", api_base="https://api.groq.com/openai/v1"
+    )
     assert provider.api_url == "https://api.groq.com/openai/v1/audio/transcriptions"

@@ -25,7 +25,9 @@ def map_finish_reason(status: str | None) -> str:
 
 
 def _usage_from_response_obj(response: Any) -> dict[str, int]:
-    usage_raw = response.get("usage") if isinstance(response, dict) else getattr(response, "usage", None)
+    usage_raw = (
+        response.get("usage") if isinstance(response, dict) else getattr(response, "usage", None)
+    )
     if not usage_raw:
         return {}
     if not isinstance(usage_raw, dict):
@@ -146,11 +148,13 @@ async def consume_sse_with_reasoning(
                     "arguments": "" if arguments is None else arguments,
                 }
                 if on_tool_call_delta:
-                    await on_tool_call_delta({
-                        "call_id": str(call_id),
-                        "name": str(item.get("name") or ""),
-                        "arguments_delta": "",
-                    })
+                    await on_tool_call_delta(
+                        {
+                            "call_id": str(call_id),
+                            "name": str(item.get("name") or ""),
+                            "arguments_delta": "",
+                        }
+                    )
         elif event_type == "response.output_text.delta":
             delta_text = event.get("delta") or ""
             content += delta_text
@@ -185,11 +189,13 @@ async def consume_sse_with_reasoning(
                     current = ""
                 tool_call_buffers[call_id]["arguments"] = current + delta
                 if on_tool_call_delta and delta:
-                    await on_tool_call_delta({
-                        "call_id": str(call_id),
-                        "name": str(tool_call_buffers[call_id].get("name") or ""),
-                        "arguments_delta": str(delta),
-                    })
+                    await on_tool_call_delta(
+                        {
+                            "call_id": str(call_id),
+                            "name": str(tool_call_buffers[call_id].get("name") or ""),
+                            "arguments_delta": str(delta),
+                        }
+                    )
         elif event_type == "response.function_call_arguments.done":
             call_id = event.get("call_id")
             if call_id and call_id in tool_call_buffers:
@@ -197,11 +203,13 @@ async def consume_sse_with_reasoning(
                 tool_call_buffers[call_id]["arguments"] = arguments
                 if on_tool_call_delta:
                     tool_call_args_emitted.add(str(call_id))
-                    await on_tool_call_delta({
-                        "call_id": str(call_id),
-                        "name": str(tool_call_buffers[call_id].get("name") or ""),
-                        "arguments": "" if arguments is None else str(arguments),
-                    })
+                    await on_tool_call_delta(
+                        {
+                            "call_id": str(call_id),
+                            "name": str(tool_call_buffers[call_id].get("name") or ""),
+                            "arguments": "" if arguments is None else str(arguments),
+                        }
+                    )
         elif event_type == "response.output_item.done":
             item = event.get("item") or {}
             if item.get("type") == "function_call":
@@ -212,11 +220,13 @@ async def consume_sse_with_reasoning(
                 args_raw = _tool_arguments_source(buf.get("arguments"), item.get("arguments"))
                 if on_tool_call_delta and str(call_id) not in tool_call_args_emitted:
                     tool_call_args_emitted.add(str(call_id))
-                    await on_tool_call_delta({
-                        "call_id": str(call_id),
-                        "name": str(buf.get("name") or item.get("name") or ""),
-                        "arguments": str(args_raw),
-                    })
+                    await on_tool_call_delta(
+                        {
+                            "call_id": str(call_id),
+                            "name": str(buf.get("name") or item.get("name") or ""),
+                            "arguments": str(args_raw),
+                        }
+                    )
                 args = _parse_tool_call_arguments(
                     args_raw,
                     buf.get("name") or item.get("name"),
@@ -305,11 +315,13 @@ def parse_response_output(response: Any) -> LLMResponse:
             item_id = item.get("id") or "fc_0"
             args_raw = _tool_arguments_source(item.get("arguments"))
             args = _parse_tool_call_arguments(args_raw, item.get("name"))
-            tool_calls.append(ToolCallRequest(
-                id=f"{call_id}|{item_id}",
-                name=item.get("name") or "",
-                arguments=args,
-            ))
+            tool_calls.append(
+                ToolCallRequest(
+                    id=f"{call_id}|{item_id}",
+                    name=item.get("name") or "",
+                    arguments=args,
+                )
+            )
 
     usage = _usage_from_response_obj(response)
 
@@ -354,11 +366,13 @@ async def consume_sdk_stream(
                     "arguments": "" if arguments is None else arguments,
                 }
                 if on_tool_call_delta:
-                    await on_tool_call_delta({
-                        "call_id": str(call_id),
-                        "name": str(getattr(item, "name", None) or ""),
-                        "arguments_delta": "",
-                    })
+                    await on_tool_call_delta(
+                        {
+                            "call_id": str(call_id),
+                            "name": str(getattr(item, "name", None) or ""),
+                            "arguments_delta": "",
+                        }
+                    )
         elif event_type == "response.output_text.delta":
             delta_text = getattr(event, "delta", "") or ""
             content += delta_text
@@ -373,11 +387,13 @@ async def consume_sdk_stream(
                     current = ""
                 tool_call_buffers[call_id]["arguments"] = current + delta
                 if on_tool_call_delta and delta:
-                    await on_tool_call_delta({
-                        "call_id": str(call_id),
-                        "name": str(tool_call_buffers[call_id].get("name") or ""),
-                        "arguments_delta": str(delta),
-                    })
+                    await on_tool_call_delta(
+                        {
+                            "call_id": str(call_id),
+                            "name": str(tool_call_buffers[call_id].get("name") or ""),
+                            "arguments_delta": str(delta),
+                        }
+                    )
         elif event_type == "response.function_call_arguments.done":
             call_id = getattr(event, "call_id", None)
             if call_id and call_id in tool_call_buffers:
@@ -385,11 +401,13 @@ async def consume_sdk_stream(
                 tool_call_buffers[call_id]["arguments"] = arguments
                 if on_tool_call_delta:
                     tool_call_args_emitted.add(str(call_id))
-                    await on_tool_call_delta({
-                        "call_id": str(call_id),
-                        "name": str(tool_call_buffers[call_id].get("name") or ""),
-                        "arguments": "" if arguments is None else str(arguments),
-                    })
+                    await on_tool_call_delta(
+                        {
+                            "call_id": str(call_id),
+                            "name": str(tool_call_buffers[call_id].get("name") or ""),
+                            "arguments": "" if arguments is None else str(arguments),
+                        }
+                    )
         elif event_type == "response.output_item.done":
             item = getattr(event, "item", None)
             if item and getattr(item, "type", None) == "function_call":
@@ -403,11 +421,13 @@ async def consume_sdk_stream(
                 )
                 if on_tool_call_delta and str(call_id) not in tool_call_args_emitted:
                     tool_call_args_emitted.add(str(call_id))
-                    await on_tool_call_delta({
-                        "call_id": str(call_id),
-                        "name": str(buf.get("name") or getattr(item, "name", None) or ""),
-                        "arguments": str(args_raw),
-                    })
+                    await on_tool_call_delta(
+                        {
+                            "call_id": str(call_id),
+                            "name": str(buf.get("name") or getattr(item, "name", None) or ""),
+                            "arguments": str(args_raw),
+                        }
+                    )
                 args = _parse_tool_call_arguments(
                     args_raw,
                     buf.get("name") or getattr(item, "name", None),

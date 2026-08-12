@@ -120,15 +120,18 @@ class _FakeAPIError(Exception):
 
 def test_serde_deserialize_error_triggers_fallback():
     # DeepSeek Responses gateway rejecting the wire body (observed Aug 2026).
-    err = _FakeAPIError(400, {
-        "message": (
-            "Failed to deserialize the JSON body into the target type: "
-            "input: invalid type: string \"Michael topped up DeepSeek ...\", "
-            "expected a sequence at line 1 column 268612"
-        ),
-        "type": "invalid_request_error",
-        "param": None,
-    })
+    err = _FakeAPIError(
+        400,
+        {
+            "message": (
+                "Failed to deserialize the JSON body into the target type: "
+                'input: invalid type: string "Michael topped up DeepSeek ...", '
+                "expected a sequence at line 1 column 268612"
+            ),
+            "type": "invalid_request_error",
+            "param": None,
+        },
+    )
     assert OpenAICompatProvider._should_fallback_from_responses_error(err) is True
 
 

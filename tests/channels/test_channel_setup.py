@@ -159,8 +159,7 @@ def test_channel_manifests_only_import_contract_modules() -> None:
         allowed_channel_imports = {
             module
             for module in imports
-            if module.startswith(f"nanobot.channels.{name}.")
-            and not module.endswith(".runtime")
+            if module.startswith(f"nanobot.channels.{name}.") and not module.endswith(".runtime")
         }
         unexpected = imports - allowed_imports - allowed_channel_imports
         assert not unexpected, f"{name} imports runtime dependencies: {unexpected}"
@@ -184,7 +183,9 @@ def test_runtime_classes_do_not_declare_persisted_management_hooks() -> None:
             for item in node.body
             if isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef))
         }
-        assert declared.isdisjoint(management_hooks), f"{name} runtime owns {declared & management_hooks}"
+        assert declared.isdisjoint(management_hooks), (
+            f"{name} runtime owns {declared & management_hooks}"
+        )
 
 
 def test_feishu_package_manifest_owns_runtime_and_webui_metadata() -> None:

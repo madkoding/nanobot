@@ -23,7 +23,7 @@ def _write_skill(
     lines = ["---"]
     if metadata_json is not None:
         payload = json.dumps({"nanobot": metadata_json}, separators=(",", ":"))
-        lines.append(f'metadata: {payload}')
+        lines.append(f"metadata: {payload}")
     lines.extend(["---", "", body])
     path = skill_dir / "SKILL.md"
     path.write_text("\n".join(lines), encoding="utf-8")
@@ -229,7 +229,9 @@ def test_list_skills_openclaw_metadata_parsed_for_requirements(
     skill_dir = skills_root / "openclaw_skill"
     skill_dir.mkdir(parents=True)
     skill_path = skill_dir / "SKILL.md"
-    oc_payload = json.dumps({"openclaw": {"requires": {"bins": ["nanobot_oc_bin"]}}}, separators=(",", ":"))
+    oc_payload = json.dumps(
+        {"openclaw": {"requires": {"bins": ["nanobot_oc_bin"]}}}, separators=(",", ":")
+    )
     skill_path.write_text(
         "\n".join(["---", f"metadata: {oc_payload}", "---", "", "# OC"]),
         encoding="utf-8",
@@ -367,7 +369,7 @@ def test_build_skills_summary_folded_description(tmp_path: Path) -> None:
         "name: pdf\n"
         "description: >\n"
         "  Use this skill when visual quality and design identity matter for a PDF.\n"
-        "  CREATE (generate from scratch): \"make a PDF\".\n"
+        '  CREATE (generate from scratch): "make a PDF".\n'
         "---\n\n# PDF Skill\n",
         encoding="utf-8",
     )
@@ -416,14 +418,12 @@ def test_get_skill_metadata_handles_yaml_types(tmp_path: Path) -> None:
     ws_skills.mkdir(parents=True)
     skill_dir = ws_skills / "typed"
     skill_dir.mkdir(parents=True)
-    payload = json.dumps({"nanobot": {"requires": {"bins": ["gh"]}, "always": True}}, separators=(",", ":"))
+    payload = json.dumps(
+        {"nanobot": {"requires": {"bins": ["gh"]}, "always": True}}, separators=(",", ":")
+    )
     skill_path = skill_dir / "SKILL.md"
     skill_path.write_text(
-        "---\n"
-        "name: typed\n"
-        f"metadata: {payload}\n"
-        "always: true\n"
-        "---\n\n# Typed\n",
+        f"---\nname: typed\nmetadata: {payload}\nalways: true\n---\n\n# Typed\n",
         encoding="utf-8",
     )
     builtin = tmp_path / "builtin"

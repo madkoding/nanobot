@@ -7,7 +7,9 @@ import pytest
 from nanobot.agent.tools.tts import TtsTool
 
 
-def _install_fake_edge_tts(monkeypatch, written: dict[str, Path], payload: bytes = b"MP3DATA") -> None:
+def _install_fake_edge_tts(
+    monkeypatch, written: dict[str, Path], payload: bytes = b"MP3DATA"
+) -> None:
     mod = types.ModuleType("edge_tts")
 
     class _FakeCommunicate:
@@ -72,7 +74,7 @@ async def test_tts_tool_reencode_pipeline(monkeypatch, tmp_path) -> None:
 
     fake_ffmpeg = tmp_path / "ffmpeg"
     fake_ffmpeg.write_text(
-        "#!/bin/sh\nlast_mp3=\"\"\nfor arg in \"$@\"; do\n  case \"$arg\" in\n    *.mp3) last_mp3=\"$arg\" ;;\n  esac\ndone\nprintf 'MP3MP3MP3' > \"$last_mp3\"\nexit 0\n",
+        '#!/bin/sh\nlast_mp3=""\nfor arg in "$@"; do\n  case "$arg" in\n    *.mp3) last_mp3="$arg" ;;\n  esac\ndone\nprintf \'MP3MP3MP3\' > "$last_mp3"\nexit 0\n',
         encoding="utf-8",
     )
     fake_ffmpeg.chmod(0o755)

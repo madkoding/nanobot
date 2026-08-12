@@ -79,7 +79,10 @@ def test_resolve_evaluator_prompt_caps_workspace_override(tmp_path) -> None:
 async def test_should_notify_true() -> None:
     provider = DummyProvider([_eval_tool_call(True, "user asked to be reminded")])
     result = await evaluate_response(
-        "Task completed with results", "check emails", provider, "m",
+        "Task completed with results",
+        "check emails",
+        provider,
+        "m",
         evaluator_prompt=_EVAL_PROMPT,
     )
     assert result is True
@@ -89,7 +92,10 @@ async def test_should_notify_true() -> None:
 async def test_should_notify_false() -> None:
     provider = DummyProvider([_eval_tool_call(False, "routine check, nothing new")])
     result = await evaluate_response(
-        "All clear, no updates", "check status", provider, "m",
+        "All clear, no updates",
+        "check status",
+        provider,
+        "m",
         evaluator_prompt=_EVAL_PROMPT,
     )
     assert result is False
@@ -103,8 +109,12 @@ async def test_fallback_on_error() -> None:
 
     provider = FailingProvider([])
     result = await evaluate_response(
-        "some response", "some task", provider, "m",
-        evaluator_prompt=_EVAL_PROMPT, default_notify=True,
+        "some response",
+        "some task",
+        provider,
+        "m",
+        evaluator_prompt=_EVAL_PROMPT,
+        default_notify=True,
     )
     assert result is True
 
@@ -113,8 +123,12 @@ async def test_fallback_on_error() -> None:
 async def test_no_tool_call_fallback() -> None:
     provider = DummyProvider([LLMResponse(content="I think you should notify", tool_calls=[])])
     result = await evaluate_response(
-        "some response", "some task", provider, "m",
-        evaluator_prompt=_EVAL_PROMPT, default_notify=True,
+        "some response",
+        "some task",
+        provider,
+        "m",
+        evaluator_prompt=_EVAL_PROMPT,
+        default_notify=True,
     )
     assert result is True
 
@@ -127,8 +141,12 @@ async def test_fail_closed_on_error() -> None:
 
     provider = FailingProvider([])
     result = await evaluate_response(
-        "some", "task", provider, "m",
-        evaluator_prompt=_EVAL_PROMPT, default_notify=False,
+        "some",
+        "task",
+        provider,
+        "m",
+        evaluator_prompt=_EVAL_PROMPT,
+        default_notify=False,
     )
     assert result is False
 
@@ -137,7 +155,11 @@ async def test_fail_closed_on_error() -> None:
 async def test_fail_closed_on_no_tool_call() -> None:
     provider = DummyProvider([LLMResponse(content="text only", tool_calls=[])])
     result = await evaluate_response(
-        "some", "task", provider, "m",
-        evaluator_prompt=_EVAL_PROMPT, default_notify=False,
+        "some",
+        "task",
+        provider,
+        "m",
+        evaluator_prompt=_EVAL_PROMPT,
+        default_notify=False,
     )
     assert result is False

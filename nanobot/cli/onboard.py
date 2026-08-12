@@ -226,10 +226,12 @@ def _select_with_back(
         event.app.exit()
 
     # Style
-    style = Style.from_dict({
-        "selected": f"fg:{_UI_ACCENT} bold",
-        "question": f"fg:{_UI_TEXT}",
-    })
+    style = Style.from_dict(
+        {
+            "selected": f"fg:{_UI_ACCENT} bold",
+            "question": f"fg:{_UI_TEXT}",
+        }
+    )
 
     app = Application(layout=layout, key_bindings=bindings, style=style)
     app.ttimeoutlen = 0.05
@@ -253,6 +255,7 @@ def _choice_viewport(selected_index: int, total: int, visible_count: int) -> tup
     start = selected_index - half
     start = max(0, min(start, total - visible_count))
     return start, start + visible_count
+
 
 # --- Type Introspection ---
 
@@ -447,7 +450,9 @@ def _show_config_panel(display_name: str, model: BaseModel, fields: list) -> Non
         formatted = _format_value(value, rich=True, field_name=fname)
         table.add_row(display, formatted)
 
-    console.print(Panel(table, title=f"[bold {_UI_TEXT}]{display_name}[/]", border_style=_UI_BORDER))
+    console.print(
+        Panel(table, title=f"[bold {_UI_TEXT}]{display_name}[/]", border_style=_UI_BORDER)
+    )
 
 
 def _show_main_menu_header() -> None:
@@ -494,10 +499,14 @@ def _show_section_header(title: str, subtitle: str = "") -> None:
 
 def _input_bool(display_name: str, current: bool | None) -> bool | None:
     """Get boolean input via confirm dialog."""
-    return _get_questionary().confirm(
-        display_name,
-        default=bool(current) if current is not None else False,
-    ).ask()
+    return (
+        _get_questionary()
+        .confirm(
+            display_name,
+            default=bool(current) if current is not None else False,
+        )
+        .ask()
+    )
 
 
 def _input_back_key_bindings():
@@ -586,18 +595,20 @@ def _input_secret(display_name: str) -> str | None | object:
     return str(value).strip()
 
 
-def _input_with_existing(
-    display_name: str, current: Any, field_type: str, field_info=None
-) -> Any:
+def _input_with_existing(display_name: str, current: Any, field_type: str, field_info=None) -> Any:
     """Handle input with 'keep existing' option for non-empty values."""
     has_existing = current is not None and current != "" and current != {} and current != []
 
     if has_existing and not isinstance(current, list):
-        choice = _get_questionary().select(
-            display_name,
-            choices=["Enter new value", "Keep existing value"],
-            default="Keep existing value",
-        ).ask()
+        choice = (
+            _get_questionary()
+            .select(
+                display_name,
+                choices=["Enter new value", "Keep existing value"],
+                default="Keep existing value",
+            )
+            .ask()
+        )
         if choice == "Keep existing value" or choice is None:
             return None
 
@@ -617,9 +628,7 @@ def _get_current_provider(model: BaseModel) -> str:
 def _input_model_with_autocomplete(
     display_name: str, current: Any, provider: str
 ) -> str | None | object:
-    """Get model input with autocomplete suggestions.
-
-    """
+    """Get model input with autocomplete suggestions."""
     from prompt_toolkit.completion import Completer, Completion
 
     default = str(current) if current else ""
@@ -670,11 +679,15 @@ def _input_context_window_with_recommendation(
         choices.append("Keep existing value")
     choices.append("[?] Get recommended value")
 
-    choice = _get_questionary().select(
-        display_name,
-        choices=choices,
-        default="Enter new value",
-    ).ask()
+    choice = (
+        _get_questionary()
+        .select(
+            display_name,
+            choices=choices,
+            default="Enter new value",
+        )
+        .ask()
+    )
 
     if choice is None:
         return None
@@ -694,8 +707,7 @@ def _input_context_window_with_recommendation(
 
         if context_limit:
             console.print(
-                f"[{_UI_SUCCESS}]+ Recommended context window: "
-                f"{context_limit:,} tokens[/]"
+                f"[{_UI_SUCCESS}]+ Recommended context window: {context_limit:,} tokens[/]"
             )
             return context_limit
         else:
@@ -703,11 +715,15 @@ def _input_context_window_with_recommendation(
             # Fall through to manual input
 
     # Manual input
-    value = _get_questionary().text(
-        f"{display_name}:",
-        default=str(current_val) if current_val else "",
-        key_bindings=_input_back_key_bindings(),
-    ).ask()
+    value = (
+        _get_questionary()
+        .text(
+            f"{display_name}:",
+            default=str(current_val) if current_val else "",
+            key_bindings=_input_back_key_bindings(),
+        )
+        .ask()
+    )
 
     if value is _BACK_PRESSED:
         return _BACK_PRESSED
@@ -764,8 +780,11 @@ def _handle_model_preset_field(
 
 
 def _set_field_from_choices(
-    working_model: BaseModel, field_name: str, field_display: str,
-    choices: list[str], default_choice: str
+    working_model: BaseModel,
+    field_name: str,
+    field_display: str,
+    choices: list[str],
+    default_choice: str,
 ) -> None:
     """Prompt to pick one of ``choices`` and set the field (no-op on back/cancel)."""
     new_value = _select_with_back(field_display, choices, default=default_choice)
@@ -813,11 +832,15 @@ def _handle_fallback_models_field(
         choices.append("[Done]")
         choices.append("<- Back")
 
-        answer = _get_questionary().select(
-            "Manage fallback models:",
-            choices=choices,
-            qmark=">",
-        ).ask()
+        answer = (
+            _get_questionary()
+            .select(
+                "Manage fallback models:",
+                choices=choices,
+                qmark=">",
+            )
+            .ask()
+        )
 
         if answer is None or answer == "<- Back":
             return
@@ -869,6 +892,7 @@ def _resolve_field_handler(model: BaseModel, field_name: str) -> Any:
     name with LLM configs but needs the search-engine picker, not the LLM list."""
     if field_name == "provider":
         from nanobot.agent.tools.web import WebSearchConfig
+
         if isinstance(model, WebSearchConfig):
             return _handle_search_provider_field
     return _FIELD_HANDLERS.get(field_name)
@@ -926,9 +950,7 @@ def _configure_pydantic_model(
                 if fname == last_field_name:
                     default_choice = choices[idx]
                     break
-        answer = _select_with_back(
-            "Select field to configure:", choices, default=default_choice
-        )
+        answer = _select_with_back("Select field to configure:", choices, default=default_choice)
 
         if answer is _BACK_PRESSED:
             return working_model
@@ -946,7 +968,9 @@ def _configure_pydantic_model(
         field_name, field_info = fields[field_idx]
         current_value = getattr(working_model, field_name, None)
         ftype = _get_field_type_info(field_info)
-        field_display = _get_field_display_name(field_name, field_info) + _get_constraint_hint(field_info)
+        field_display = _get_field_display_name(field_name, field_info) + _get_constraint_hint(
+            field_info
+        )
 
         # Nested Pydantic model - recurse
         if ftype.type_name == "model":
@@ -987,7 +1011,9 @@ def _configure_pydantic_model(
         # Generic field input
         if ftype.type_name == "literal" and ftype.inner_type:
             select_choices = [str(v) for v in ftype.inner_type]
-            default_choice = str(current_value) if current_value in ftype.inner_type else select_choices[0]
+            default_choice = (
+                str(current_value) if current_value in ftype.inner_type else select_choices[0]
+            )
             new_value = _select_with_back(field_display, select_choices, default=default_choice)
             if new_value is _BACK_PRESSED:
                 continue
@@ -997,7 +1023,9 @@ def _configure_pydantic_model(
         if ftype.type_name == "bool":
             new_value = _input_bool(field_display, current_value)
         else:
-            new_value = _input_with_existing(field_display, current_value, ftype.type_name, field_info=field_info)
+            new_value = _input_with_existing(
+                field_display, current_value, ftype.type_name, field_info=field_info
+            )
         if new_value is _BACK_PRESSED:
             continue
         if new_value is not None:
@@ -1036,10 +1064,7 @@ def _try_auto_fill_context_window(model: BaseModel, new_model_name: str) -> None
 
     if context_limit:
         setattr(model, "context_window_tokens", context_limit)
-        console.print(
-            f"[{_UI_SUCCESS}]+ Auto-filled context window: "
-            f"{context_limit:,} tokens[/]"
-        )
+        console.print(f"[{_UI_SUCCESS}]+ Auto-filled context window: {context_limit:,} tokens[/]")
     else:
         console.print("[dim]Could not auto-fill context window - model not in database[/dim]")
 
@@ -1083,9 +1108,7 @@ def _configure_model_presets(config: Config) -> None:
                     if name == last_preset_name:
                         default_choice = choice
                         break
-            answer = _select_with_back(
-                "Select preset:", choices, default=default_choice
-            )
+            answer = _select_with_back("Select preset:", choices, default=default_choice)
 
             if answer is _BACK_PRESSED or answer is None or answer == "<- Back":
                 break
@@ -1093,10 +1116,14 @@ def _configure_model_presets(config: Config) -> None:
             assert isinstance(answer, str)
 
             if answer == "[+] Add new preset":
-                name_input = _get_questionary().text(
-                    "Preset name:",
-                    validate=lambda t: True if t and t.strip() else "Name cannot be empty",
-                ).ask()
+                name_input = (
+                    _get_questionary()
+                    .text(
+                        "Preset name:",
+                        validate=lambda t: True if t and t.strip() else "Name cannot be empty",
+                    )
+                    .ask()
+                )
                 if not name_input:
                     continue
                 name = name_input.strip()
@@ -1140,10 +1167,14 @@ def _configure_model_presets(config: Config) -> None:
                 continue
 
             if action == "Delete":
-                confirm = _get_questionary().confirm(
-                    f"Delete preset '{preset_name}'?",
-                    default=False,
-                ).ask()
+                confirm = (
+                    _get_questionary()
+                    .confirm(
+                        f"Delete preset '{preset_name}'?",
+                        default=False,
+                    )
+                    .ask()
+                )
                 if confirm:
                     del config.model_presets[preset_name]
                     _sync_preset_cache(config)
@@ -1227,7 +1258,9 @@ def _configure_providers(config: Config) -> None:
     while True:
         try:
             console.clear()
-            _show_section_header("LLM Providers", "Select a provider to configure API key and endpoint")
+            _show_section_header(
+                "LLM Providers", "Select a provider to configure API key and endpoint"
+            )
             choices = get_provider_choices()
             default_choice = None
             if last_provider_key:
@@ -1237,9 +1270,7 @@ def _configure_providers(config: Config) -> None:
                         if c.replace(" *", "") == display:
                             default_choice = c
                             break
-            answer = _select_with_back(
-                "Select provider:", choices, default=default_choice
-            )
+            answer = _select_with_back("Select provider:", choices, default=default_choice)
 
             if answer is _BACK_PRESSED or answer is None or answer == "<- Back":
                 break
@@ -1341,7 +1372,9 @@ def _run_channel_login(
         return False
 
     if not success:
-        console.print(f"[yellow]! {display_name} login did not complete; channel was not enabled[/yellow]")
+        console.print(
+            f"[yellow]! {display_name} login did not complete; channel was not enabled[/yellow]"
+        )
         return False
 
     setattr(config.channels, channel_name, model.model_dump(by_alias=True, exclude_none=True))
@@ -1396,10 +1429,10 @@ def _configure_channels(config: Config) -> None:
     while True:
         try:
             console.clear()
-            _show_section_header("Chat Channels", "Select a channel to configure connection settings")
-            answer = _select_with_back(
-                "Select channel:", choices, default=last_choice
+            _show_section_header(
+                "Chat Channels", "Select a channel to configure connection settings"
             )
+            answer = _select_with_back("Select channel:", choices, default=last_choice)
 
             if answer is _BACK_PRESSED or answer is None or answer == "<- Back":
                 break
@@ -1416,11 +1449,23 @@ def _configure_channels(config: Config) -> None:
 # --- General Settings ---
 
 _SETTINGS_SECTIONS: dict[str, tuple[str, str, set[str] | None]] = {
-    "Agent Settings": ("Agent Defaults", "Configure default model, temperature, and behavior", None),
-    "Channel Common": ("Channel Common", "Configure cross-channel behavior: progress, tool hints, retries", None),
+    "Agent Settings": (
+        "Agent Defaults",
+        "Configure default model, temperature, and behavior",
+        None,
+    ),
+    "Channel Common": (
+        "Channel Common",
+        "Configure cross-channel behavior: progress, tool hints, retries",
+        None,
+    ),
     "API Server": ("API Server", "Configure OpenAI-compatible API endpoint", None),
     "Gateway": ("Gateway Settings", "Configure server host, port", None),
-    "Tools": ("Tools Settings", "Configure web search, shell exec, and other tools", {"mcp_servers"}),
+    "Tools": (
+        "Tools Settings",
+        "Configure web search, shell exec, and other tools",
+        {"mcp_servers"},
+    ),
 }
 
 _SETTINGS_GETTER = {
@@ -1603,7 +1648,9 @@ def _quick_start_requires_api_key(provider_name: str, info: _QuickStartProviderI
     return provider_name == "custom" or not (info and info.is_local)
 
 
-def _quick_start_requires_base_url(provider_name: str, info: _QuickStartProviderInfo | None) -> bool:
+def _quick_start_requires_base_url(
+    provider_name: str, info: _QuickStartProviderInfo | None
+) -> bool:
     """Return whether Quick Start must ask for a provider base URL."""
     if provider_name == "custom":
         return True
@@ -1695,9 +1742,8 @@ def _configure_quick_start_provider(config: Config) -> bool | object:
                 console.print("[yellow]! API key is required for Quick Start[/yellow]")
                 return False
 
-        if (
-            provider_name not in _QUICK_START_ENDPOINT_CHOICES
-            and _quick_start_requires_base_url(provider_name, provider_info)
+        if provider_name not in _QUICK_START_ENDPOINT_CHOICES and _quick_start_requires_base_url(
+            provider_name, provider_info
         ):
             api_base_result = _select_quick_start_api_base(provider_name, answer, provider_info)
             if api_base_result is _BACK_PRESSED:
@@ -1746,10 +1792,14 @@ def _enable_quick_start_websocket_defaults(config: Config) -> bool:
     )
     console.print()
     while True:
-        answer = _get_questionary().confirm(
-            "Enable WebSocket channel now?",
-            default=True,
-        ).ask()
+        answer = (
+            _get_questionary()
+            .confirm(
+                "Enable WebSocket channel now?",
+                default=True,
+            )
+            .ask()
+        )
         if not answer:
             console.print(
                 "[yellow]! Quick Start needs the WebSocket channel for the local WebUI[/yellow]"
@@ -1841,16 +1891,20 @@ def _prompt_main_menu_exit(has_unsaved_changes: bool) -> str:
     if not has_unsaved_changes:
         return "discard"
 
-    answer = _get_questionary().select(
-        "You have unsaved changes. What would you like to do?",
-        choices=[
-            "[S] Save and Exit",
-            "[X] Exit Without Saving",
-            "[R] Resume Editing",
-        ],
-        default="[R] Resume Editing",
-        qmark=">",
-    ).ask()
+    answer = (
+        _get_questionary()
+        .select(
+            "You have unsaved changes. What would you like to do?",
+            choices=[
+                "[S] Save and Exit",
+                "[X] Exit Without Saving",
+                "[R] Resume Editing",
+            ],
+            default="[R] Resume Editing",
+            qmark=">",
+        )
+        .ask()
+    )
 
     if answer == "[S] Save and Exit":
         return "save"

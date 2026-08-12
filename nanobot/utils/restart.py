@@ -36,7 +36,10 @@ def format_restart_completed_message(started_at_raw: str) -> str:
 
 
 def set_restart_notice_to_env(
-    *, channel: str, chat_id: str, metadata: dict[str, Any] | None = None,
+    *,
+    channel: str,
+    chat_id: str,
+    metadata: dict[str, Any] | None = None,
 ) -> None:
     """Write restart notice env values for the next process."""
     os.environ[RESTART_NOTIFY_CHANNEL_ENV] = channel

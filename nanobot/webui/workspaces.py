@@ -29,9 +29,8 @@ _WEBUI_SCOPE_CHANNEL = "websocket"
 
 def _scope_change_is_non_escalating(current: WorkspaceScope, requested: WorkspaceScope) -> bool:
     """Allow a remote request only when it keeps the project and does not add access."""
-    return (
-        requested.project_path == current.project_path
-        and (not current.restrict_to_workspace or requested.restrict_to_workspace)
+    return requested.project_path == current.project_path and (
+        not current.restrict_to_workspace or requested.restrict_to_workspace
     )
 
 
@@ -139,7 +138,9 @@ def workspaces_payload(
             source_channel=_WEBUI_SCOPE_CHANNEL,
         )
         if default_access_mode == "default"
-        else build_workspace_scope(default_workspace, default_access_mode, source_channel=_WEBUI_SCOPE_CHANNEL)
+        else build_workspace_scope(
+            default_workspace, default_access_mode, source_channel=_WEBUI_SCOPE_CHANNEL
+        )
     )
     return {
         "schema_version": WEBUI_WORKSPACE_STATE_SCHEMA_VERSION,

@@ -22,7 +22,9 @@ class TestLocalEndpointProxyDisabled:
         spec.env_key = ""
         spec.default_api_base = "http://localhost:11434/v1"
         provider = OpenAICompatProvider(
-            api_key="test", api_base="http://localhost:11434/v1", spec=spec,
+            api_key="test",
+            api_base="http://localhost:11434/v1",
+            spec=spec,
         )
         await provider._ensure_client()
         transport = provider._client._client._transport
@@ -34,7 +36,9 @@ class TestLocalEndpointProxyDisabled:
         spec.env_key = ""
         spec.default_api_base = None
         provider = OpenAICompatProvider(
-            api_key="test", api_base="http://192.168.8.188:1234/v1", spec=spec,
+            api_key="test",
+            api_base="http://192.168.8.188:1234/v1",
+            spec=spec,
         )
         await provider._ensure_client()
         transport = provider._client._client._transport
@@ -49,7 +53,9 @@ class TestCloudEndpointProxyEnabled:
         spec.env_key = ""
         spec.default_api_base = "https://api.openai.com/v1"
         provider = OpenAICompatProvider(
-            api_key="test", api_base=None, spec=spec,
+            api_key="test",
+            api_base=None,
+            spec=spec,
         )
         await provider._ensure_client()
         client = provider._client._client

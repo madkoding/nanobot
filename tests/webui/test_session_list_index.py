@@ -288,4 +288,3 @@ def test_session_manager_list_sessions_fallback_time_when_missing(tmp_path: Path
     assert sessions[0]["updated_at"] is not None
     datetime.fromisoformat(sessions[0]["created_at"])
     datetime.fromisoformat(sessions[0]["updated_at"])
-

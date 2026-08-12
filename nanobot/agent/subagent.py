@@ -47,11 +47,11 @@ class SubagentStatus:
     task_id: str
     label: str
     task_description: str
-    started_at: float          # time.monotonic()
+    started_at: float  # time.monotonic()
     phase: str = "initializing"  # initializing | awaiting_tools | tools_completed | final_response | done | error
     iteration: int = 0
-    tool_events: list = field(default_factory=list)   # [{name, status, detail}, ...]
-    usage: dict = field(default_factory=dict)          # token usage
+    tool_events: list = field(default_factory=list)  # [{name, status, detail}, ...]
+    usage: dict = field(default_factory=dict)  # token usage
     stop_reason: str | None = None
     error: str | None = None
     result: str | None = None
@@ -261,7 +261,10 @@ def _load_subagent_pendings(workspace: Path) -> list[dict[str, Any]]:
                 logger.warning("Could not read subagent pending record {}", path)
                 continue
             persisted_at = payload.get("persisted_at")
-            if not isinstance(persisted_at, (int, float)) or now - persisted_at > SUBAGENT_STATUS_TTL_S:
+            if (
+                not isinstance(persisted_at, (int, float))
+                or now - persisted_at > SUBAGENT_STATUS_TTL_S
+            ):
                 try:
                     path.unlink()
                 except Exception:
@@ -287,7 +290,9 @@ class _SubagentHook(AgentHook):
             args_str = json.dumps(tool_call.arguments, ensure_ascii=False)
             logger.debug(
                 "Subagent [{}] executing: {} with arguments: {}",
-                self._task_id, tool_call.name, args_str,
+                self._task_id,
+                tool_call.name,
+                args_str,
             )
 
     async def after_iteration(self, context: AgentHookContext) -> None:
@@ -350,9 +355,7 @@ class SubagentManager:
         self.restrict_to_workspace = restrict_to_workspace
         self.disabled_skills = set(disabled_skills or [])
         self.max_iterations = (
-            max_iterations
-            if max_iterations is not None
-            else defaults.max_tool_iterations
+            max_iterations if max_iterations is not None else defaults.max_tool_iterations
         )
         self.max_concurrent_subagents = (
             max_concurrent_subagents
@@ -360,9 +363,7 @@ class SubagentManager:
             else defaults.max_concurrent_subagents
         )
         self.fail_on_tool_error = (
-            fail_on_tool_error
-            if fail_on_tool_error is not None
-            else defaults.fail_on_tool_error
+            fail_on_tool_error if fail_on_tool_error is not None else defaults.fail_on_tool_error
         )
         self.runner = AgentRunner()
         self._exec_session_manager = ExecSessionManager()
@@ -372,7 +373,8 @@ class SubagentManager:
         # Restored from disk on startup so finished subagent panels still work
         # after a gateway restart. In-memory dict also keeps recent snapshots.
         self._finished_statuses: dict[str, SubagentStatus] = _load_persisted_subagent_statuses(
-            self.workspace, SUBAGENT_STATUS_TTL_S,
+            self.workspace,
+            SUBAGENT_STATUS_TTL_S,
         )
         self._session_tasks: dict[str, set[str]] = {}  # session_key -> {task_id, ...}
         self._event_callback: SubagentEventCallback | None = None
@@ -763,10 +765,7 @@ class SubagentManager:
             if not isinstance(messages, list) or not messages:
                 return
             # Throttle: persist every 5 iterations or 30 seconds, whichever comes first.
-            throttle = (
-                status.iteration % 5 == 0
-                or now - _last_checkpoint_time[0] >= 30
-            )
+            throttle = status.iteration % 5 == 0 or now - _last_checkpoint_time[0] >= 30
             if not throttle:
                 return
             _last_checkpoint_time[0] = now
@@ -818,31 +817,35 @@ class SubagentManager:
                 if self._llm_wall_timeout_for_session
                 else None
             )
-            request_token = bind_request_context(RequestContext(
-                channel=origin["channel"],
-                chat_id=origin["chat_id"],
-                message_id=origin_message_id,
-                session_key=sess_key,
-                runtime=runtime,
-            ))
+            request_token = bind_request_context(
+                RequestContext(
+                    channel=origin["channel"],
+                    chat_id=origin["chat_id"],
+                    message_id=origin_message_id,
+                    session_key=sess_key,
+                    runtime=runtime,
+                )
+            )
             token = bind_workspace_scope(workspace_scope) if workspace_scope is not None else None
             try:
-                result = await self.runner.run(AgentRunSpec(
-                    initial_messages=messages,
-                    tools=tools,
-                    runtime=runtime,
-                    max_iterations=self.max_iterations,
-                    max_tool_result_chars=self.max_tool_result_chars,
-                    hook=_SubagentHook(task_id, status),
-                    max_iterations_message="Task completed but no final response was generated.",
-                    finalize_on_max_iterations=False,
-                    error_message=None,
-                    fail_on_tool_error=self.fail_on_tool_error,
-                    checkpoint_callback=_on_checkpoint,
-                    session_key=sess_key,
-                    workspace=root,
-                    llm_timeout_s=llm_timeout,
-                ))
+                result = await self.runner.run(
+                    AgentRunSpec(
+                        initial_messages=messages,
+                        tools=tools,
+                        runtime=runtime,
+                        max_iterations=self.max_iterations,
+                        max_tool_result_chars=self.max_tool_result_chars,
+                        hook=_SubagentHook(task_id, status),
+                        max_iterations_message="Task completed but no final response was generated.",
+                        finalize_on_max_iterations=False,
+                        error_message=None,
+                        fail_on_tool_error=self.fail_on_tool_error,
+                        checkpoint_callback=_on_checkpoint,
+                        session_key=sess_key,
+                        workspace=root,
+                        llm_timeout_s=llm_timeout,
+                    )
+                )
             finally:
                 if token is not None:
                     reset_workspace_scope(token)
@@ -859,7 +862,9 @@ class SubagentManager:
                 final_result = result.error or "Error: subagent execution failed."
                 final_status = "error"
             else:
-                final_result = result.final_content or "Task completed but no final response was generated."
+                final_result = (
+                    result.final_content or "Task completed but no final response was generated."
+                )
                 final_status = "ok"
                 logger.info("Subagent [{}] completed successfully", task_id)
             status.result = final_result
@@ -968,7 +973,9 @@ class SubagentManager:
         )
 
         await self.bus.publish_inbound(msg)
-        logger.debug("Subagent [{}] announced result to {}:{}", task_id, origin['channel'], origin['chat_id'])
+        logger.debug(
+            "Subagent [{}] announced result to {}:{}", task_id, origin["channel"], origin["chat_id"]
+        )
 
     @staticmethod
     def _format_partial_progress(result) -> str:
@@ -1011,8 +1018,11 @@ class SubagentManager:
 
     async def cancel_by_session(self, session_key: str) -> int:
         """Cancel all subagents for the given session. Returns count cancelled."""
-        tasks = [self._running_tasks[tid] for tid in self._session_tasks.get(session_key, [])
-                 if tid in self._running_tasks and not self._running_tasks[tid].done()]
+        tasks = [
+            self._running_tasks[tid]
+            for tid in self._session_tasks.get(session_key, [])
+            if tid in self._running_tasks and not self._running_tasks[tid].done()
+        ]
         for t in tasks:
             t.cancel()
         if tasks:
@@ -1037,6 +1047,5 @@ class SubagentManager:
         """Return the number of currently running subagents for a session."""
         tids = self._session_tasks.get(session_key, set())
         return sum(
-            1 for tid in tids
-            if tid in self._running_tasks and not self._running_tasks[tid].done()
+            1 for tid in tids if tid in self._running_tasks and not self._running_tasks[tid].done()
         )

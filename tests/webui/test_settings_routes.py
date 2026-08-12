@@ -42,10 +42,7 @@ async def test_xai_oauth_completion_reads_code_from_private_header(monkeypatch) 
     monkeypatch.setattr("nanobot.webui.settings_routes.complete_oauth_provider", complete)
     router = _router()
     request = SimpleNamespace(
-        path=(
-            "/api/settings/provider/oauth-login/complete"
-            "?provider=xai_grok&flow_id=flow-123"
-        ),
+        path=("/api/settings/provider/oauth-login/complete?provider=xai_grok&flow_id=flow-123"),
         headers=Headers(
             [
                 (

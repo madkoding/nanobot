@@ -217,9 +217,17 @@ class TestEnforceRoleAlternation:
         because tool messages will follow and some providers accept this."""
         msgs = [
             {"role": "system", "content": "sys"},
-            {"role": "assistant", "content": None, "tool_calls": [
-                {"id": "tc_1", "type": "function", "function": {"name": "ls", "arguments": "{}"}}
-            ]},
+            {
+                "role": "assistant",
+                "content": None,
+                "tool_calls": [
+                    {
+                        "id": "tc_1",
+                        "type": "function",
+                        "function": {"name": "ls", "arguments": "{}"},
+                    }
+                ],
+            },
             {"role": "tool", "tool_call_id": "tc_1", "content": "result"},
         ]
         result = LLMProvider._enforce_role_alternation(msgs)

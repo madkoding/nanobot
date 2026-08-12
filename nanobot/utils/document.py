@@ -213,9 +213,7 @@ def _extract_docx(path: Path) -> str:
         def table_rows(table: Table, depth: int) -> Iterator[str]:
             nonlocal table_cell_count
             if depth > _MAX_DOCX_TABLE_DEPTH:
-                raise DocxSafetyError(
-                    f"table nesting exceeds {_MAX_DOCX_TABLE_DEPTH} levels"
-                )
+                raise DocxSafetyError(f"table nesting exceeds {_MAX_DOCX_TABLE_DEPTH} levels")
             for row in table.rows:
                 cells: list[str] = []
                 # row.cells expands w:gridSpan before callers can apply a bound.
@@ -426,7 +424,8 @@ def is_image_file(path: str) -> bool:
 
 
 def reference_non_image_attachments(
-    content: str, media: list[str],
+    content: str,
+    media: list[str],
 ) -> tuple[str, list[str]]:
     """Separate images from non-image attachments without reading file content.
 
@@ -477,7 +476,9 @@ def extract_documents(
         if size > max_file_size:
             logger.warning(
                 "Skipping oversized file for extraction: {} ({:.1f} MB > {} MB limit)",
-                p.name, size / (1024 * 1024), max_file_size // (1024 * 1024),
+                p.name,
+                size / (1024 * 1024),
+                max_file_size // (1024 * 1024),
             )
             continue
 

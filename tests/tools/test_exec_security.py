@@ -104,7 +104,9 @@ def test_exec_full_workspace_scope_still_blocks_metadata(tmp_path):
     token = bind_workspace_scope(scope)
     try:
         with patch("nanobot.security.network.socket.getaddrinfo", _fake_resolve_private):
-            error = tool._guard_command("curl http://169.254.169.254/latest/meta-data/", str(tmp_path))
+            error = tool._guard_command(
+                "curl http://169.254.169.254/latest/meta-data/", str(tmp_path)
+            )
     finally:
         reset_workspace_scope(token)
     assert error is not None

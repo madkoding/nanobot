@@ -256,9 +256,7 @@ class OpenRouterImageGenerationClient(ImageGenerationProvider):
 
     provider_name = "openrouter"
     model_options = ("openai/gpt-5.4-image-2",)
-    missing_key_message = (
-        "OpenRouter API key is not configured. Set providers.openrouter.apiKey."
-    )
+    missing_key_message = "OpenRouter API key is not configured. Set providers.openrouter.apiKey."
 
     def _default_base_url(self) -> str:
         return "https://openrouter.ai/api/v1"
@@ -348,9 +346,7 @@ class AIHubMixImageGenerationClient(ImageGenerationProvider):
 
     provider_name = "aihubmix"
     model_options = ("gpt-image-2-free",)
-    missing_key_message = (
-        "AIHubMix API key is not configured. Set providers.aihubmix.apiKey."
-    )
+    missing_key_message = "AIHubMix API key is not configured. Set providers.aihubmix.apiKey."
     default_timeout = _AIHUBMIX_TIMEOUT_S
 
     def _default_base_url(self) -> str:
@@ -542,9 +538,7 @@ class OllamaImageGenerationClient(ImageGenerationProvider):
         image_size: str | None = None,
     ) -> GeneratedImageResponse:
         if reference_images:
-            raise ImageGenerationError(
-                "Ollama image generation does not support reference images"
-            )
+            raise ImageGenerationError("Ollama image generation does not support reference images")
 
         width, height = _ollama_dimensions(aspect_ratio, image_size)
         body: dict[str, Any] = {
@@ -596,9 +590,7 @@ class GeminiImageGenerationClient(ImageGenerationProvider):
 
     provider_name = "gemini"
     model_options = ("gemini-2.5-flash-image", "imagen-4.0-generate-001")
-    missing_key_message = (
-        "Gemini API key is not configured. Set providers.gemini.apiKey."
-    )
+    missing_key_message = "Gemini API key is not configured. Set providers.gemini.apiKey."
     default_timeout = _GEMINI_DEFAULT_TIMEOUT_S
 
     def _default_base_url(self) -> str:
@@ -666,7 +658,9 @@ class GeminiImageGenerationClient(ImageGenerationProvider):
             response.raise_for_status()
         except httpx.HTTPStatusError as exc:
             detail = _http_error_detail(response)
-            logger.error("Gemini Imagen generation failed (HTTP {}): {}", response.status_code, detail)
+            logger.error(
+                "Gemini Imagen generation failed (HTTP {}): {}", response.status_code, detail
+            )
             raise ImageGenerationError(
                 f"Gemini Imagen generation failed (HTTP {response.status_code}): {detail}"
             ) from exc
@@ -715,7 +709,9 @@ class GeminiImageGenerationClient(ImageGenerationProvider):
             response.raise_for_status()
         except httpx.HTTPStatusError as exc:
             detail = _http_error_detail(response)
-            logger.error("Gemini image generation failed (HTTP {}): {}", response.status_code, detail)
+            logger.error(
+                "Gemini image generation failed (HTTP {}): {}", response.status_code, detail
+            )
             raise ImageGenerationError(
                 f"Gemini image generation failed (HTTP {response.status_code}): {detail}"
             ) from exc
@@ -821,9 +817,7 @@ class MiniMaxImageGenerationClient(ImageGenerationProvider):
 
     provider_name = "minimax"
     model_options = ("image-01",)
-    missing_key_message = (
-        "MiniMax API key is not configured. Set providers.minimax.apiKey."
-    )
+    missing_key_message = "MiniMax API key is not configured. Set providers.minimax.apiKey."
     default_timeout = _MINIMAX_TIMEOUT_S
 
     def _default_base_url(self) -> str:
@@ -954,9 +948,7 @@ class OpenAIImageGenerationClient(ImageGenerationProvider):
 
     provider_name = "openai"
     model_options = ("gpt-image-2", "gpt-image-1", "dall-e-3", "dall-e-2")
-    missing_key_message = (
-        "OpenAI API key is not configured. Set providers.openai.apiKey."
-    )
+    missing_key_message = "OpenAI API key is not configured. Set providers.openai.apiKey."
 
     def _default_base_url(self) -> str:
         return "https://api.openai.com/v1"
@@ -1101,8 +1093,11 @@ class OpenAIImageGenerationClient(ImageGenerationProvider):
             ) from exc
 
         payload = response.json()
-        logger.info("OpenAI Images API response ({}): {}", response.status_code,
-                       {k: v for k, v in payload.items() if k != "data"})
+        logger.info(
+            "OpenAI Images API response ({}): {}",
+            response.status_code,
+            {k: v for k, v in payload.items() if k != "data"},
+        )
 
         images = await self._parse_images_response(payload)
         self._require_images(images, payload)
@@ -1167,7 +1162,9 @@ class CustomImageGenerationClient(ImageGenerationProvider):
         }
         body.update(self.extra_body)
 
-        logger.info("Custom Images API request: POST {}/images/generations body={}", self.api_base, body)
+        logger.info(
+            "Custom Images API request: POST {}/images/generations body={}", self.api_base, body
+        )
 
         response = await self._http_post(
             f"{self.api_base}/images/generations",
@@ -1185,8 +1182,11 @@ class CustomImageGenerationClient(ImageGenerationProvider):
             ) from exc
 
         payload = response.json()
-        logger.info("Custom Images API response ({}): {}", response.status_code,
-                       {k: v for k, v in payload.items() if k != "data"})
+        logger.info(
+            "Custom Images API response ({}): {}",
+            response.status_code,
+            {k: v for k, v in payload.items() if k != "data"},
+        )
 
         client = self._client
         owns_client = client is None
@@ -1218,10 +1218,7 @@ class CodexImageGenerationClient(ImageGenerationProvider):
 
     provider_name = "openai_codex"
     model_options = ("gpt-5.4",)
-    missing_key_message = (
-        "Codex OAuth token is unavailable. "
-        "Log in with Codex subscription first."
-    )
+    missing_key_message = "Codex OAuth token is unavailable. Log in with Codex subscription first."
 
     def _default_base_url(self) -> str:
         return "https://chatgpt.com/backend-api"
@@ -1287,8 +1284,11 @@ class CodexImageGenerationClient(ImageGenerationProvider):
         }
         body.update(self.extra_body)
 
-        logger.info("Codex Responses API request: POST {}/codex/responses body={}",
-                       self.api_base, {k: v for k, v in body.items() if k != "input"})
+        logger.info(
+            "Codex Responses API request: POST {}/codex/responses body={}",
+            self.api_base,
+            {k: v for k, v in body.items() if k != "input"},
+        )
 
         response = await self._http_post(
             f"{self.api_base}/codex/responses",
@@ -1517,9 +1517,7 @@ class StepFunImageGenerationClient(ImageGenerationProvider):
 
     provider_name = "stepfun"
     model_options = ("step-image-edit-2", "step-1x-medium")
-    missing_key_message = (
-        "StepFun API key is not configured. Set providers.stepfun.apiKey."
-    )
+    missing_key_message = "StepFun API key is not configured. Set providers.stepfun.apiKey."
     default_timeout = 120.0
 
     def _default_base_url(self) -> str:
@@ -1574,9 +1572,7 @@ class StepFunImageGenerationClient(ImageGenerationProvider):
             response.raise_for_status()
         except httpx.HTTPStatusError as exc:
             detail = response.text[:500]
-            raise ImageGenerationError(
-                f"StepFun image generation failed: {detail}"
-            ) from exc
+            raise ImageGenerationError(f"StepFun image generation failed: {detail}") from exc
 
         payload = response.json()
         images = _stepfun_images_from_payload(payload)
@@ -1663,9 +1659,7 @@ class ZhipuImageGenerationClient(ImageGenerationProvider):
             raise ImageGenerationError(self.missing_key_message)
 
         if reference_images:
-            raise ImageGenerationError(
-                "Zhipu image generation does not support reference images"
-            )
+            raise ImageGenerationError("Zhipu image generation does not support reference images")
 
         headers = {
             "Authorization": f"Bearer {self.api_key}",
@@ -1800,9 +1794,7 @@ class ModelScopeImageGenerationClient(ImageGenerationProvider):
 
     provider_name = "modelscope"
     model_options = ("Qwen/Qwen-Image-2512",)
-    missing_key_message = (
-        "ModelScope API key is not configured. Set providers.modelscope.apiKey."
-    )
+    missing_key_message = "ModelScope API key is not configured. Set providers.modelscope.apiKey."
     default_timeout = _MODELSCOPE_TIMEOUT_S
 
     def _default_base_url(self) -> str:
@@ -1869,7 +1861,9 @@ class ModelScopeImageGenerationClient(ImageGenerationProvider):
         except httpx.TimeoutException as exc:
             raise ImageGenerationError("ModelScope image generation request timed out") from exc
         except httpx.RequestError as exc:
-            raise ImageGenerationError(f"ModelScope image generation request failed: {exc}") from exc
+            raise ImageGenerationError(
+                f"ModelScope image generation request failed: {exc}"
+            ) from exc
 
         try:
             response.raise_for_status()
@@ -1913,9 +1907,7 @@ class ModelScopeImageGenerationClient(ImageGenerationProvider):
                 response.raise_for_status()
             except httpx.HTTPStatusError as exc:
                 detail = _http_error_detail(response)
-                raise ImageGenerationError(
-                    f"ModelScope task polling failed: {detail}"
-                ) from exc
+                raise ImageGenerationError(f"ModelScope task polling failed: {detail}") from exc
 
             data = response.json()
             status = data.get("task_status")
@@ -1923,15 +1915,12 @@ class ModelScopeImageGenerationClient(ImageGenerationProvider):
             if status == "SUCCEED":
                 return await self._collect_images(client, data)
             if status == "FAILED":
-                raise ImageGenerationError(
-                    f"ModelScope image generation task failed: {data}"
-                )
+                raise ImageGenerationError(f"ModelScope image generation task failed: {data}")
 
             await asyncio.sleep(_MODELSCOPE_POLL_INTERVAL_S)
 
         raise ImageGenerationError(
-            f"ModelScope image generation timed out after "
-            f"{_MODELSCOPE_POLL_MAX_ATTEMPTS} polls"
+            f"ModelScope image generation timed out after {_MODELSCOPE_POLL_MAX_ATTEMPTS} polls"
         )
 
     @staticmethod

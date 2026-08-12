@@ -76,7 +76,9 @@ def test_get_remote_pyproject_version():
 
 def test_get_remote_info_combines_sha_and_version():
     body = json.dumps({"sha": "abc123", "commit": {"committer": {"date": "2026-08-01T00:00:00Z"}}})
-    with patch("nanobot.utils.update._http_get", side_effect=[body, '[project]\nversion = "0.4.0"\n', body]):
+    with patch(
+        "nanobot.utils.update._http_get", side_effect=[body, '[project]\nversion = "0.4.0"\n', body]
+    ):
         remote = get_remote_info()
     assert remote.sha == "abc123"
     assert remote.version == "0.4.0"
@@ -84,8 +86,15 @@ def test_get_remote_info_combines_sha_and_version():
 
 
 def test_perform_update_check_only_returns_zero(capsys):
-    with patch("nanobot.utils.update.detect_install", return_value=InstallInfo("pypi", None, "python", "0.3.0")), \
-         patch("nanobot.utils.update.get_remote_info", return_value=RemoteInfo("abc123", "0.4.0", None)):
+    with (
+        patch(
+            "nanobot.utils.update.detect_install",
+            return_value=InstallInfo("pypi", None, "python", "0.3.0"),
+        ),
+        patch(
+            "nanobot.utils.update.get_remote_info", return_value=RemoteInfo("abc123", "0.4.0", None)
+        ),
+    ):
         code = perform_update(check=True)
     assert code == 0
     out = capsys.readouterr().out
@@ -94,8 +103,13 @@ def test_perform_update_check_only_returns_zero(capsys):
 
 
 def test_perform_update_aborts_when_remote_unreachable(capsys):
-    with patch("nanobot.utils.update.detect_install", return_value=InstallInfo("pypi", None, "python", "0.3.0")), \
-         patch("nanobot.utils.update.get_remote_info", return_value=RemoteInfo(None, None, None)):
+    with (
+        patch(
+            "nanobot.utils.update.detect_install",
+            return_value=InstallInfo("pypi", None, "python", "0.3.0"),
+        ),
+        patch("nanobot.utils.update.get_remote_info", return_value=RemoteInfo(None, None, None)),
+    ):
         code = perform_update()
     assert code == 1
     assert "Could not reach" in capsys.readouterr().out
@@ -107,13 +121,20 @@ def test_perform_update_full_mocked(tmp_path, capsys):
     (source / "webui").mkdir()
     (source / "webui" / "package.json").write_text("{}", encoding="utf-8")
 
-    with patch("nanobot.utils.update.detect_install", return_value=InstallInfo("pypi", None, "python", "0.3.0")), \
-         patch("nanobot.utils.update.get_remote_info", return_value=RemoteInfo("abc123", "0.4.0", None)), \
-         patch("nanobot.utils.update._download_main_zip", return_value=source), \
-         patch("nanobot.utils.update._pip_install", return_value=(True, "")), \
-         patch("nanobot.utils.update.rebuild_webui", return_value=(True, "WebUI rebuilt")), \
-         patch("nanobot.utils.update._reinstall_channel_deps", return_value=False), \
-         patch("nanobot.utils.update.restart_gateway", return_value=(True, "gateway restarted")):
+    with (
+        patch(
+            "nanobot.utils.update.detect_install",
+            return_value=InstallInfo("pypi", None, "python", "0.3.0"),
+        ),
+        patch(
+            "nanobot.utils.update.get_remote_info", return_value=RemoteInfo("abc123", "0.4.0", None)
+        ),
+        patch("nanobot.utils.update._download_main_zip", return_value=source),
+        patch("nanobot.utils.update._pip_install", return_value=(True, "")),
+        patch("nanobot.utils.update.rebuild_webui", return_value=(True, "WebUI rebuilt")),
+        patch("nanobot.utils.update._reinstall_channel_deps", return_value=False),
+        patch("nanobot.utils.update.restart_gateway", return_value=(True, "gateway restarted")),
+    ):
         code = perform_update(yes=True)
     assert code == 0
     out = capsys.readouterr().out

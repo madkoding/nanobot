@@ -66,42 +66,52 @@ def test_convert_user_content_coerces_typeless_dict():
     """Bare dicts without a "type" field must be coerced to text blocks.
     Regression for #3993: tools returning plain dicts caused Anthropic to
     reject the request with "content.0.type: Field required"."""
-    result = AnthropicProvider._convert_user_content([
-        {"foo": "bar"},
-        {"type": "text", "text": "ok"},
-    ])
+    result = AnthropicProvider._convert_user_content(
+        [
+            {"foo": "bar"},
+            {"type": "text", "text": "ok"},
+        ]
+    )
     assert result[0] == {"type": "text", "text": '{"foo": "bar"}'}
     assert result[1] == {"type": "text", "text": "ok"}
 
 
 def test_convert_user_content_coerces_mixed_typeless():
     """Multiple typeless items and non-dict items are all handled."""
-    result = AnthropicProvider._convert_user_content([
-        42,
-        {"key": "val"},
-    ])
+    result = AnthropicProvider._convert_user_content(
+        [
+            42,
+            {"key": "val"},
+        ]
+    )
     assert result[0] == {"type": "text", "text": "42"}
     assert result[1] == {"type": "text", "text": '{"key": "val"}'}
 
 
 def test_assistant_blocks_coerce_typeless_dict_to_json_text():
-    blocks = AnthropicProvider._assistant_blocks({
-        "role": "assistant",
-        "content": [{"answer": "ok", "count": 2}],
-    })
+    blocks = AnthropicProvider._assistant_blocks(
+        {
+            "role": "assistant",
+            "content": [{"answer": "ok", "count": 2}],
+        }
+    )
 
     assert blocks == [{"type": "text", "text": '{"answer": "ok", "count": 2}'}]
 
 
 def test_convert_assistant_message_repairs_history_tool_arguments():
-    blocks = AnthropicProvider._assistant_blocks({
-        "role": "assistant",
-        "content": None,
-        "tool_calls": [{
-            "id": "toolu_1",
-            "function": {"name": "read_file", "arguments": '{path:"foo.txt"}'},
-        }],
-    })
+    blocks = AnthropicProvider._assistant_blocks(
+        {
+            "role": "assistant",
+            "content": None,
+            "tool_calls": [
+                {
+                    "id": "toolu_1",
+                    "function": {"name": "read_file", "arguments": '{path:"foo.txt"}'},
+                }
+            ],
+        }
+    )
 
     assert blocks[0]["type"] == "tool_use"
     assert blocks[0]["input"] == {"path": "foo.txt"}
@@ -109,19 +119,25 @@ def test_convert_assistant_message_repairs_history_tool_arguments():
 
 def test_anthropic_sanitizes_invalid_tool_ids_consistently():
     """Invalid restored IDs must be valid for Anthropic and keep pairs matched."""
-    blocks = AnthropicProvider._assistant_blocks({
-        "role": "assistant",
-        "content": None,
-        "tool_calls": [{
-            "id": "call_abc|rs.same",
-            "function": {"name": "read_file", "arguments": "{}"},
-        }],
-    })
-    result = AnthropicProvider._tool_result_block({
-        "role": "tool",
-        "tool_call_id": "call_abc|rs.same",
-        "content": "ok",
-    })
+    blocks = AnthropicProvider._assistant_blocks(
+        {
+            "role": "assistant",
+            "content": None,
+            "tool_calls": [
+                {
+                    "id": "call_abc|rs.same",
+                    "function": {"name": "read_file", "arguments": "{}"},
+                }
+            ],
+        }
+    )
+    result = AnthropicProvider._tool_result_block(
+        {
+            "role": "tool",
+            "tool_call_id": "call_abc|rs.same",
+            "content": "ok",
+        }
+    )
 
     tool_id = blocks[0]["id"]
     assert tool_id == result["tool_use_id"]
@@ -131,14 +147,16 @@ def test_anthropic_sanitizes_invalid_tool_ids_consistently():
 
 def test_anthropic_sanitized_tool_ids_avoid_simple_collisions():
     """Replacement-only sanitizing would collapse these two ids to call_a."""
-    blocks = AnthropicProvider._assistant_blocks({
-        "role": "assistant",
-        "content": None,
-        "tool_calls": [
-            {"id": "call.a", "function": {"name": "a", "arguments": "{}"}},
-            {"id": "call|a", "function": {"name": "b", "arguments": "{}"}},
-        ],
-    })
+    blocks = AnthropicProvider._assistant_blocks(
+        {
+            "role": "assistant",
+            "content": None,
+            "tool_calls": [
+                {"id": "call.a", "function": {"name": "a", "arguments": "{}"}},
+                {"id": "call|a", "function": {"name": "b", "arguments": "{}"}},
+            ],
+        }
+    )
 
     ids = [block["id"] for block in blocks if block["type"] == "tool_use"]
     assert len(ids) == len(set(ids)) == 2
@@ -148,27 +166,29 @@ def test_anthropic_sanitized_tool_ids_avoid_simple_collisions():
 def test_anthropic_convert_messages_remaps_duplicate_history_tool_ids():
     provider = AnthropicProvider.__new__(AnthropicProvider)
 
-    _system, messages = provider._convert_messages([
-        {"role": "user", "content": "check both files"},
-        {
-            "role": "assistant",
-            "content": "",
-            "tool_calls": [
-                {
-                    "id": "toolu_same",
-                    "type": "function",
-                    "function": {"name": "read_file", "arguments": '{"path":"a.txt"}'},
-                },
-                {
-                    "id": "toolu_same",
-                    "type": "function",
-                    "function": {"name": "read_file", "arguments": '{"path":"b.txt"}'},
-                },
-            ],
-        },
-        {"role": "tool", "tool_call_id": "toolu_same", "name": "read_file", "content": "a"},
-        {"role": "tool", "tool_call_id": "toolu_same", "name": "read_file", "content": "b"},
-    ])
+    _system, messages = provider._convert_messages(
+        [
+            {"role": "user", "content": "check both files"},
+            {
+                "role": "assistant",
+                "content": "",
+                "tool_calls": [
+                    {
+                        "id": "toolu_same",
+                        "type": "function",
+                        "function": {"name": "read_file", "arguments": '{"path":"a.txt"}'},
+                    },
+                    {
+                        "id": "toolu_same",
+                        "type": "function",
+                        "function": {"name": "read_file", "arguments": '{"path":"b.txt"}'},
+                    },
+                ],
+            },
+            {"role": "tool", "tool_call_id": "toolu_same", "name": "read_file", "content": "a"},
+            {"role": "tool", "tool_call_id": "toolu_same", "name": "read_file", "content": "b"},
+        ]
+    )
 
     tool_uses = [
         block

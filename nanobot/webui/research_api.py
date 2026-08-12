@@ -94,7 +94,10 @@ def share_research_article(path: str, scope: WorkspaceScope) -> dict[str, Any]:
         return {"ok": False, "error": f"Failed to run sharemd: {e}"}
 
     if result.returncode != 0:
-        return {"ok": False, "error": result.stderr.strip() or result.stdout.strip() or "sharemd failed"}
+        return {
+            "ok": False,
+            "error": result.stderr.strip() or result.stdout.strip() or "sharemd failed",
+        }
 
     # Parse URL from sharemd output. Typical output: https://sharemd.sh/<id>
     url = None

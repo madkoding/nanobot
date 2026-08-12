@@ -1,4 +1,5 @@
 """Regression tests for legacy-stem session handling."""
+
 import json
 from datetime import datetime
 from pathlib import Path
@@ -18,16 +19,20 @@ def test_list_sessions_repairs_corrupt_legacy_stem(tmp_path: Path, monkeypatch) 
     legacy_stem = "telegram_12345"
     corrupt_path = manager.sessions_dir / f"{legacy_stem}.jsonl"
     corrupt_path.parent.mkdir(parents=True, exist_ok=True)
-    metadata = json.dumps({
-        "_type": "metadata",
-        "key": "telegram:12345",
-        "created_at": datetime(2025, 1, 1).isoformat(),
-        "updated_at": datetime(2025, 1, 1).isoformat(),
-    })
+    metadata = json.dumps(
+        {
+            "_type": "metadata",
+            "key": "telegram:12345",
+            "created_at": datetime(2025, 1, 1).isoformat(),
+            "updated_at": datetime(2025, 1, 1).isoformat(),
+        }
+    )
     # Corrupt line followed by valid message
     corrupt_path.write_text(
-        metadata + "\n{INVALID JSON LINE\n"
-        + json.dumps({"role": "user", "content": "recoverable message"}) + "\n",
+        metadata
+        + "\n{INVALID JSON LINE\n"
+        + json.dumps({"role": "user", "content": "recoverable message"})
+        + "\n",
         encoding="utf-8",
     )
 

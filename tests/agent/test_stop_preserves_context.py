@@ -23,6 +23,7 @@ from nanobot.bus.queue import MessageBus
 def _make_provider():
     """Create an LLM provider mock with required attributes."""
     from types import SimpleNamespace
+
     provider = MagicMock()
     provider.get_default_model.return_value = "test-model"
     provider.generation = SimpleNamespace(max_tokens=4096, temperature=0.1, reasoning_effort=None)
@@ -34,9 +35,11 @@ def _make_loop(tmp_path: Path) -> AgentLoop:
     """Create a real AgentLoop with mocked provider — avoids patching __init__."""
     bus = MessageBus()
     provider = _make_provider()
-    with patch("nanobot.agent.loop.ContextBuilder"), \
-         patch("nanobot.agent.loop.SessionManager"), \
-         patch("nanobot.agent.loop.SubagentManager") as mock_subagent_manager:
+    with (
+        patch("nanobot.agent.loop.ContextBuilder"),
+        patch("nanobot.agent.loop.SessionManager"),
+        patch("nanobot.agent.loop.SubagentManager") as mock_subagent_manager,
+    ):
         mock_subagent_manager.return_value.cancel_by_session = AsyncMock(return_value=0)
         return AgentLoop(bus=bus, provider=provider, workspace=tmp_path)
 
@@ -65,12 +68,16 @@ class TestStopPreservesContext:
                 "assistant_message": {
                     "role": "assistant",
                     "content": "Let me search for that.",
-                    "tool_calls": [{"id": "tc_1", "type": "function",
-                                    "function": {"name": "web_search", "arguments": "{}"}}],
+                    "tool_calls": [
+                        {
+                            "id": "tc_1",
+                            "type": "function",
+                            "function": {"name": "web_search", "arguments": "{}"},
+                        }
+                    ],
                 },
                 "completed_tool_results": [
-                    {"role": "tool", "tool_call_id": "tc_1",
-                     "content": "Search results: ..."},
+                    {"role": "tool", "tool_call_id": "tc_1", "content": "Search results: ..."},
                 ],
                 "pending_tool_calls": [],
             }
@@ -106,9 +113,11 @@ async def test_dispatch_cancellation_restores_checkpoint():
     workspace = MagicMock()
     workspace.__truediv__ = MagicMock(return_value=MagicMock())
 
-    with patch("nanobot.agent.loop.ContextBuilder"), \
-         patch("nanobot.agent.loop.SessionManager"), \
-         patch("nanobot.agent.loop.SubagentManager") as mock_subagent_manager:
+    with (
+        patch("nanobot.agent.loop.ContextBuilder"),
+        patch("nanobot.agent.loop.SessionManager"),
+        patch("nanobot.agent.loop.SubagentManager") as mock_subagent_manager,
+    ):
         mock_subagent_manager.return_value.cancel_by_session = AsyncMock(return_value=0)
         loop = AgentLoop(bus=bus, provider=provider, workspace=workspace)
 
@@ -157,7 +166,9 @@ async def test_dispatch_cancellation_restores_checkpoint():
         "Expected the assistant message and completed tool result from the "
         f"interrupted turn to be materialized into session.messages; got {roles}"
     )
-    assert checkpoint_key not in session.metadata, \
+    assert checkpoint_key not in session.metadata, (
         "Checkpoint metadata should be cleared after restore"
-    assert loop.sessions.save.called, \
+    )
+    assert loop.sessions.save.called, (
         "Session should be persisted so the restored state survives process restart"
+    )

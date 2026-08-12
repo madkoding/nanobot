@@ -43,7 +43,7 @@ async def test_trigger_command_creates_session_bound_local_trigger(tmp_path: Pat
     assert trigger.channel == "websocket"
     assert trigger.chat_id == "chat-1"
     assert trigger.session_key == "websocket:chat-1"
-    assert f"nanobot trigger {trigger.id} \"message\"" in response.content
+    assert f'nanobot trigger {trigger.id} "message"' in response.content
 
 
 @pytest.mark.asyncio

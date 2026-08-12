@@ -153,15 +153,21 @@ def test_save_skip_matches_prefix_when_current_message_merged():
 
 def test_save_skip_unchanged_for_standalone_current_message():
     # [system, history user, current user] with the current user already saved.
-    assert _save_skip_for_turn(
-        message_metadata=None,
-        initial_message_count=3,
-        history_count=1,
-        input_persisted_early=True,
-    ) == 3
-    assert _save_skip_for_turn(
-        message_metadata=None,
-        initial_message_count=3,
-        history_count=1,
-        input_persisted_early=False,
-    ) == 2
+    assert (
+        _save_skip_for_turn(
+            message_metadata=None,
+            initial_message_count=3,
+            history_count=1,
+            input_persisted_early=True,
+        )
+        == 3
+    )
+    assert (
+        _save_skip_for_turn(
+            message_metadata=None,
+            initial_message_count=3,
+            history_count=1,
+            input_persisted_early=False,
+        )
+        == 2
+    )

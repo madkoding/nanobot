@@ -320,9 +320,7 @@ class TestExtractText:
         pptx_file = tmp_path / "table.pptx"
         prs = Presentation()
         slide = prs.slides.add_slide(prs.slide_layouts[5])
-        table = slide.shapes.add_table(
-            2, 2, Inches(1), Inches(1), Inches(4), Inches(1)
-        ).table
+        table = slide.shapes.add_table(2, 2, Inches(1), Inches(1), Inches(4), Inches(1)).table
         table.cell(0, 0).text = "Header A"
         table.cell(0, 1).text = "Header B"
         table.cell(1, 0).text = "Alice"
@@ -345,9 +343,7 @@ class TestExtractText:
         prs = Presentation()
         slide = prs.slides.add_slide(prs.slide_layouts[5])
         group = slide.shapes.add_group_shape()
-        inner = group.shapes.add_textbox(
-            Inches(1), Inches(1), Inches(3), Inches(1)
-        )
+        inner = group.shapes.add_textbox(Inches(1), Inches(1), Inches(3), Inches(1))
         inner.text_frame.text = "Inside group"
         prs.save(pptx_file)
 

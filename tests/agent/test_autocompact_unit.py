@@ -252,14 +252,12 @@ class TestCheckExpired:
         ac = _make_autocompact(ttl=15)
         old_dt = datetime.now() - timedelta(minutes=20)
         sessions = {
-            key: _make_session(key, updated_at=old_dt)
-            for key in ("cli:removed", "cli:healthy")
+            key: _make_session(key, updated_at=old_dt) for key in ("cli:removed", "cli:healthy")
         }
         for session in sessions.values():
             _add_turns(session, 5)
         ac.sessions.list_sessions.return_value = [
-            {"key": key, "updated_at": old_dt.isoformat()}
-            for key in sessions
+            {"key": key, "updated_at": old_dt.isoformat()} for key in sessions
         ]
         ac.sessions.get_or_create.side_effect = sessions.__getitem__
         healthy_runtime = _runtime()
@@ -529,12 +527,14 @@ class TestPrepareSession:
         """When _summaries is empty, summary should come from metadata (cold path)."""
         ac = _make_autocompact()
         last_active = datetime(2026, 5, 13, 14, 0, 0)
-        session = _make_session(metadata={
-            "_last_summary": {
-                "text": "Cold summary.",
-                "last_active": last_active.isoformat(),
-            },
-        })
+        session = _make_session(
+            metadata={
+                "_last_summary": {
+                    "text": "Cold summary.",
+                    "last_active": last_active.isoformat(),
+                },
+            }
+        )
 
         result_session, summary = ac.prepare_session(session, "cli:test")
 
@@ -592,12 +592,14 @@ class TestPrepareSession:
     def test_hot_path_takes_priority_over_metadata(self):
         """Hot path (_summaries) should take priority over metadata."""
         ac = _make_autocompact()
-        session = _make_session(metadata={
-            "_last_summary": {
-                "text": "Cold summary.",
-                "last_active": datetime(2026, 1, 1).isoformat(),
-            },
-        })
+        session = _make_session(
+            metadata={
+                "_last_summary": {
+                    "text": "Cold summary.",
+                    "last_active": datetime(2026, 1, 1).isoformat(),
+                },
+            }
+        )
         last_active = datetime(2026, 5, 13, 14, 0, 0)
         ac._summaries["cli:test"] = ("Hot summary.", last_active)
 

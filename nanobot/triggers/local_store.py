@@ -98,7 +98,9 @@ class LocalTriggerStore:
             triggers = self._load_triggers_unlocked()
         if not include_disabled:
             triggers = [trigger for trigger in triggers if trigger.enabled]
-        return sorted(triggers, key=lambda trigger: (trigger.updated_at_ms, trigger.id), reverse=True)
+        return sorted(
+            triggers, key=lambda trigger: (trigger.updated_at_ms, trigger.id), reverse=True
+        )
 
     def list_for_session(
         self,

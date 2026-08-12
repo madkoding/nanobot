@@ -76,7 +76,9 @@ def _normalize_feishu_instance(
     instance_id = validate_instance_id(str(raw_id))
     config["id"] = instance_id
     config["instanceId"] = instance_id
-    config.setdefault("name", "nanobot" if instance_id == DEFAULT_INSTANCE_ID else f"nanobot {instance_id}")
+    config.setdefault(
+        "name", "nanobot" if instance_id == DEFAULT_INSTANCE_ID else f"nanobot {instance_id}"
+    )
     return config
 
 
@@ -119,7 +121,9 @@ def feishu_instance_specs(
     identity_owners: dict[str, str] = {}
     for index, raw in enumerate(raw_specs):
         if not isinstance(raw, dict):
-            logger.warning("Skipping invalid Feishu instance at index {}: expected an object", index)
+            logger.warning(
+                "Skipping invalid Feishu instance at index {}: expected an object", index
+            )
             continue
         fallback_id = DEFAULT_INSTANCE_ID if index == 0 else f"assistant-{index + 1}"
         try:
@@ -212,7 +216,10 @@ def upsert_feishu_instance(
             instance.update(values)
             instance["id"] = instance_id
             instance["instanceId"] = instance_id
-            instance.setdefault("name", "nanobot" if instance_id == DEFAULT_INSTANCE_ID else f"nanobot {instance_id}")
+            instance.setdefault(
+                "name",
+                "nanobot" if instance_id == DEFAULT_INSTANCE_ID else f"nanobot {instance_id}",
+            )
             return canonical
 
     config = _normalize_feishu_instance(

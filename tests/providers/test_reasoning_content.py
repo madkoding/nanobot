@@ -19,13 +19,15 @@ def test_parse_dict_extracts_reasoning_content() -> None:
         provider = OpenAICompatProvider()
 
     response = {
-        "choices": [{
-            "message": {
-                "content": "42",
-                "reasoning_content": "Let me think step by step…",
-            },
-            "finish_reason": "stop",
-        }],
+        "choices": [
+            {
+                "message": {
+                    "content": "42",
+                    "reasoning_content": "Let me think step by step…",
+                },
+                "finish_reason": "stop",
+            }
+        ],
         "usage": {"prompt_tokens": 5, "completion_tokens": 10, "total_tokens": 15},
     }
 
@@ -41,10 +43,12 @@ def test_parse_dict_reasoning_content_none_when_absent() -> None:
         provider = OpenAICompatProvider()
 
     response = {
-        "choices": [{
-            "message": {"content": "hello"},
-            "finish_reason": "stop",
-        }],
+        "choices": [
+            {
+                "message": {"content": "hello"},
+                "finish_reason": "stop",
+            }
+        ],
     }
 
     result = provider._parse(response)
@@ -63,13 +67,15 @@ def test_parse_dict_reasoning_content_empty_string_preserved() -> None:
         provider = OpenAICompatProvider()
 
     response = {
-        "choices": [{
-            "message": {
-                "content": "answer",
-                "reasoning_content": "",
-            },
-            "finish_reason": "stop",
-        }],
+        "choices": [
+            {
+                "message": {
+                    "content": "answer",
+                    "reasoning_content": "",
+                },
+                "finish_reason": "stop",
+            }
+        ],
         "usage": {"prompt_tokens": 5, "completion_tokens": 3, "total_tokens": 8},
     }
 
@@ -99,18 +105,22 @@ def test_tool_call_history_preserves_empty_reasoning_content_after_sanitize() ->
         provider = OpenAICompatProvider()
 
     response = {
-        "choices": [{
-            "message": {
-                "content": "",
-                "reasoning_content": "",
-                "tool_calls": [{
-                    "id": "call_1",
-                    "type": "function",
-                    "function": {"name": "lookup", "arguments": "{}"},
-                }],
-            },
-            "finish_reason": "tool_calls",
-        }],
+        "choices": [
+            {
+                "message": {
+                    "content": "",
+                    "reasoning_content": "",
+                    "tool_calls": [
+                        {
+                            "id": "call_1",
+                            "type": "function",
+                            "function": {"name": "lookup", "arguments": "{}"},
+                        }
+                    ],
+                },
+                "finish_reason": "tool_calls",
+            }
+        ],
     }
 
     result = provider._parse(response)
@@ -119,11 +129,13 @@ def test_tool_call_history_preserves_empty_reasoning_content_after_sanitize() ->
         tool_calls=[tc.to_openai_tool_call() for tc in result.tool_calls],
         reasoning_content=result.reasoning_content,
     )
-    sanitized = provider._sanitize_messages([
-        {"role": "user", "content": "look something up"},
-        assistant_message,
-        {"role": "tool", "tool_call_id": "call_1", "content": "done"},
-    ])
+    sanitized = provider._sanitize_messages(
+        [
+            {"role": "user", "content": "look something up"},
+            assistant_message,
+            {"role": "tool", "tool_call_id": "call_1", "content": "done"},
+        ]
+    )
 
     assert sanitized[1]["reasoning_content"] == ""
 
@@ -135,22 +147,28 @@ def test_parse_chunks_dict_accumulates_reasoning_content() -> None:
     """reasoning_content deltas in dict chunks are joined into one string."""
     chunks = [
         {
-            "choices": [{
-                "finish_reason": None,
-                "delta": {"content": None, "reasoning_content": "Step 1. "},
-            }],
+            "choices": [
+                {
+                    "finish_reason": None,
+                    "delta": {"content": None, "reasoning_content": "Step 1. "},
+                }
+            ],
         },
         {
-            "choices": [{
-                "finish_reason": None,
-                "delta": {"content": None, "reasoning_content": "Step 2."},
-            }],
+            "choices": [
+                {
+                    "finish_reason": None,
+                    "delta": {"content": None, "reasoning_content": "Step 2."},
+                }
+            ],
         },
         {
-            "choices": [{
-                "finish_reason": "stop",
-                "delta": {"content": "answer"},
-            }],
+            "choices": [
+                {
+                    "finish_reason": "stop",
+                    "delta": {"content": "answer"},
+                }
+            ],
         },
     ]
 

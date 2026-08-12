@@ -1,4 +1,5 @@
 """Tests for Feishu/Lark domain configuration."""
+
 from unittest.mock import MagicMock
 
 from nanobot.bus.queue import MessageBus

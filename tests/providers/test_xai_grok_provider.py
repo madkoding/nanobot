@@ -469,9 +469,13 @@ async def test_model_capability_request_uses_subscription_headers(monkeypatch) -
         )
 
     monkeypatch.setattr("nanobot.providers.xai_grok_provider.httpx.AsyncClient", fake_client)
-    payload = base64.urlsafe_b64encode(
-        json.dumps({"sub": "user-42", "email": "user@example.com"}).encode()
-    ).decode().rstrip("=")
+    payload = (
+        base64.urlsafe_b64encode(
+            json.dumps({"sub": "user-42", "email": "user@example.com"}).encode()
+        )
+        .decode()
+        .rstrip("=")
+    )
     access_token = f"header.{payload}.signature"
     headers = _build_model_headers(_token(access_token))
 

@@ -21,8 +21,8 @@ def _clear_file_state():
 # Description fix
 # ---------------------------------------------------------------------------
 
-class TestReadDescriptionFix:
 
+class TestReadDescriptionFix:
     def test_description_mentions_image_support(self):
         tool = ReadFileTool()
         assert "image" in tool.description.lower()
@@ -35,6 +35,7 @@ class TestReadDescriptionFix:
 # ---------------------------------------------------------------------------
 # Read deduplication
 # ---------------------------------------------------------------------------
+
 
 class TestReadDedup:
     """Same file + same offset/limit + unchanged mtime -> short stub."""
@@ -105,8 +106,8 @@ class TestReadDedup:
 # the "[File unchanged since last read]" dedup stub. The stub is only valid
 # within the session that first cached the read.
 
-class TestReadDedupSessionIsolation:
 
+class TestReadDedupSessionIsolation:
     @pytest.mark.asyncio
     async def test_separate_sessions_do_not_share_dedup_state(self, tmp_path):
         f = tmp_path / "shared.txt"
@@ -122,8 +123,7 @@ class TestReadDedupSessionIsolation:
         # content, not the dedup stub from session A.
         second = await session_b_tool.execute(path=str(f))
         assert "unchanged" not in second.lower(), (
-            "Session B should not inherit session A's read-dedup state. "
-            f"Got: {second!r}"
+            f"Session B should not inherit session A's read-dedup state. Got: {second!r}"
         )
         assert "line 0" in second
 
@@ -162,8 +162,8 @@ class TestReadDedupSessionIsolation:
 # PDF support
 # ---------------------------------------------------------------------------
 
-class TestReadPdf:
 
+class TestReadPdf:
     @pytest.fixture()
     def tool(self, tmp_path):
         return ReadFileTool(workspace=tmp_path)
@@ -221,9 +221,9 @@ class TestReadPdf:
 # Device path blacklist
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.skipif(sys.platform == "win32", reason="/dev directory doesn't exist on Windows")
 class TestReadDeviceBlacklist:
-
     @pytest.fixture()
     def tool(self):
         return ReadFileTool()
@@ -267,8 +267,8 @@ class TestReadDeviceBlacklist:
 # what protects against stale-read warnings being false-negative on those
 # platforms. Lock that behavior down here so nobody reverts it silently.
 
-class TestFileStateHashFallback:
 
+class TestFileStateHashFallback:
     def test_check_read_warns_when_content_changed_but_mtime_same(self, tmp_path):
         f = tmp_path / "data.txt"
         f.write_text("original", encoding="utf-8")
@@ -300,8 +300,8 @@ class TestFileStateHashFallback:
 # normalization applies on all platforms; these tests lock that in so the
 # behavior is intentional and discoverable, not accidental.
 
-class TestReadFileLineEndingNormalization:
 
+class TestReadFileLineEndingNormalization:
     @pytest.fixture()
     def tool(self, tmp_path):
         return ReadFileTool(workspace=tmp_path)
@@ -327,8 +327,8 @@ class TestReadFileLineEndingNormalization:
 # Office document support (DOCX, XLSX, PPTX)
 # ---------------------------------------------------------------------------
 
-class TestReadOfficeDocuments:
 
+class TestReadOfficeDocuments:
     @pytest.fixture()
     def tool(self, tmp_path):
         return ReadFileTool(workspace=tmp_path)
@@ -345,7 +345,10 @@ class TestReadOfficeDocuments:
 
     @pytest.mark.asyncio
     async def test_xlsx_returns_extracted_text(self, tool, tmp_path):
-        with patch("nanobot.utils.document.extract_text", return_value="--- Sheet: Sheet1 ---\nName\tAge\nAlice\t30"):
+        with patch(
+            "nanobot.utils.document.extract_text",
+            return_value="--- Sheet: Sheet1 ---\nName\tAge\nAlice\t30",
+        ):
             f = tmp_path / "test.xlsx"
             f.write_bytes(b"PK")
             result = await tool.execute(path=str(f))
@@ -354,7 +357,10 @@ class TestReadOfficeDocuments:
 
     @pytest.mark.asyncio
     async def test_pptx_returns_extracted_text(self, tool, tmp_path):
-        with patch("nanobot.utils.document.extract_text", return_value="--- Slide 1 ---\nWelcome\n--- Slide 2 ---\nContent"):
+        with patch(
+            "nanobot.utils.document.extract_text",
+            return_value="--- Slide 1 ---\nWelcome\n--- Slide 2 ---\nContent",
+        ):
             f = tmp_path / "test.pptx"
             f.write_bytes(b"PK")
             result = await tool.execute(path=str(f))
@@ -363,7 +369,9 @@ class TestReadOfficeDocuments:
 
     @pytest.mark.asyncio
     async def test_docx_missing_library(self, tool, tmp_path):
-        with patch("nanobot.utils.document.extract_text", return_value="[error: python-docx not installed]"):
+        with patch(
+            "nanobot.utils.document.extract_text", return_value="[error: python-docx not installed]"
+        ):
             f = tmp_path / "test.docx"
             f.write_bytes(b"PK")
             result = await tool.execute(path=str(f))
@@ -372,7 +380,10 @@ class TestReadOfficeDocuments:
 
     @pytest.mark.asyncio
     async def test_docx_corrupt_file(self, tool, tmp_path):
-        with patch("nanobot.utils.document.extract_text", return_value="[error: failed to extract DOCX: bad zip]"):
+        with patch(
+            "nanobot.utils.document.extract_text",
+            return_value="[error: failed to extract DOCX: bad zip]",
+        ):
             f = tmp_path / "test.docx"
             f.write_bytes(b"not-a-zip")
             result = await tool.execute(path=str(f))
@@ -398,7 +409,6 @@ class TestReadOfficeDocuments:
 
 
 class TestOfficeDocTruncation:
-
     @pytest.fixture()
     def tool(self, tmp_path):
         return ReadFileTool(workspace=tmp_path)
@@ -423,7 +433,10 @@ class TestOfficeDocTruncation:
 
     @pytest.mark.asyncio
     async def test_error_response_not_truncated(self, tool, tmp_path):
-        with patch("nanobot.utils.document.extract_text", return_value="[error: failed to extract DOCX: something went wrong]"):
+        with patch(
+            "nanobot.utils.document.extract_text",
+            return_value="[error: failed to extract DOCX: something went wrong]",
+        ):
             f = tmp_path / "bad.docx"
             f.write_bytes(b"PK")
             result = await tool.execute(path=str(f))
@@ -432,7 +445,6 @@ class TestOfficeDocTruncation:
 
 
 class TestReadDescriptionUpdate:
-
     def test_description_mentions_documents(self):
         tool = ReadFileTool()
         desc = tool.description.lower()

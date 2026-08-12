@@ -27,10 +27,7 @@ class FileSnapshot:
     @property
     def countable(self) -> bool:
         return (
-            self.text is not None
-            and not self.binary
-            and not self.oversized
-            and not self.unreadable
+            self.text is not None and not self.binary and not self.oversized and not self.unreadable
         )
 
 
@@ -111,14 +108,16 @@ def build_unified_diff_payload(
         return None
     before_lines = before.replace("\r\n", "\n").splitlines()
     after_lines = after.replace("\r\n", "\n").splitlines()
-    diff_lines = list(difflib.unified_diff(
-        before_lines,
-        after_lines,
-        fromfile=fromfile,
-        tofile=tofile,
-        n=max(0, int(context_lines)),
-        lineterm="",
-    ))
+    diff_lines = list(
+        difflib.unified_diff(
+            before_lines,
+            after_lines,
+            fromfile=fromfile,
+            tofile=tofile,
+            n=max(0, int(context_lines)),
+            lineterm="",
+        )
+    )
     if not diff_lines:
         return None
 
@@ -315,13 +314,15 @@ def prepare_file_edit_trackers(
             continue
         seen.add(resolved)
         before = read_file_snapshot(path)
-        trackers.append(FileEditTracker(
-            call_id=str(call_id or ""),
-            tool=tool_name,
-            path=path,
-            display_path=display_file_edit_path(path, display_workspace),
-            before=before,
-        ))
+        trackers.append(
+            FileEditTracker(
+                call_id=str(call_id or ""),
+                tool=tool_name,
+                path=path,
+                display_path=display_file_edit_path(path, display_workspace),
+                before=before,
+            )
+        )
     return trackers
 
 

@@ -27,37 +27,43 @@ AttachmentIngressResult = tuple[list[str], AttachmentRejection | None]
 _MAX_VIDEOS_PER_MESSAGE = 1
 _MAX_VIDEO_BYTES = 20 * 1024 * 1024
 
-_IMAGE_MIME_ALLOWED: frozenset[str] = frozenset({
-    "image/png",
-    "image/jpeg",
-    "image/webp",
-    "image/gif",
-})
+_IMAGE_MIME_ALLOWED: frozenset[str] = frozenset(
+    {
+        "image/png",
+        "image/jpeg",
+        "image/webp",
+        "image/gif",
+    }
+)
 
-_VIDEO_MIME_ALLOWED: frozenset[str] = frozenset({
-    "video/mp4",
-    "video/webm",
-    "video/quicktime",
-})
+_VIDEO_MIME_ALLOWED: frozenset[str] = frozenset(
+    {
+        "video/mp4",
+        "video/webm",
+        "video/quicktime",
+    }
+)
 
-_DOCUMENT_MIME_ALLOWED: frozenset[str] = frozenset({
-    "application/json",
-    "application/pdf",
-    "application/toml",
-    "application/vnd.openxmlformats-officedocument.presentationml.presentation",
-    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-    "application/x-yaml",
-    "application/xhtml+xml",
-    "application/xml",
-    "application/yaml",
-    "text/csv",
-    "text/html",
-    "text/markdown",
-    "text/plain",
-    "text/xml",
-    "text/yaml",
-})
+_DOCUMENT_MIME_ALLOWED: frozenset[str] = frozenset(
+    {
+        "application/json",
+        "application/pdf",
+        "application/toml",
+        "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "application/x-yaml",
+        "application/xhtml+xml",
+        "application/xml",
+        "application/yaml",
+        "text/csv",
+        "text/html",
+        "text/markdown",
+        "text/plain",
+        "text/xml",
+        "text/yaml",
+    }
+)
 
 _UPLOAD_MIME_ALLOWED: frozenset[str] = (
     _IMAGE_MIME_ALLOWED | _VIDEO_MIME_ALLOWED | _DOCUMENT_MIME_ALLOWED
@@ -93,11 +99,7 @@ def store_inbound_attachments(
     video_count = 0
     document_count = 0
     for item in media:
-        mime = (
-            extract_data_url_mime(item.get("data_url", ""))
-            if isinstance(item, dict)
-            else None
-        )
+        mime = extract_data_url_mime(item.get("data_url", "")) if isinstance(item, dict) else None
         if mime in _VIDEO_MIME_ALLOWED:
             video_count += 1
         elif mime in _IMAGE_MIME_ALLOWED:
@@ -135,15 +137,8 @@ def store_inbound_attachments(
             return abort("mime")
         is_video = mime in _VIDEO_MIME_ALLOWED
         is_document = mime in _DOCUMENT_MIME_ALLOWED
-        max_bytes = (
-            _MAX_VIDEO_BYTES if is_video
-            else limits.max_file_bytes
-        )
-        name = (
-            item.get("name")
-            if is_document and isinstance(item.get("name"), str)
-            else None
-        )
+        max_bytes = _MAX_VIDEO_BYTES if is_video else limits.max_file_bytes
+        name = item.get("name") if is_document and isinstance(item.get("name"), str) else None
         try:
             saved = save_base64_data_url(
                 data_url,

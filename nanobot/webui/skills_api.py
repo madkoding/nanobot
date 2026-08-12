@@ -19,9 +19,7 @@ def webui_skills_payload(
         loader.list_skills(filter_unavailable=False),
         key=lambda entry: (entry.get("source") != "workspace", entry["name"]),
     )
-    return {
-        "skills": [_skill_payload(loader, entry, disabled_skills) for entry in entries]
-    }
+    return {"skills": [_skill_payload(loader, entry, disabled_skills) for entry in entries]}
 
 
 def webui_skill_detail_payload(

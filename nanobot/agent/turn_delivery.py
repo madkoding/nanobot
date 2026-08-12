@@ -97,15 +97,9 @@ class TurnDeliveryFactory:
                 publish_lifecycle=True,
             )
 
-        channel, chat_id = (
-            msg.chat_id.split(":", 1) if ":" in msg.chat_id else ("cli", msg.chat_id)
-        )
+        channel, chat_id = msg.chat_id.split(":", 1) if ":" in msg.chat_id else ("cli", msg.chat_id)
         metadata: dict[str, Any] = {}
-        if (
-            channel == "slack"
-            and session_key.startswith("slack:")
-            and session_key.count(":") >= 2
-        ):
+        if channel == "slack" and session_key.startswith("slack:") and session_key.count(":") >= 2:
             metadata["slack"] = {"thread_ts": session_key.split(":", 2)[2]}
         if origin_message_id := msg.metadata.get("origin_message_id"):
             metadata["origin_message_id"] = origin_message_id

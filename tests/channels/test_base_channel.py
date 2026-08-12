@@ -59,9 +59,7 @@ def test_is_allowed_star_allows_all() -> None:
 
 def test_is_allowed_pairing_fallback(monkeypatch) -> None:
     channel = _DummyChannel({"allowFrom": []}, MessageBus())
-    monkeypatch.setattr(
-        "nanobot.channels.base.is_approved", lambda _ch, sid: sid == "paired"
-    )
+    monkeypatch.setattr("nanobot.channels.base.is_approved", lambda _ch, sid: sid == "paired")
     assert channel.is_allowed("paired") is True
     assert channel.is_allowed("unknown") is False
 
@@ -69,9 +67,7 @@ def test_is_allowed_pairing_fallback(monkeypatch) -> None:
 @pytest.mark.asyncio
 async def test_handle_message_dm_sends_pairing_code(monkeypatch) -> None:
     channel = _DummyChannel({"allowFrom": []}, MessageBus())
-    monkeypatch.setattr(
-        "nanobot.channels.base.generate_code", lambda _ch, sid: "ABCD-EFGH"
-    )
+    monkeypatch.setattr("nanobot.channels.base.generate_code", lambda _ch, sid: "ABCD-EFGH")
 
     await channel._handle_message(
         sender_id="stranger", chat_id="chat1", content="hello", is_dm=True
@@ -124,4 +120,3 @@ async def test_handle_message_rejects_when_authorization_id_is_not_allowed() -> 
     )
 
     assert bus.inbound_size == 0
-

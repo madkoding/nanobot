@@ -497,11 +497,13 @@ async def test_spawn_tool_forwards_current_workspace_scope(tmp_path: Path) -> No
     tool = SpawnTool(manager)  # type: ignore[arg-type]
     token = bind_workspace_scope(scope)
     try:
-        with request_context(RequestContext(
-            channel="test",
-            chat_id="chat",
-            runtime=MagicMock(),
-        )):
+        with request_context(
+            RequestContext(
+                channel="test",
+                chat_id="chat",
+                runtime=MagicMock(),
+            )
+        ):
             result = await tool.execute(task="inspect")
     finally:
         reset_workspace_scope(token)

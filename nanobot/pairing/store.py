@@ -149,10 +149,7 @@ def list_pending() -> list[dict[str, Any]]:
     with _LOCK:
         data = _load()
         _gc_pending(data)
-        return [
-            {"code": code, **info}
-            for code, info in data.get("pending", {}).items()
-        ]
+        return [{"code": code, **info} for code, info in data.get("pending", {}).items()]
 
 
 def revoke(channel: str, sender_id: str) -> bool:
@@ -200,9 +197,7 @@ def clear_channel(channel: str) -> dict[str, int]:
 
         pending: dict[str, Any] = data.get("pending", {})
         pending_codes = [
-            code
-            for code, info in pending.items()
-            if str(info.get("channel", "")) == channel
+            code for code, info in pending.items() if str(info.get("channel", "")) == channel
         ]
         for code in pending_codes:
             del pending[code]
@@ -260,9 +255,7 @@ def handle_pairing_command(channel: str, subcommand_text: str) -> str:
         lines = ["Pending pairing requests:"]
         for item in pending:
             expiry = format_expiry(item.get("expires_at", 0))
-            lines.append(
-                f"- `{item['code']}` | {item['channel']} | {item['sender_id']} | {expiry}"
-            )
+            lines.append(f"- `{item['code']}` | {item['channel']} | {item['sender_id']} | {expiry}")
         return "\n".join(lines)
 
     elif sub == "approve":

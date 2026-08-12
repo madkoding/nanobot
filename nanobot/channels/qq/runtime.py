@@ -264,9 +264,7 @@ class QQChannel(BaseChannel):
                 backoff = 5
             except Exception as e:
                 if _is_network_error(e):
-                    self.logger.warning(
-                        "QQ bot network error (retry in {}s): {}", backoff, e
-                    )
+                    self.logger.warning("QQ bot network error (retry in {}s): {}", backoff, e)
                 else:
                     self.logger.warning("bot error: {}", e)
             if self._running:
@@ -457,7 +455,9 @@ class QQChannel(BaseChannel):
         # Remote URL
         ok, err = validate_url_target(media_ref)
         if not ok:
-            self.logger.warning("outbound media URL validation failed url={} err={}", media_ref, err)
+            self.logger.warning(
+                "outbound media URL validation failed url={} err={}", media_ref, err
+            )
             return None, None
 
         if not self._http:

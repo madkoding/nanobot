@@ -88,11 +88,13 @@ class TestConsolidatorSummarize:
         )
 
         await consolidator.archive(
-            [{
-                "role": "user",
-                "content": content,
-                RUNTIME_CONTEXT_HISTORY_META: marker,
-            }],
+            [
+                {
+                    "role": "user",
+                    "content": content,
+                    RUNTIME_CONTEXT_HISTORY_META: marker,
+                }
+            ],
             runtime=runtime,
         )
 
@@ -100,9 +102,7 @@ class TestConsolidatorSummarize:
         assert "ship the feature" in prompt
         assert "host-only goal guidance" not in prompt
 
-    async def test_archive_uses_captured_generation(
-        self, consolidator, mock_provider, runtime
-    ):
+    async def test_archive_uses_captured_generation(self, consolidator, mock_provider, runtime):
         admitted = replace(
             runtime,
             generation=GenerationSettings(
@@ -132,9 +132,7 @@ class TestConsolidatorSummarize:
         assert call["max_tokens"] == 321
         assert call["reasoning_effort"] == "medium"
 
-    async def test_summarize_appends_to_history(
-        self, consolidator, mock_provider, store, runtime
-    ):
+    async def test_summarize_appends_to_history(self, consolidator, mock_provider, store, runtime):
         """Consolidator should call LLM to summarize, then append to HISTORY.md."""
         mock_provider.chat_with_retry.return_value = MagicMock(
             content="User fixed a bug in the auth module."
@@ -298,9 +296,7 @@ class TestConsolidatorArchiveErrorHandling:
 
 
 class TestConsolidatorTokenBudget:
-    async def test_prompt_below_threshold_does_not_consolidate(
-        self, consolidator, runtime
-    ):
+    async def test_prompt_below_threshold_does_not_consolidate(self, consolidator, runtime):
         """No consolidation when tokens are within budget."""
         session = MagicMock()
         session.last_consolidated = 0
@@ -466,9 +462,7 @@ class TestConsolidatorTokenBudget:
         assert archived_chunk[0]["content"] == "m0"
         assert session.last_consolidated > 0
 
-    async def test_raw_archive_fallback_advances_last_consolidated(
-        self, consolidator, runtime
-    ):
+    async def test_raw_archive_fallback_advances_last_consolidated(self, consolidator, runtime):
         """When archive() falls back to raw-archive (LLM failed), the cursor
         must still advance. Otherwise the same chunk gets raw-archived again
         on every subsequent maybe_consolidate_by_tokens() call, spamming
@@ -478,8 +472,7 @@ class TestConsolidatorTokenBudget:
         session.last_consolidated = 0
         session.key = "test:key"
         session.messages = [
-            {"role": "user" if i in {0, 50} else "assistant", "content": f"m{i}"}
-            for i in range(70)
+            {"role": "user" if i in {0, 50} else "assistant", "content": f"m{i}"} for i in range(70)
         ]
         session.metadata = {}
         consolidator.sessions._session_cache[session.key] = session
@@ -496,9 +489,7 @@ class TestConsolidatorTokenBudget:
         # so last_consolidated must have moved past it.
         assert session.last_consolidated == 50
 
-    async def test_raw_archive_fallback_breaks_round_loop(
-        self, consolidator, runtime
-    ):
+    async def test_raw_archive_fallback_breaks_round_loop(self, consolidator, runtime):
         """A degraded LLM should not trigger more archive() calls within the
         same maybe_consolidate_by_tokens invocation — bail after one fallback."""
         consolidator._SAFETY_BUFFER = 0
@@ -512,9 +503,7 @@ class TestConsolidatorTokenBudget:
         session.metadata = {}
         consolidator.sessions._session_cache[session.key] = session
         # Keep estimates high so the loop would otherwise run multiple rounds.
-        consolidator.estimate_session_prompt_tokens = MagicMock(
-            return_value=(1200, "tiktoken")
-        )
+        consolidator.estimate_session_prompt_tokens = MagicMock(return_value=(1200, "tiktoken"))
         consolidator.archive = AsyncMock(return_value=None)
 
         await consolidator.maybe_consolidate_by_tokens(session, runtime=runtime)
@@ -522,9 +511,7 @@ class TestConsolidatorTokenBudget:
         # Exactly one fallback per call — not _MAX_CONSOLIDATION_ROUNDS.
         assert consolidator.archive.await_count == 1
 
-    async def test_boundary_respected_when_no_intermediate_user_turn(
-        self, consolidator, runtime
-    ):
+    async def test_boundary_respected_when_no_intermediate_user_turn(self, consolidator, runtime):
         """When boundary points past a long tool chain, the full chunk is archived."""
         consolidator._SAFETY_BUFFER = 0
         session = MagicMock()
@@ -567,9 +554,7 @@ class TestCompactIdleSession:
         )
 
     @pytest.mark.asyncio
-    async def test_archives_prefix_keeps_suffix(
-        self, real_consolidator, mock_provider, runtime
-    ):
+    async def test_archives_prefix_keeps_suffix(self, real_consolidator, mock_provider, runtime):
         """20 user/assistant turns → compact with max_suffix=8 → prefix consolidated
         via last_consolidated, messages preserved on disk, _last_summary stored."""
         mock_provider.chat_with_retry.return_value = MagicMock(
@@ -644,9 +629,7 @@ class TestCompactIdleSession:
         session.add_message("assistant", "RETAINED_SUFFIX_marker")
         sessions.save(session)
 
-        await real_consolidator.compact_idle_session(
-            "cli:rawdrop", runtime=runtime, max_suffix=8
-        )
+        await real_consolidator.compact_idle_session("cli:rawdrop", runtime=runtime, max_suffix=8)
 
         raw = "\n".join(e["content"] for e in store.read_unprocessed_history(since_cursor=0))
         assert "[RAW]" in raw
@@ -670,17 +653,13 @@ class TestCompactIdleSession:
             session.add_message("assistant", f"assistant msg {i}")
         real_consolidator.sessions.save(session)
 
-        await real_consolidator.compact_idle_session(
-            "cli:test", runtime=runtime, max_suffix=4
-        )
+        await real_consolidator.compact_idle_session("cli:test", runtime=runtime, max_suffix=4)
 
         entries = store.read_unprocessed_history(since_cursor=0)
         assert entries[0]["session_key"] == "cli:test"
 
     @pytest.mark.asyncio
-    async def test_empty_session_does_not_refresh_timestamp(
-        self, real_consolidator, runtime
-    ):
+    async def test_empty_session_does_not_refresh_timestamp(self, real_consolidator, runtime):
         """Empty session with old updated_at does not look active after compaction."""
         from datetime import datetime, timedelta
 
@@ -690,9 +669,7 @@ class TestCompactIdleSession:
         session.updated_at = old_ts
         sessions.save(session)
 
-        result = await real_consolidator.compact_idle_session(
-            "cli:empty", runtime=runtime
-        )
+        result = await real_consolidator.compact_idle_session("cli:empty", runtime=runtime)
         assert result == ""
 
         reloaded = sessions.get_or_create("cli:empty")
@@ -700,9 +677,7 @@ class TestCompactIdleSession:
         assert reloaded.metadata == {}
 
     @pytest.mark.asyncio
-    async def test_nothing_summary_not_stored(
-        self, real_consolidator, mock_provider, runtime
-    ):
+    async def test_nothing_summary_not_stored(self, real_consolidator, mock_provider, runtime):
         """LLM returns '(nothing)' → _last_summary NOT in metadata."""
         mock_provider.chat_with_retry.return_value = MagicMock(
             content="(nothing)", finish_reason="stop"
@@ -750,9 +725,7 @@ class TestCompactIdleSession:
         assert reloaded.last_consolidated == 0
 
     @pytest.mark.asyncio
-    async def test_respects_last_consolidated(
-        self, real_consolidator, mock_provider, runtime
-    ):
+    async def test_respects_last_consolidated(self, real_consolidator, mock_provider, runtime):
         """30 turns with last_consolidated=50 → only unconsolidated tail considered."""
         mock_provider.chat_with_retry.return_value = MagicMock(
             content="Tail summary.", finish_reason="stop"
@@ -832,9 +805,7 @@ class TestCompactIdleSession:
         assert "user-14" in user_content
 
     @pytest.mark.asyncio
-    async def test_acquires_consolidation_lock(
-        self, real_consolidator, mock_provider, runtime
-    ):
+    async def test_acquires_consolidation_lock(self, real_consolidator, mock_provider, runtime):
         """Verify lock is held during execution."""
         import asyncio
 
@@ -860,9 +831,7 @@ class TestCompactIdleSession:
         assert not lock.locked()
 
         task = asyncio.ensure_future(
-            real_consolidator.compact_idle_session(
-                "cli:lock", runtime=runtime, max_suffix=4
-            )
+            real_consolidator.compact_idle_session("cli:lock", runtime=runtime, max_suffix=4)
         )
         await started.wait()
         assert lock.locked()
@@ -1005,11 +974,15 @@ class TestRawArchiveTruncation:
             [RuntimeContextBlock(source="goal", content="host-only goal guidance")],
         )
 
-        store.raw_archive([{
-            "role": "user",
-            "content": content,
-            RUNTIME_CONTEXT_HISTORY_META: marker,
-        }])
+        store.raw_archive(
+            [
+                {
+                    "role": "user",
+                    "content": content,
+                    RUNTIME_CONTEXT_HISTORY_META: marker,
+                }
+            ]
+        )
 
         entry = store.read_unprocessed_history(since_cursor=0)[0]["content"]
         assert "ship the feature" in entry
@@ -1098,6 +1071,7 @@ class TestArchiveTruncation:
         await consolidator.archive(big_messages, runtime=runtime)
 
         import tiktoken
+
         enc = tiktoken.get_encoding("cl100k_base")
         sent_content = mock_provider.chat_with_retry.call_args.kwargs["messages"][1]["content"]
         token_count = len(enc.encode(sent_content))

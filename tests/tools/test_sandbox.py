@@ -27,7 +27,7 @@ class TestBwrapBackend:
         assert "--tmpfs" in tokens
 
         sep = tokens.index("--")
-        assert tokens[sep + 1:] == ["sh", "-c", "echo hi"]
+        assert tokens[sep + 1 :] == ["sh", "-c", "echo hi"]
 
     def test_workspace_bind_mounted_rw(self, tmp_path):
         ws = str(tmp_path / "project")
@@ -73,15 +73,14 @@ class TestBwrapBackend:
         tokens = _parse(result)
 
         parent_mask = next(
-            i for i, t in enumerate(tokens)
-            if t == "--tmpfs" and tokens[i + 1] == str(ws.parent)
+            i for i, t in enumerate(tokens) if t == "--tmpfs" and tokens[i + 1] == str(ws.parent)
         )
         workspace_dir = next(
-            i for i, t in enumerate(tokens)
-            if t == "--dir" and tokens[i + 1] == str(ws)
+            i for i, t in enumerate(tokens) if t == "--dir" and tokens[i + 1] == str(ws)
         )
         workspace_bind = next(
-            i for i, t in enumerate(tokens)
+            i
+            for i, t in enumerate(tokens)
             if t == "--bind" and tokens[i + 1] == str(ws) and tokens[i + 2] == str(ws)
         )
         chdir = tokens.index("--chdir")
@@ -113,7 +112,7 @@ class TestBwrapBackend:
         tokens = _parse(result)
 
         sep = tokens.index("--")
-        assert tokens[sep + 1:] == ["sh", "-c", cmd]
+        assert tokens[sep + 1 :] == ["sh", "-c", cmd]
 
     def test_system_dirs_ro_bound(self, tmp_path):
         ws = str(tmp_path / "project")

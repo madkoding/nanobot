@@ -36,9 +36,13 @@ MP3_SAMPLE_RATE = 44100
             f"edge-tts voice id. Default '{DEFAULT_VOICE}'. "
             "Run `edge-tts --list-voices` to see all available voices."
         ),
-        rate=StringSchema(f"Speech rate adjustment (e.g. '+10%', '-5%'). Default '{DEFAULT_RATE}'."),
+        rate=StringSchema(
+            f"Speech rate adjustment (e.g. '+10%', '-5%'). Default '{DEFAULT_RATE}'."
+        ),
         volume=StringSchema(f"Volume adjustment. Default '{DEFAULT_VOLUME}'."),
-        pitch=StringSchema(f"Pitch adjustment in Hz (e.g. '+2Hz', '-3Hz'). Default '{DEFAULT_PITCH}' (higher for a younger, more expressive sound)."),
+        pitch=StringSchema(
+            f"Pitch adjustment in Hz (e.g. '+2Hz', '-3Hz'). Default '{DEFAULT_PITCH}' (higher for a younger, more expressive sound)."
+        ),
     )
 )
 class TtsTool(Tool):
@@ -68,9 +72,7 @@ class TtsTool(Tool):
         try:
             import edge_tts  # type: ignore[import-not-found]
         except ImportError as exc:
-            return ToolResult.error(
-                f"Error: edge-tts is not installed ({exc.__class__.__name__})"
-            )
+            return ToolResult.error(f"Error: edge-tts is not installed ({exc.__class__.__name__})")
 
         chosen_voice = (voice or DEFAULT_VOICE).strip() or DEFAULT_VOICE
         chosen_rate = rate or DEFAULT_RATE
@@ -80,9 +82,7 @@ class TtsTool(Tool):
         # ponytail: per-session tag, no global lock needed; switch to a
         # semaphore if TTS contention with other tools becomes visible.
         session_key = current_request_session_key()
-        workspace_tag = (
-            session_key.replace(":", "_").replace("/", "_") if session_key else "shared"
-        )
+        workspace_tag = session_key.replace(":", "_").replace("/", "_") if session_key else "shared"
         media_dir = get_media_dir("tts")
         media_dir.mkdir(parents=True, exist_ok=True)
         token = secrets.token_hex(4)
@@ -134,16 +134,24 @@ async def _maybe_reencode(mp3_path: Path, enabled: bool) -> tuple[Path, str]:
     cmd = [
         ffmpeg_bin,
         "-y",
-        "-loglevel", "error",
-        "-i", str(mp3_path),
+        "-loglevel",
+        "error",
+        "-i",
+        str(mp3_path),
         "-vn",
         # Standard stereo MP3 that WhatsApp mobile reliably downloads and plays.
-        "-c:a", "libmp3lame",
-        "-b:a", MP3_BITRATE,
-        "-ar", str(MP3_SAMPLE_RATE),
-        "-ac", "2",
-        "-id3v2_version", "0",
-        "-write_id3v1", "0",
+        "-c:a",
+        "libmp3lame",
+        "-b:a",
+        MP3_BITRATE,
+        "-ar",
+        str(MP3_SAMPLE_RATE),
+        "-ac",
+        "2",
+        "-id3v2_version",
+        "0",
+        "-write_id3v1",
+        "0",
         str(tmp_out),
     ]
 
@@ -158,7 +166,9 @@ async def _maybe_reencode(mp3_path: Path, enabled: bool) -> tuple[Path, str]:
 
     stdout, stderr = await proc.communicate()
     if proc.returncode != 0 or not tmp_out.is_file() or tmp_out.stat().st_size == 0:
-        logger.warning("ffmpeg MP3 re-encode failed: {}", (stderr or b"").decode("utf-8", "replace"))
+        logger.warning(
+            "ffmpeg MP3 re-encode failed: {}", (stderr or b"").decode("utf-8", "replace")
+        )
         tmp_out.unlink(missing_ok=True)
         return mp3_path, "MP3 re-encode failed; shipped raw MP3."
 
@@ -169,4 +179,7 @@ async def _maybe_reencode(mp3_path: Path, enabled: bool) -> tuple[Path, str]:
         tmp_out.unlink(missing_ok=True)
         return mp3_path, "MP3 output move failed; shipped raw MP3."
 
-    return mp3_path, f"Re-encoded to WhatsApp-friendly MP3 ({MP3_BITRATE}, {MP3_SAMPLE_RATE}Hz stereo)."
+    return (
+        mp3_path,
+        f"Re-encoded to WhatsApp-friendly MP3 ({MP3_BITRATE}, {MP3_SAMPLE_RATE}Hz stereo).",
+    )

@@ -82,7 +82,9 @@ def create_gateway_app(
 
     def runtime_for_instance(*, workspace: str | None = None, config: str | None = None):
         config_path = str(Path(config).expanduser().resolve(strict=False)) if config else None
-        workspace_path = str(Path(workspace).expanduser().resolve(strict=False)) if workspace else None
+        workspace_path = (
+            str(Path(workspace).expanduser().resolve(strict=False)) if workspace else None
+        )
         data_dir = Path(config_path).parent if config_path else None
         return GatewayRuntime(
             paths=GatewayRuntimePaths.for_instance(
@@ -110,7 +112,9 @@ def create_gateway_app(
     ) -> GatewayStartOptions:
         cfg = loaded_config or load_runtime_config(config, workspace)
         resolved_config = str(Path(config).expanduser().resolve()) if config else None
-        resolved_workspace = str(Path(workspace).expanduser().resolve(strict=False)) if workspace else None
+        resolved_workspace = (
+            str(Path(workspace).expanduser().resolve(strict=False)) if workspace else None
+        )
         return GatewayStartOptions(
             port=port if port is not None else cfg.gateway.port,
             verbose=verbose,
@@ -150,13 +154,17 @@ def create_gateway_app(
         verbose: bool = typer.Option(False, "--verbose", "-v", help="Verbose output"),
         config: str | None = typer.Option(None, "--config", "-c", help="Path to config file"),
         foreground: bool = typer.Option(False, "--foreground", help="Run in the foreground"),
-        background: bool = typer.Option(False, "--background", help="Start as a background process"),
+        background: bool = typer.Option(
+            False, "--background", help="Start as a background process"
+        ),
     ) -> None:
         """Start the nanobot gateway."""
         if ctx.invoked_subcommand is not None:
             return
         if foreground and background:
-            console.print("[red]Error: --foreground and --background cannot be used together.[/red]")
+            console.print(
+                "[red]Error: --foreground and --background cannot be used together.[/red]"
+            )
             raise typer.Exit(1)
         if background:
             cfg = load_runtime_config(config, workspace)
@@ -279,10 +287,18 @@ def create_gateway_app(
         verbose: bool = typer.Option(False, "--verbose", "-v", help="Verbose output"),
         config: str | None = typer.Option(None, "--config", "-c", help="Path to config file"),
         name: str = typer.Option("nanobot-gateway", "--name", help="Service name"),
-        manager: ServiceManagerKind = typer.Option("auto", "--manager", help="auto, systemd, or launchd"),
-        enable: bool = typer.Option(True, "--enable/--no-enable", help="Enable the service after writing it"),
-        start_now: bool = typer.Option(True, "--start/--no-start", help="Start the service after writing it"),
-        dry_run: bool = typer.Option(False, "--dry-run", help="Print generated service without installing"),
+        manager: ServiceManagerKind = typer.Option(
+            "auto", "--manager", help="auto, systemd, or launchd"
+        ),
+        enable: bool = typer.Option(
+            True, "--enable/--no-enable", help="Enable the service after writing it"
+        ),
+        start_now: bool = typer.Option(
+            True, "--start/--no-start", help="Start the service after writing it"
+        ),
+        dry_run: bool = typer.Option(
+            False, "--dry-run", help="Print generated service without installing"
+        ),
     ) -> None:
         """Install a systemd user service or macOS LaunchAgent for the gateway."""
         options = GatewayServiceOptions(
@@ -301,7 +317,11 @@ def create_gateway_app(
             console.print(f"[red]Service install failed: {exc}[/red]")
             raise typer.Exit(1) from exc
         if result.ok:
-            console.print("[green]Gateway service installed.[/green]" if not dry_run else "[green]Gateway service dry run.[/green]")
+            console.print(
+                "[green]Gateway service installed.[/green]"
+                if not dry_run
+                else "[green]Gateway service dry run.[/green]"
+            )
             print_service_result(result)
             return
         console.print(f"[red]Gateway service was not installed: {result.message}[/red]")
@@ -311,7 +331,9 @@ def create_gateway_app(
     @gateway_app.command("uninstall-service")
     def gateway_uninstall_service(
         name: str = typer.Option("nanobot-gateway", "--name", help="Service name"),
-        manager: ServiceManagerKind = typer.Option("auto", "--manager", help="auto, systemd, or launchd"),
+        manager: ServiceManagerKind = typer.Option(
+            "auto", "--manager", help="auto, systemd, or launchd"
+        ),
         dry_run: bool = typer.Option(False, "--dry-run", help="Print actions without uninstalling"),
     ) -> None:
         """Uninstall the system gateway service."""
@@ -324,7 +346,11 @@ def create_gateway_app(
             console.print(f"[red]Service uninstall failed: {exc}[/red]")
             raise typer.Exit(1) from exc
         if result.ok:
-            console.print("[green]Gateway service uninstalled.[/green]" if not dry_run else "[green]Gateway service uninstall dry run.[/green]")
+            console.print(
+                "[green]Gateway service uninstalled.[/green]"
+                if not dry_run
+                else "[green]Gateway service uninstall dry run.[/green]"
+            )
             print_service_result(result)
             return
         console.print(f"[red]Gateway service was not uninstalled: {result.message}[/red]")

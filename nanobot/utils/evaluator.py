@@ -52,10 +52,12 @@ def resolve_evaluator_prompt(workspace: Path) -> str:
         if original_chars > EVALUATOR_PROMPT_MAX_CHARS:
             logger.warning(
                 "Workspace heartbeat evaluator prompt exceeds {} chars ({}); truncating.",
-                EVALUATOR_PROMPT_MAX_CHARS, original_chars,
+                EVALUATOR_PROMPT_MAX_CHARS,
+                original_chars,
             )
         return text
     return default_evaluator_prompt()
+
 
 _EVALUATE_TOOL = [
     {
@@ -81,6 +83,7 @@ _EVALUATE_TOOL = [
     }
 ]
 
+
 async def evaluate_response(
     response: str,
     task_context: str,
@@ -99,12 +102,15 @@ async def evaluate_response(
         llm_response = await provider.chat_with_retry(
             messages=[
                 {"role": "system", "content": evaluator_prompt},
-                {"role": "user", "content": render_template(
-                    "agent/evaluator.md",
-                    part="user",
-                    task_context=task_context,
-                    response=response,
-                )},
+                {
+                    "role": "user",
+                    "content": render_template(
+                        "agent/evaluator.md",
+                        part="user",
+                        task_context=task_context,
+                        response=response,
+                    ),
+                },
             ],
             tools=_EVALUATE_TOOL,
             model=model,

@@ -12,6 +12,7 @@ from nanobot.providers.base import LLMResponse, ToolCallRequest
 
 _MAX_TOOL_RESULT_CHARS = AgentDefaults().max_tool_result_chars
 
+
 async def test_runner_persists_large_tool_results_for_follow_up_calls(tmp_path):
     from nanobot.agent.runner import AgentRunner
 
@@ -24,7 +25,9 @@ async def test_runner_persists_large_tool_results_for_follow_up_calls(tmp_path):
         if call_count["n"] == 1:
             return LLMResponse(
                 content="working",
-                tool_calls=[ToolCallRequest(id="call_big", name="list_dir", arguments={"path": "."})],
+                tool_calls=[
+                    ToolCallRequest(id="call_big", name="list_dir", arguments={"path": "."})
+                ],
                 usage={"prompt_tokens": 5, "completion_tokens": 3},
             )
         captured_second_call[:] = messages
@@ -36,15 +39,18 @@ async def test_runner_persists_large_tool_results_for_follow_up_calls(tmp_path):
     tools.execute = AsyncMock(return_value="x" * 20_000)
 
     runner = AgentRunner()
-    result = await runner.run(make_run_spec(provider,
-        initial_messages=[{"role": "user", "content": "do task"}],
-        tools=tools,
-        model="test-model",
-        max_iterations=2,
-        workspace=tmp_path,
-        session_key="test:runner",
-        max_tool_result_chars=2048,
-    ))
+    result = await runner.run(
+        make_run_spec(
+            provider,
+            initial_messages=[{"role": "user", "content": "do task"}],
+            tools=tools,
+            model="test-model",
+            max_iterations=2,
+            workspace=tmp_path,
+            session_key="test:runner",
+            max_tool_result_chars=2048,
+        )
+    )
 
     assert result.final_content == "done"
     tool_message = next(msg for msg in captured_second_call if msg.get("role") == "tool")
@@ -137,7 +143,9 @@ async def test_read_file_result_is_not_offloaded(tmp_path):
         if call_count["n"] == 1:
             return LLMResponse(
                 content="reading",
-                tool_calls=[ToolCallRequest(id="call_rf", name="read_file", arguments={"path": "big.txt"})],
+                tool_calls=[
+                    ToolCallRequest(id="call_rf", name="read_file", arguments={"path": "big.txt"})
+                ],
                 usage={"prompt_tokens": 5, "completion_tokens": 3},
             )
         captured_second_call[:] = messages
@@ -149,15 +157,18 @@ async def test_read_file_result_is_not_offloaded(tmp_path):
     tools.execute = AsyncMock(return_value="x" * 20_000)
 
     runner = AgentRunner()
-    result = await runner.run(make_run_spec(provider,
-        initial_messages=[{"role": "user", "content": "read big file"}],
-        tools=tools,
-        model="test-model",
-        max_iterations=2,
-        workspace=tmp_path,
-        session_key="test:runner",
-        max_tool_result_chars=2048,
-    ))
+    result = await runner.run(
+        make_run_spec(
+            provider,
+            initial_messages=[{"role": "user", "content": "read big file"}],
+            tools=tools,
+            model="test-model",
+            max_iterations=2,
+            workspace=tmp_path,
+            session_key="test:runner",
+            max_tool_result_chars=2048,
+        )
+    )
 
     assert result.final_content == "done"
     tool_message = next(msg for msg in captured_second_call if msg.get("role") == "tool")
@@ -198,13 +209,16 @@ async def test_runner_keeps_going_when_tool_result_persistence_fails():
         "nanobot.agent.context_governance.maybe_persist_tool_result",
         side_effect=RuntimeError("disk full"),
     ):
-        result = await runner.run(make_run_spec(provider,
-            initial_messages=[{"role": "user", "content": "do task"}],
-            tools=tools,
-            model="test-model",
-            max_iterations=2,
-            max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
-        ))
+        result = await runner.run(
+            make_run_spec(
+                provider,
+                initial_messages=[{"role": "user", "content": "do task"}],
+                tools=tools,
+                model="test-model",
+                max_iterations=2,
+                max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
+            )
+        )
 
     assert result.final_content == "done"
     tool_message = next(msg for msg in captured_second_call if msg.get("role") == "tool")

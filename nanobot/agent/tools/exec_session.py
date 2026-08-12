@@ -152,6 +152,7 @@ class _ExecSession:
                 )
             # Safety-net reap after normal exit.
             from nanobot.agent.tools.shell import _reap_pid
+
             _reap_pid(self.process.pid)
         elif yield_time_ms > 0:
             await self._wait_for_buffered_output()
@@ -385,7 +386,11 @@ class ExecSessionManager:
         from nanobot.agent.tools.shell import ExecTool
 
         return await ExecTool._spawn(
-            command, cwd, env, shell_program, login,
+            command,
+            cwd,
+            env,
+            shell_program,
+            login,
             stdin=asyncio.subprocess.PIPE,
             process_tree=True,
         )
@@ -406,9 +411,7 @@ def _truncate_output(output: str, max_output_chars: int) -> tuple[str, int]:
     half = max_output_chars // 2
     omitted = len(output) - max_output_chars
     return (
-        output[:half]
-        + f"\n\n... ({omitted:,} chars truncated) ...\n\n"
-        + output[-half:],
+        output[:half] + f"\n\n... ({omitted:,} chars truncated) ...\n\n" + output[-half:],
         omitted,
     )
 

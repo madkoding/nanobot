@@ -150,8 +150,7 @@ async def maybe_generate_webui_title(
                 {
                     "role": "system",
                     "content": (
-                        "You write short, neutral chat titles. "
-                        "Return only the title text."
+                        "You write short, neutral chat titles. Return only the title text."
                     ),
                 },
                 {"role": "user", "content": prompt},
@@ -242,6 +241,7 @@ async def publish_turn_run_status(
         ),
     )
 
+
 @dataclass(frozen=True)
 class WebuiTurnRoutePolicy:
     """Expose independently dispatched late subagent turns to WebUI sessions."""
@@ -268,11 +268,13 @@ class WebuiTurnRoutePolicy:
             return route
 
         metadata = dict(route.metadata)
-        metadata.update({
-            WEBUI_SESSION_METADATA_KEY: True,
-            "_wants_stream": True,
-            WEBUI_TURN_METADATA_KEY: f"subagent:{uuid4().hex}",
-        })
+        metadata.update(
+            {
+                WEBUI_SESSION_METADATA_KEY: True,
+                "_wants_stream": True,
+                WEBUI_TURN_METADATA_KEY: f"subagent:{uuid4().hex}",
+            }
+        )
         return replace(route, metadata=metadata, publish_lifecycle=True)
 
 

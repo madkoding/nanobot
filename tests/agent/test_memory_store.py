@@ -286,7 +286,7 @@ class TestHistoryWithCursor:
         def failing_replace(*args, **kwargs):
             raise RuntimeError("Simulated failure")
 
-        monkeypatch.setattr('os.replace', failing_replace)
+        monkeypatch.setattr("os.replace", failing_replace)
 
         with pytest.raises(RuntimeError):
             store._write_entries(entries)
@@ -570,27 +570,33 @@ def test_history_skips_non_dict_jsonl_lines(tmp_path: Path) -> None:
     memory = MemoryStore(tmp_path)
     memory.history_file.parent.mkdir(parents=True, exist_ok=True)
     memory.history_file.write_text(
-        "\n".join([
-            "null",
-            "[1, 2]",
-            "true",
-            json.dumps({
-                "cursor": 1,
-                "timestamp": "2026-01-01T00:00:00",
-                "content": "kept",
-                "session_key": "cli:t",
-            }),
-            "",
-        ]),
+        "\n".join(
+            [
+                "null",
+                "[1, 2]",
+                "true",
+                json.dumps(
+                    {
+                        "cursor": 1,
+                        "timestamp": "2026-01-01T00:00:00",
+                        "content": "kept",
+                        "session_key": "cli:t",
+                    }
+                ),
+                "",
+            ]
+        ),
         encoding="utf-8",
     )
     entries = memory.read_unprocessed_history(since_cursor=0)
-    assert entries == [{
-        "cursor": 1,
-        "timestamp": "2026-01-01T00:00:00",
-        "content": "kept",
-        "session_key": "cli:t",
-    }]
+    assert entries == [
+        {
+            "cursor": 1,
+            "timestamp": "2026-01-01T00:00:00",
+            "content": "kept",
+            "session_key": "cli:t",
+        }
+    ]
     next_cursor = memory.append_history("next", session_key="cli:t")
     assert next_cursor == 2
 

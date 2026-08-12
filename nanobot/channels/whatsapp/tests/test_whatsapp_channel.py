@@ -232,13 +232,13 @@ class _LoggedOutClient:
         self.connected_event = asyncio.Event()
         # Pre-populate get_me() so _remember_self_jids works after
         # ConnectedEv fires.
-        self.me = _Proto(JID=_jid("56928861873", "s.whatsapp.net"),
-                         LID=_jid("BOTLID", "lid"))
+        self.me = _Proto(JID=_jid("56928861873", "s.whatsapp.net"), LID=_jid("BOTLID", "lid"))
 
     def event(self, event_type):
         def register(func):
             self.handlers[event_type] = func
             return func
+
         return register
 
     def qr(self, _func):
@@ -246,6 +246,7 @@ class _LoggedOutClient:
 
     async def connect(self) -> None:
         from nanobot.channels.whatsapp import runtime as whatsapp_module
+
         ev = whatsapp_module._NEONIZE_API.ConnectedEv
         await self.handlers[ev](self, _Proto())
         self.connected_event.set()
@@ -274,6 +275,7 @@ class _LoggedOutOnConnectClient(_FakeLoginClient):
 
     async def connect(self) -> None:
         from nanobot.channels.whatsapp import runtime as whatsapp_module
+
         ev = whatsapp_module._NEONIZE_API.LoggedOutEv
         # Reason=0 is the generic logged-out code in whatsmeow.
         self.logged_out = True
@@ -479,13 +481,13 @@ class _LoggedOutClient:
         self.connected_event = asyncio.Event()
         # Pre-populate get_me() so _remember_self_jids works after
         # ConnectedEv fires.
-        self.me = _Proto(JID=_jid("56928861873", "s.whatsapp.net"),
-                         LID=_jid("BOTLID", "lid"))
+        self.me = _Proto(JID=_jid("56928861873", "s.whatsapp.net"), LID=_jid("BOTLID", "lid"))
 
     def event(self, event_type):
         def register(func):
             self.handlers[event_type] = func
             return func
+
         return register
 
     def qr(self, _func):
@@ -493,6 +495,7 @@ class _LoggedOutClient:
 
     async def connect(self) -> None:
         from nanobot.channels.whatsapp import runtime as whatsapp_module
+
         ev = whatsapp_module._NEONIZE_API.ConnectedEv
         await self.handlers[ev](self, _Proto())
         self.connected_event.set()
@@ -520,6 +523,7 @@ async def test_start_runs_single_session_no_reconnect(monkeypatch) -> None:
     await asyncio.sleep(0.05)
 
     from nanobot.channels.whatsapp import runtime as whatsapp_module
+
     logged_out_ev = whatsapp_module._NEONIZE_API.LoggedOutEv
     await client.handlers[logged_out_ev](client, _Proto(Reason=2, OnConnect=False))
     await client.stop()
@@ -556,9 +560,7 @@ def _patch_throttle_path(monkeypatch, tmp_path) -> Path:
 
 
 @pytest.mark.asyncio
-async def test_463_throttle_trips_after_threshold_and_blocks_sends(
-    monkeypatch, tmp_path
-) -> None:
+async def test_463_throttle_trips_after_threshold_and_blocks_sends(monkeypatch, tmp_path) -> None:
     """After ``throttle_threshold`` consecutive 463s, the channel stops
     sending and surfaces a cooldown error. Once in cooldown, even a
     hypothetical success on the same call must not resume sending —
@@ -570,18 +572,18 @@ async def test_463_throttle_trips_after_threshold_and_blocks_sends(
     from neonize.exc import SendMessageError
 
     client = SimpleNamespace(
-        send_message=AsyncMock(
-            side_effect=SendMessageError("server returned error 463")
-        )
+        send_message=AsyncMock(side_effect=SendMessageError("server returned error 463"))
     )
     ch = _make_channel(
         {"throttle_threshold": 3, "throttle_cooldown_s": 600},
-        tmp_path=tmp_path, monkeypatch=monkeypatch,
+        tmp_path=tmp_path,
+        monkeypatch=monkeypatch,
     )
     ch._client = client
     ch._connected = True
 
     from nanobot.bus.events import OutboundMessage
+
     msg = OutboundMessage(channel="whatsapp", chat_id="56975746099", content="x")
 
     # First two 463s: counter climbs but no cooldown yet.
@@ -601,9 +603,7 @@ async def test_463_throttle_trips_after_threshold_and_blocks_sends(
 
 
 @pytest.mark.asyncio
-async def test_send_during_cooldown_raises_without_calling_client(
-    monkeypatch, tmp_path
-) -> None:
+async def test_send_during_cooldown_raises_without_calling_client(monkeypatch, tmp_path) -> None:
     """Once the cooldown is active, send() must not even attempt the
     underlying call. Otherwise we'd just hand WhatsApp another 463
     and harden the throttle.
@@ -614,12 +614,14 @@ async def test_send_during_cooldown_raises_without_calling_client(
     client = SimpleNamespace(send_message=AsyncMock())
     ch = _make_channel(
         {"throttle_threshold": 1, "throttle_cooldown_s": 600},
-        tmp_path=tmp_path, monkeypatch=monkeypatch,
+        tmp_path=tmp_path,
+        monkeypatch=monkeypatch,
     )
     ch._client = client
     ch._connected = True
 
     from nanobot.bus.events import OutboundMessage
+
     msg = OutboundMessage(channel="whatsapp", chat_id="56975746099", content="hi")
 
     # Trip the gate directly.
@@ -643,12 +645,14 @@ async def test_cooldown_expires_and_send_resumes(monkeypatch, tmp_path) -> None:
     client = SimpleNamespace(send_message=AsyncMock())
     ch = _make_channel(
         {"throttle_threshold": 3, "throttle_cooldown_s": 600},
-        tmp_path=tmp_path, monkeypatch=monkeypatch,
+        tmp_path=tmp_path,
+        monkeypatch=monkeypatch,
     )
     ch._client = client
     ch._connected = True
 
     from nanobot.bus.events import OutboundMessage
+
     msg = OutboundMessage(channel="whatsapp", chat_id="56975746099", content="hi")
 
     # Pretend the cooldown expired 1 second ago.
@@ -672,12 +676,14 @@ async def test_successful_send_resets_consecutive_463(monkeypatch, tmp_path) -> 
     client = SimpleNamespace(send_message=AsyncMock())
     ch = _make_channel(
         {"throttle_threshold": 3, "throttle_cooldown_s": 600},
-        tmp_path=tmp_path, monkeypatch=monkeypatch,
+        tmp_path=tmp_path,
+        monkeypatch=monkeypatch,
     )
     ch._client = client
     ch._connected = True
 
     from nanobot.bus.events import OutboundMessage
+
     msg = OutboundMessage(channel="whatsapp", chat_id="56975746099", content="hi")
 
     # Two prior 463s (counter at 2, no cooldown).
@@ -688,9 +694,7 @@ async def test_successful_send_resets_consecutive_463(monkeypatch, tmp_path) -> 
 
 
 @pytest.mark.asyncio
-async def test_throttle_threshold_zero_disables_cooldown(
-    monkeypatch, tmp_path
-) -> None:
+async def test_throttle_threshold_zero_disables_cooldown(monkeypatch, tmp_path) -> None:
     """With threshold=0 the channel must keep sending through 463s
     (the existing behaviour before the cooldown was added)."""
     _patch_neonize_api(monkeypatch)
@@ -699,18 +703,18 @@ async def test_throttle_threshold_zero_disables_cooldown(
     from neonize.exc import SendMessageError
 
     client = SimpleNamespace(
-        send_message=AsyncMock(
-            side_effect=SendMessageError("server returned error 463")
-        )
+        send_message=AsyncMock(side_effect=SendMessageError("server returned error 463"))
     )
     ch = _make_channel(
         {"throttle_threshold": 0, "throttle_cooldown_s": 600},
-        tmp_path=tmp_path, monkeypatch=monkeypatch,
+        tmp_path=tmp_path,
+        monkeypatch=monkeypatch,
     )
     ch._client = client
     ch._connected = True
 
     from nanobot.bus.events import OutboundMessage
+
     msg = OutboundMessage(channel="whatsapp", chat_id="56975746099", content="x")
 
     for _ in range(5):
@@ -719,9 +723,6 @@ async def test_throttle_threshold_zero_disables_cooldown(
     # No cooldown persisted because the threshold is disabled.
     assert ch._check_throttle() is None
     assert not ch._throttle_state_path().exists()
-
-
-
 
 
 @pytest.mark.asyncio
@@ -740,7 +741,9 @@ async def test_send_text_uses_neonize_send_message(monkeypatch) -> None:
 
     await ch.send(OutboundMessage(channel="whatsapp", chat_id="12345@s.whatsapp.net", content="hi"))
 
-    client.send_message.assert_awaited_once_with(("12345", "s.whatsapp.net"), _message_with_conversation("hi"))
+    client.send_message.assert_awaited_once_with(
+        ("12345", "s.whatsapp.net"), _message_with_conversation("hi")
+    )
 
 
 @pytest.mark.asyncio
@@ -921,6 +924,7 @@ def test_ensure_ffmpeg_in_path_adds_static_bin_dir(monkeypatch, tmp_path) -> Non
     rt._ensure_ffmpeg_in_path()
 
     import os
+
     assert os.environ["PATH"].startswith(str(bin_dir))
 
 
@@ -1037,12 +1041,17 @@ async def test_send_resolves_lid_chat_to_phone(monkeypatch) -> None:
         )
     )
 
-    client.send_message.assert_awaited_once_with(("56975746099", "s.whatsapp.net"), _message_with_conversation("hola"))
+    client.send_message.assert_awaited_once_with(
+        ("56975746099", "s.whatsapp.net"), _message_with_conversation("hola")
+    )
 
 
 def test_whatsapp_session_key_isolates_group_members() -> None:
     ch = _make_channel()
-    assert ch._whatsapp_session_key("12345@s.whatsapp.net", "56911111111", False) == "whatsapp:12345@s.whatsapp.net"
+    assert (
+        ch._whatsapp_session_key("12345@s.whatsapp.net", "56911111111", False)
+        == "whatsapp:12345@s.whatsapp.net"
+    )
     assert (
         ch._whatsapp_session_key("120363@g.us", "56911111111", True)
         == "whatsapp:120363@g.us:56911111111"
@@ -1181,6 +1190,7 @@ async def test_send_stops_typing(monkeypatch) -> None:
     ch._connected = True
     jid_obj = ch._build_jid("12345@s.whatsapp.net")
     key = _typing_task_key(jid_obj)
+
     # pre-register a typing task so _stop_typing has something to clear
     async def _noop():
         try:
@@ -1646,13 +1656,17 @@ async def test_outbound_allowlist_blocks_unknown_recipient(monkeypatch) -> None:
     ch._connected = True
 
     # Allowed number — send succeeds.
-    await ch.send(OutboundMessage(channel="whatsapp", chat_id="56975746099@s.whatsapp.net", content="hi"))
+    await ch.send(
+        OutboundMessage(channel="whatsapp", chat_id="56975746099@s.whatsapp.net", content="hi")
+    )
     client.send_message.assert_awaited_once()
 
     # Blocked number — send raises, client.send_message not called again.
     client.send_message.reset_mock()
     with pytest.raises(RuntimeError, match="allowlist blocked"):
-        await ch.send(OutboundMessage(channel="whatsapp", chat_id="8281248569@s.whatsapp.net", content="hi"))
+        await ch.send(
+            OutboundMessage(channel="whatsapp", chat_id="8281248569@s.whatsapp.net", content="hi")
+        )
     client.send_message.assert_not_awaited()
 
 
@@ -1667,7 +1681,9 @@ async def test_outbound_allowlist_empty_allows_all(monkeypatch) -> None:
     ch._client = client
     ch._connected = True
 
-    await ch.send(OutboundMessage(channel="whatsapp", chat_id="9999999999@s.whatsapp.net", content="hi"))
+    await ch.send(
+        OutboundMessage(channel="whatsapp", chat_id="9999999999@s.whatsapp.net", content="hi")
+    )
     client.send_message.assert_awaited_once()
 
 
@@ -1682,5 +1698,7 @@ async def test_outbound_allowlist_allows_group(monkeypatch) -> None:
     ch._client = client
     ch._connected = True
 
-    await ch.send(OutboundMessage(channel="whatsapp", chat_id="120363422292889459@g.us", content="hi"))
+    await ch.send(
+        OutboundMessage(channel="whatsapp", chat_id="120363422292889459@g.us", content="hi")
+    )
     client.send_message.assert_awaited_once()

@@ -230,9 +230,7 @@ class RuntimeEventPublisher:
         )
 
     def runtime_model_changed(self, model: str, model_preset: str | None) -> None:
-        self.bus.publish_nowait(
-            RuntimeModelChanged(model=model, model_preset=model_preset)
-        )
+        self.bus.publish_nowait(RuntimeModelChanged(model=model, model_preset=model_preset))
 
 
 def ensure_runtime_event_publisher(owner: Any) -> RuntimeEventPublisher:

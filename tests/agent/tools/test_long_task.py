@@ -448,14 +448,8 @@ async def test_goal_tools_registered_in_base_registry(tmp_path):
     assert update is not None and update.name == "update_goal"
     assert set(create.parameters["properties"]) == {"objective", "ui_summary"}
     assert create.parameters["required"] == ["objective"]
-    assert (
-        create.parameters["properties"]["objective"]["maxLength"]
-        == MAX_GOAL_OBJECTIVE_CHARS
-    )
-    assert (
-        update.parameters["properties"]["objective"]["maxLength"]
-        == MAX_GOAL_OBJECTIVE_CHARS
-    )
+    assert create.parameters["properties"]["objective"]["maxLength"] == MAX_GOAL_OBJECTIVE_CHARS
+    assert update.parameters["properties"]["objective"]["maxLength"] == MAX_GOAL_OBJECTIVE_CHARS
     model_visible_contract = " ".join(
         (
             create.description,

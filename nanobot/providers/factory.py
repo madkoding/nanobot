@@ -174,7 +174,9 @@ def _inline_fallback_preset(
     )
 
 
-def _resolve_fallback_presets(config: Config, primary: ModelPresetConfig) -> list[ModelPresetConfig]:
+def _resolve_fallback_presets(
+    config: Config, primary: ModelPresetConfig
+) -> list[ModelPresetConfig]:
     presets: list[ModelPresetConfig] = []
     for fallback in config.agents.defaults.fallback_models:
         if isinstance(fallback, str):
@@ -298,8 +300,7 @@ def build_provider_snapshot(
         else preset_name
     )
     fallback_windows = [
-        fallback.context_window_tokens
-        for fallback in _resolve_fallback_presets(config, resolved)
+        fallback.context_window_tokens for fallback in _resolve_fallback_presets(config, resolved)
     ]
     return ProviderSnapshot(
         provider=make_provider(config, preset=resolved),

@@ -44,9 +44,7 @@ class TestStripImageContent:
         assert "not delivered" in placeholder.lower()
 
     def test_returns_none_when_no_images(self):
-        messages = [
-            {"role": "user", "content": [{"type": "text", "text": "hello"}]}
-        ]
+        messages = [{"role": "user", "content": [{"type": "text", "text": "hello"}]}]
         assert LLMProvider._strip_image_content(messages) is None
 
     def test_handles_multiple_images(self):
@@ -151,9 +149,7 @@ class TestStripImageContentInplace:
         assert "not delivered" in placeholder.lower()
 
     def test_returns_false_when_no_images(self):
-        messages = [
-            {"role": "user", "content": [{"type": "text", "text": "hello"}]}
-        ]
+        messages = [{"role": "user", "content": [{"type": "text", "text": "hello"}]}]
         assert LLMProvider._strip_image_content_inplace(messages) is False
 
     def test_mutates_original_messages(self):

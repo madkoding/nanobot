@@ -59,7 +59,9 @@ def validate_channel_config(
 
     channel = (name or "").strip()
     if not channel:
-        return _payload("unknown", "unsupported", [_check("channel", "Channel", "fail", "Missing channel name")])
+        return _payload(
+            "unknown", "unsupported", [_check("channel", "Channel", "fail", "Missing channel name")]
+        )
 
     config = load_config()
     section = getattr(config.channels, channel, None)
@@ -98,11 +100,31 @@ def _validate_generic(name: str, values: dict[str, Any]) -> dict[str, Any]:
         checks.extend(composite_checks)
         missing.extend(composite_missing)
     if spec is not None and spec.required:
-        checks.append(_check("manual_review", "Manual setup", "skipped", "This channel can be checked from saved fields, but not fully verified in-browser."))
+        checks.append(
+            _check(
+                "manual_review",
+                "Manual setup",
+                "skipped",
+                "This channel can be checked from saved fields, but not fully verified in-browser.",
+            )
+        )
         return _status_from_checks(name, checks, list(dict.fromkeys(missing)))
     if _enabled(values):
-        return _payload(name, "configured", [_check("enabled", "Enabled", "pass", "This channel is enabled.")])
-    return _payload(name, "unsupported", [_check("support", "WebUI setup", "skipped", "This channel is not configurable from the WebUI yet.")])
+        return _payload(
+            name, "configured", [_check("enabled", "Enabled", "pass", "This channel is enabled.")]
+        )
+    return _payload(
+        name,
+        "unsupported",
+        [
+            _check(
+                "support",
+                "WebUI setup",
+                "skipped",
+                "This channel is not configurable from the WebUI yet.",
+            )
+        ],
+    )
 
 
 def _channel_config(
@@ -134,7 +156,7 @@ def _merge_form_values(
     for raw_key, raw_value in raw_values.items():
         if not isinstance(raw_key, str) or not raw_key:
             continue
-        field = raw_key[len(prefix):] if raw_key.startswith(prefix) else raw_key
+        field = raw_key[len(prefix) :] if raw_key.startswith(prefix) else raw_key
         if field in secrets and not _str(raw_value):
             continue
         _assign(merged, field, raw_value)
@@ -224,10 +246,16 @@ def _status_from_checks(
     identity: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     if missing:
-        return _payload(name, "needs_setup", checks, identity=identity, missing_fields=missing, can_enable=False)
+        return _payload(
+            name, "needs_setup", checks, identity=identity, missing_fields=missing, can_enable=False
+        )
     if any(check["status"] == "fail" for check in checks):
-        return _payload(name, "invalid", checks, identity=identity, missing_fields=missing, can_enable=False)
-    if any(check["status"] == "warn" for check in checks) or any(check["status"] == "skipped" for check in checks):
+        return _payload(
+            name, "invalid", checks, identity=identity, missing_fields=missing, can_enable=False
+        )
+    if any(check["status"] == "warn" for check in checks) or any(
+        check["status"] == "skipped" for check in checks
+    ):
         return _payload(name, "configured", checks, identity=identity, missing_fields=missing)
     return _payload(name, "connected", checks, identity=identity, missing_fields=missing)
 
