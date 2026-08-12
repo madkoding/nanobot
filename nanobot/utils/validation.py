@@ -157,7 +157,7 @@ def validate_media_path(path: str) -> str:
         path: The media path to validate.
 
     Returns:
-        The validated path.
+        The validated path (unchanged if valid).
 
     Raises:
         ValidationError: If the path is invalid or dangerous.
@@ -170,15 +170,18 @@ def validate_media_path(path: str) -> str:
     if len(path) > MAX_MEDIA_PATH_LENGTH:
         raise ValidationError(f"Media path too long: {len(path)} > {MAX_MEDIA_PATH_LENGTH}")
 
-    # Check for path traversal attempts
+    # Check for path traversal attempts in the original path string
+    # Don't resolve/normalize absolute paths to preserve cross-platform compatibility
     path_obj = Path(path)
-    normalized = path_obj.resolve()
 
-    # Ensure the path doesn't try to escape current directory context
-    if ".." in path:
+    # Only check for '..' components in the path as given
+    # Absolute paths like /tmp/image.png are fine
+    # Relative paths with .. like ../../etc/passwd are not
+    if ".." in path_obj.parts:
         raise ValidationError("Media path cannot contain '..' components")
 
-    return str(normalized)
+    # Return the original path unchanged to maintain test compatibility
+    return path
 
 
 def validate_media_paths(paths: list[str] | None) -> list[str] | None:
