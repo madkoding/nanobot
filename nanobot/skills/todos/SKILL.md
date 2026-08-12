@@ -36,19 +36,19 @@ When the user asks to add something to a list **and** schedule it for a date/tim
 
 Examples:
 
-- User: "agrega a mi lista comprar pollo para este viernes"
-  - Interpret "mi lista" as the user's default list slug (`madkoding` if unsure).
-  - Compute "este viernes" as the next Friday date.
-  - `todos(action="add_item", slug="madkoding", text="comprar pollo", due_date="<viernes>")`
-  - `agenda(action="add", title="comprar pollo", date="<viernes>", category="reminder", all_day="true")`
+- User: "add chicken to my list for this Friday"
+  - Interpret "my list" as the user's default list slug (`madkoding` if unsure).
+  - Compute "this Friday" as the next Friday date.
+  - `todos(action="add_item", slug="madkoding", text="buy chicken", due_date="<friday>")`
+  - `agenda(action="add", title="buy chicken", date="<friday>", category="reminder", all_day="true")`
   - Reply confirming both.
 
-- User: "agrega a compras comprar pollo para mañana a las 10am"
-  - `todos(action="add_item", slug="compras", text="comprar pollo", due_date="<mañana>")`
-  - `agenda(action="add", title="comprar pollo", date="<mañana>", time="10:00", category="reminder")`
+- User: "add chicken to compras for tomorrow at 10am"
+  - `todos(action="add_item", slug="compras", text="buy chicken", due_date="<tomorrow>")`
+  - `agenda(action="add", title="buy chicken", date="<tomorrow>", time="10:00", category="reminder")`
 
 ## Date resolution
 
-- Relative Spanish expressions like "este viernes", "próximo lunes", "mañana", "pasado mañana" must be resolved to an absolute `YYYY-MM-DD` based on today's date.
+- Relative date expressions like "this Friday", "next Monday", "tomorrow", "day after tomorrow" must be resolved to an absolute `YYYY-MM-DD` based on today's date.
 - Timezone: use the workspace timezone; if unknown, default to `America/Santiago`.
 - If a time is not given, prefer `all_day="true"` for the appointment.

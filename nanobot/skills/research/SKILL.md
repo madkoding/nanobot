@@ -1,53 +1,53 @@
 ---
 name: research
-description: Investigación profunda que produce un reporte y un artículo publicable. Usar cuando el operador pida "investiga", "haz un reporte", "research", "investigación", "artículo sobre", "escribe un artículo", "reporte sobre", o quiera un documento con tags y un link compartible. Combina búsqueda web, síntesis, redacción y publicación.
+description: Deep research that produces a report and a publishable article. Use when the operator asks to "investigate", "make a report", "research", "article about", "write an article", "report about", or wants a document with tags and a shareable link. Combines web search, synthesis, writing, and publishing.
 ---
 
 # Research
 
-Convierte un tema en un reporte estructurado y un artículo listo para compartir.
+Turn a topic into a structured report and a ready-to-share article.
 
-## Cuándo ejecutar
+## When to run
 
-- Si esta skill está **activa en el system prompt** (porque el chat está marcado como research), **EJECUTA este flujo para CADA mensaje del usuario** sin preguntar si quiere investigar.
-- Si no está activa, actívala cuando el operador pida investigar, reporte o artículo.
+- If this skill is **active in the system prompt** (because the chat is marked as research), **RUN this flow for EVERY user message** without asking whether they want to research.
+- If it is not active, activate it when the operator asks to investigate, report, or write an article.
 
-## Flujo (ejecutar paso a paso)
+## Flow (run step by step)
 
-### 1. Aclarar el alcance (solo si es ambiguo)
-Si el tema es vago, pregunta brevemente: enfoque, profundidad (resumen vs. detallado), idioma y audiencia. Si es claro, avanza sin preguntar.
+### 1. Clarify scope (only if ambiguous)
+If the topic is vague, ask briefly: focus, depth (summary vs. detailed), language, and audience. If it is clear, proceed without asking.
 
-### 2. Investigar en profundidad
-- Lanza **entre 6 y 12 consultas** con `web_search` cubriendo sinónimos, ángulos distintos, fuentes primarias, noticias recientes, análisis de terceros y resultados en el idioma del usuario.
-- Refina la estrategia de búsqueda: si los primeros resultados son superficiales, reformula las consultas con términos más específicos, operadores de búsqueda, nombres propios o años.
-- Usa `web_fetch` en **al menos 5 fuentes relevantes** para leer contenido completo en lugar de confiar en los resúmenes del buscador.
-- Reúne datos, cifras, fechas, nombres, citas textuales y URLs. No inventes nada.
-- Si un resultado prometedor tiene enlaces internos a secciones relevantes, sigue al menos 2-3 de ellos con `web_fetch`.
+### 2. Research in depth
+- Launch **between 6 and 12 queries** with `web_search` covering synonyms, different angles, primary sources, recent news, third-party analysis, and results in the user's language.
+- Refine the search strategy: if the first results are shallow, rephrase the queries with more specific terms, search operators, proper nouns, or years.
+- Use `web_fetch` on **at least 5 relevant sources** to read full content instead of relying on search snippets.
+- Gather data, figures, dates, names, verbatim quotes, and URLs. Do not invent anything.
+- If a promising result has internal links to relevant sections, follow at least 2-3 of them with `web_fetch`.
 
-### 3. Construir el reporte
-Escribe un reporte exhaustivo en Markdown:
-- **Título** y fecha.
-- **Resumen ejecutivo** (3-5 líneas).
-- **Secciones** con subtítulos claros.
-- **Datos y evidencia** con citas a las fuentes.
-- **Conclusión** y, si aplica, recomendaciones.
-- **Fuentes** al final (lista de URLs).
+### 3. Build the report
+Write a thorough report in Markdown:
+- **Title** and date.
+- **Executive summary** (3-5 lines).
+- **Sections** with clear subheadings.
+- **Data and evidence** with citations to the sources.
+- **Conclusion** and, if applicable, recommendations.
+- **Sources** at the end (list of URLs).
 
-Guárdalo con `write_file` en `research/<slug>/reporte.md`.
+Save it with `write_file` at `research/<slug>/reporte.md`.
 
-### 4. Construir el artículo
-A partir del reporte, escribe un **artículo extenso y completo** (no el reporte crudo):
-- Título atractivo, introducción que enganche, cuerpo fluido y detallado, cierre.
-- El artículo debe tener **al menos 5 secciones principales**, con subtítulos claros y transiciones naturales.
-- Incluye ejemplos, cifras, fechas, nombres propios y contexto histórico o de fondo extraídos de las fuentes.
-- Cita las fuentes con enlaces directos en línea o pie de página.
-- **Tags**: 3-8 etiquetas relevantes (formato `#tag`).
-- Tono acorde a la audiencia.
+### 4. Build the article
+From the report, write a **long, complete article** (not the raw report):
+- Catchy title, engaging introduction, fluid and detailed body, closing.
+- The article must have **at least 5 main sections**, with clear subheadings and natural transitions.
+- Include examples, figures, dates, proper nouns, and historical or background context drawn from the sources.
+- Cite the sources with direct inline links or footnotes.
+- **Tags**: 3-8 relevant tags (`#tag` format).
+- Tone suited to the audience.
 
-**Frontmatter obligatorio** al inicio de `articulo.md` (la WebUI lo usa para mostrar título, tags y fuentes):
+**Required frontmatter** at the top of `articulo.md` (the WebUI uses it to show title, tags, and sources):
 ```yaml
 ---
-title: <título del artículo>
+title: <article title>
 date: <YYYY-MM-DD>
 tags:
   - <tag1>
@@ -57,40 +57,40 @@ sources:
   - <url2>
 ---
 ```
-`date` es la fecha actual; `tags` 3-8; `sources` las URLs de las fuentes consultadas.
+`date` is the current date; `tags` 3-8; `sources` the URLs of the consulted sources.
 
-Guárdalo con `write_file` en `research/<slug>/articulo.md`.
+Save it with `write_file` at `research/<slug>/articulo.md`.
 
-### 5. Confirmar al operador
-Cuando termines, responde brevemente en el chat:
-- Título de la investigación.
-- Ruta de los archivos (`research/<slug>/reporte.md` y `articulo.md`).
+### 5. Confirm with the operator
+When done, reply briefly in the chat:
+- Research title.
+- File paths (`research/<slug>/reporte.md` and `articulo.md`).
 - Tags.
-- Pregunta si quiere compartirlo con sharemd.
+- Ask whether they want to share it with sharemd.
 
-### 6. Compartir con sharemd (solo con consentimiento)
-Antes de publicar, **pide confirmación explícita**. Muestra el artículo y pregunta si quiere compartirlo.
+### 6. Share with sharemd (only with consent)
+Before publishing, **ask for explicit confirmation**. Show the article and ask whether they want to share it.
 
-Una vez confirmado:
-1. Si `sharemd` no está instalado ni disponible en `PATH`, instálalo localmente en el workspace para no tocar el sistema global:
+Once confirmed:
+1. If `sharemd` is not installed or not on `PATH`, install it locally in the workspace to avoid touching the global system:
    ```bash
-   npm install --prefix .workspace_tools sharemd   # o: npx --yes sharemd ... para una ejecución puntual
+   npm install --prefix .workspace_tools sharemd   # or: npx --yes sharemd ... for a one-off run
    ```
-   Si no hay Node 18+ disponible o la instalación falla, dilo al operador y entrega la ruta local del artículo en su lugar.
-2. Publica el artículo (usa la ruta local si instalaste en `--prefix`):
+   If Node 18+ is not available or the install fails, tell the operator and hand over the local article path instead.
+2. Publish the article (use the local path if you installed with `--prefix`):
    ```bash
    sharemd research/<slug>/articulo.md
    ```
-3. Guarda el link en `research/<slug>/sharemd.json`:
+3. Save the link in `research/<slug>/sharemd.json`:
    ```json
    {"url": "https://sharemd.sh/<id>"}
    ```
-4. Entrega el link al operador.
+4. Hand the link to the operator.
 
-> El archivo `.sharemd` (token de edición) se crea junto al artículo. No lo subas a git ni lo compartas.
+> The `.sharemd` file (edit token) is created next to the article. Do not commit it to git or share it.
 
-## Reglas
-- **Si la skill está activa, investiga sin pedir permiso adicional.** El usuario ya entró a la sección de Investigación.
-- Cita fuentes reales; no inventes datos ni URLs.
-- El reporte y el artículo son documentos distintos: el reporte es exhaustivo, el artículo es legible.
-- Si la búsqueda no arroja resultados, dilo y pregunta cómo proceder.
+## Rules
+- **If the skill is active, research without asking for extra permission.** The user already entered the Research section.
+- Cite real sources; do not invent data or URLs.
+- The report and the article are different documents: the report is exhaustive, the article is readable.
+- If the search returns no results, say so and ask how to proceed.

@@ -501,9 +501,9 @@ class AgentRunner:
                         spec.session_key or "default",
                     )
                     final_content = (
-                        "Detecté que estoy repitiendo la misma llamada a tool sin "
-                        "avanzar. Voy a revisar el contexto de lo que estaba haciendo "
-                        "para retomar el objetivo y continuar."
+                        "I detected that I am repeating the same tool call without "
+                        "making progress. I will review the context of what I was "
+                        "doing to resume the objective and continue."
                     )
                     stop_reason = "repeated_tool_loop"
                     self._append_final_message(messages, final_content)
@@ -515,11 +515,11 @@ class AgentRunner:
                     messages.append({
                         "role": "user",
                         "content": (
-                            "Estás repitiendo la misma llamada a tool con los mismos "
-                            "argumentos. El archivo/resultado no va a cambiar. "
-                            "Revisa el contexto de lo que estabas haciendo, retoma "
-                            "el objetivo de la tarea y avanza al siguiente paso con "
-                            "otra tool o enfoque."
+                            "You are repeating the same tool call with the same "
+                            "arguments. The file/result is not going to change. "
+                            "Review the context of what you were doing, resume "
+                            "the task objective, and move on to the next step with "
+                            "another tool or approach."
                         ),
                     })
                     logger.warning(
@@ -653,12 +653,12 @@ class AgentRunner:
                 messages.append({
                     "role": "user",
                     "content": (
-                        "Tu última tool devolvió un error. NO narres en texto "
-                        "lo que ibas a hacer: el texto no ejecuta nada. Re-emite "
-                        "el tool_call inmediatamente con argumentos ajustados, "
-                        "o llama otra tool equivalente. Si tras 2 reintentos "
-                        "la tool sigue fallando, ahí sí explica al operador y "
-                        "pide guía."
+                        "Your last tool returned an error. Do NOT narrate in text "
+                        "what you were going to do: text does not execute anything. "
+                        "Re-emit the tool_call immediately with adjusted arguments, "
+                        "or call another equivalent tool. If after 2 retries "
+                        "the tool still fails, then explain to the operator and "
+                        "ask for guidance."
                     ),
                 })
                 tool_error_nudge_done = True
