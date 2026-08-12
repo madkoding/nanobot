@@ -916,8 +916,10 @@ class ExecTool(Tool):
         )
         posix_paths = [
             p.rstrip(");},")
-            for p in re.findall(r"(?:^|[\s|><='\"({,:])(/[^\"'>;|<()\s]+)", command)
-            if not p.startswith("//")
+            for p in re.findall(
+                r"(?:^|[\s|><='\"({,]|:(?!//))(/[^\"'>;|<()\s]+)",
+                command,
+            )
         ]
         home_paths = [
             p.rstrip(");},")
