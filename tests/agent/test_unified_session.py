@@ -493,7 +493,7 @@ class TestStopCommandWithUnifiedSession:
 
         # Verify task was cancelled
         assert task.cancelled() or task.done()
-        assert "Stopped 1 task" in result.content
+        assert result.content == ""  # silent: no chat notification on stop
 
     @pytest.mark.asyncio
     async def test_stop_command_uses_effective_key_without_session_override(self, tmp_path: Path):
@@ -518,7 +518,7 @@ class TestStopCommandWithUnifiedSession:
         result = await cmd_stop(ctx)
 
         assert task.cancelled() or task.done()
-        assert "Stopped 1 task" in result.content
+        assert result.content == ""  # silent: no chat notification on stop
 
     @pytest.mark.asyncio
     async def test_stop_command_cross_channel_in_unified_mode(self, tmp_path: Path):
@@ -549,4 +549,4 @@ class TestStopCommandWithUnifiedSession:
         result = await cmd_stop(ctx)
 
         # Both tasks should be cancelled
-        assert "Stopped 2 task" in result.content
+        assert result.content == ""  # silent: no chat notification on stop

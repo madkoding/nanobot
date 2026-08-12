@@ -8,7 +8,6 @@ import { FilePreviewAvailabilityProvider } from "@/components/FilePreviewAvailab
 import { FilePreviewPanel } from "@/components/FilePreviewPanel";
 import { SubagentPanelHost } from "@/components/SubagentPanelHost";
 import { SubagentSpawnChips } from "@/components/SubagentSpawnChips";
-import { WorkflowPanelHost } from "@/components/WorkflowPanelHost";
 import { PromptNavigator } from "@/components/thread/PromptNavigator";
 import { extractSubagentSpawns } from "@/components/thread/activity/subagent-model";
 import { SessionInfoPopover } from "@/components/thread/SessionInfoPopover";
@@ -1170,28 +1169,26 @@ export function ThreadShell({
           onClose={handleCloseFilePreview}
         />
       ) : null}
-      <WorkflowPanelHost chatId={chatId} onOpenFilePreview={handleOpenFilePreview}>
-        <SubagentPanelHost chatId={chatId} sessionKey={historyKey} onOpenFilePreview={handleOpenFilePreview}>
-          <AutomationPanelHost chatId={chatId}>
-            <div
-              className="pointer-events-none absolute bottom-4 left-4 z-20 flex max-w-[min(420px,calc(100vw-2rem))] flex-col gap-1 [&>*]:pointer-events-auto"
-              data-testid="agent-chips"
-            >
-              {subagentSpawns.length > 0 ? (
-                <SubagentSpawnChips
-                  chatId={chatId}
-                  seeds={subagentSpawns}
-                  isTurnActive={turnActive}
-                />
-              ) : null}
-              <AutomationChips
+      <SubagentPanelHost chatId={chatId} sessionKey={historyKey} onOpenFilePreview={handleOpenFilePreview}>
+        <AutomationPanelHost chatId={chatId}>
+          <div
+            className="pointer-events-none absolute bottom-4 left-4 z-20 flex max-w-[min(420px,calc(100vw-2rem))] flex-col gap-1 [&>*]:pointer-events-auto"
+            data-testid="agent-chips"
+          >
+            {subagentSpawns.length > 0 ? (
+              <SubagentSpawnChips
                 chatId={chatId}
+                seeds={subagentSpawns}
                 isTurnActive={turnActive}
               />
-            </div>
-          </AutomationPanelHost>
-        </SubagentPanelHost>
-      </WorkflowPanelHost>
+            ) : null}
+            <AutomationChips
+              chatId={chatId}
+              isTurnActive={turnActive}
+            />
+          </div>
+        </AutomationPanelHost>
+      </SubagentPanelHost>
     </section>
   );
 }

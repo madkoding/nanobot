@@ -93,7 +93,6 @@ from nanobot.utils.llm_runtime import LLMRuntime
 from nanobot.utils.runtime import (
     EMPTY_FINAL_RESPONSE_MESSAGE,
 )
-from nanobot.workflows import WorkflowLoader, WorkflowRunner
 
 if TYPE_CHECKING:
     from nanobot.agent.tools.mcp import MCPConnection
@@ -284,7 +283,6 @@ class AgentLoop:
         hook_factories: list[AgentTurnHookFactory] | None = None,
         unified_session: bool = False,
         disabled_skills: list[str] | None = None,
-        disabled_workflows: list[str] | None = None,
         tools_config: ToolsConfig | None = None,
         image_generation_provider_config: ProviderConfig | None = None,
         image_generation_provider_configs: dict[str, ProviderConfig] | None = None,
@@ -401,16 +399,6 @@ class AgentLoop:
             llm_wall_timeout_for_session=lambda sk: runner_wall_llm_timeout_s(self.sessions, sk),
         )
         self.subagents.set_runtime_resolver(self.runtime_resolver)
-        self.workflow_loader = WorkflowLoader(
-            workspace,
-            disabled_workflows=set(disabled_workflows or []),
-        )
-        self.workflows = WorkflowRunner(
-            subagents=self.subagents,
-            bus=bus,
-            loader=self.workflow_loader,
-            workspace=workspace,
-        )
         self._unified_session = unified_session
         self._running = False
         self._mcp_servers = mcp_servers or {}
@@ -517,7 +505,6 @@ class AgentLoop:
             timezone=defaults.timezone,
             unified_session=defaults.unified_session,
             disabled_skills=defaults.disabled_skills,
-            disabled_workflows=defaults.disabled_workflows,
             session_ttl_minutes=defaults.session_ttl_minutes,
             consolidation_ratio=defaults.consolidation_ratio,
             tools_config=config.tools,
@@ -647,7 +634,6 @@ class AgentLoop:
             workspace=str(self.workspace),
             bus=self.bus,
             subagent_manager=self.subagents,
-            workflow_runner=self.workflows,
             cron_service=self.cron_service,
             exec_session_manager=self._exec_session_manager,
             sessions=self.sessions,
@@ -879,7 +865,7 @@ class AgentLoop:
         """Dispatch a command directly from the run() loop and publish the result."""
         ctx = CommandContext(msg=msg, session=None, key=key, raw=raw, loop=self)
         result = await dispatch_fn(ctx)
-        if result:
+        if result and result.content:
             await self.bus.publish_outbound(result)
         else:
             logger.warning("Command '{}' matched but dispatch returned None", raw)
@@ -895,8 +881,7 @@ class AgentLoop:
             with suppress(asyncio.CancelledError, Exception):
                 await t
         sub_cancelled = await self.subagents.cancel_by_session(key)
-        workflow_cancelled = await self.workflows.cancel_by_session(key)
-        return cancelled + sub_cancelled + workflow_cancelled
+        return cancelled + sub_cancelled
 
     def _effective_session_key(self, msg: InboundMessage) -> str:
         """Return the session key used for task routing and mid-turn injections."""
@@ -1015,17 +1000,6 @@ class AgentLoop:
                         row["subagent_task_id"] = task_id
                     row[HIDDEN_HISTORY_META] = marker
                     row["injected_event"] = "subagent_result"
-                elif (
-                    pending_msg.sender_id == "workflow"
-                    and metadata.get("injected_event") == "workflow_result"
-                ):
-                    marker = {"kind": "workflow_result"}
-                    run_id = metadata.get("workflow_run_id")
-                    if isinstance(run_id, str) and run_id:
-                        marker["workflow_run_id"] = run_id
-                        row["workflow_run_id"] = run_id
-                    row[HIDDEN_HISTORY_META] = marker
-                    row["injected_event"] = "workflow_result"
                 return row
 
             items: list[dict[str, Any]] = []
@@ -1471,9 +1445,6 @@ class AgentLoop:
             self._exec_session_manager.close_all,
             lambda: agent_context.close_mcp(self),
         ]
-        workflows = getattr(self, "workflows", None)
-        if workflows is not None:
-            cleanup_steps.insert(1, workflows.close)
         for cleanup in cleanup_steps:
             try:
                 await cleanup()
@@ -1900,7 +1871,6 @@ class AgentLoop:
                 replay_max_messages=replay_max_messages,
             )
         is_subagent = ctx.kind is TurnKind.SYSTEM and ctx.msg.sender_id == "subagent"
-        is_workflow = ctx.kind is TurnKind.SYSTEM and ctx.msg.sender_id == "workflow"
 
         if ctx.kind is TurnKind.USER and (message_tool := self.tools.get("message")):
             if isinstance(message_tool, MessageTool):
@@ -1909,9 +1879,11 @@ class AgentLoop:
         _hist_kwargs: dict[str, Any] = {
             "max_messages": replay_max_messages,
             "max_tokens": self._replay_token_budget(runtime),
-            "extend_to_user": is_subagent or is_workflow,
+            "extend_to_user": is_subagent,
         }
         ctx.history = ctx.session.get_history(**_hist_kwargs)
+        if ctx.session.metadata.pop("_skip_recent_history_once", None):
+            self.sessions.save(ctx.session)
         if is_subagent:
             # Keep the durable internal delivery as an assistant record, but
             # present this completion to the model as fresh follow-up input.
@@ -2329,6 +2301,7 @@ class AgentLoop:
                     "role": "assistant",
                     "content": "Error: Task interrupted before a response was generated.",
                     "timestamp": datetime.now().isoformat(),
+                    HIDDEN_HISTORY_META: True,
                 }
             )
             session.updated_at = datetime.now()
@@ -2369,14 +2342,8 @@ class AgentLoop:
         _, chat_id = self._channel_chat_id_from_session_key(session_key)
         return f"websocket:{chat_id}"
 
-    def _write_transcript_resume_events(
-        self,
-        session_key: str,
-        *,
-        resumed: bool,
-        closed: bool,
-    ) -> None:
-        """Write synthetic transcript events to clear phantom spinners."""
+    def _write_transcript_resume_events(self, session_key: str) -> None:
+        """Write a synthetic turn_end event to clear phantom spinners."""
         try:
             from nanobot.webui.transcript import append_transcript_object
         except Exception:
@@ -2393,30 +2360,6 @@ class AgentLoop:
                 "created_at_ms": now_ms,
             },
         )
-        if resumed:
-            append_transcript_object(
-                webui_key,
-                {
-                    "event": "message",
-                    "chat_id": chat_id,
-                    "role": "system",
-                    "text": "Turno reanudado tras reinicio del gateway.",
-                    "kind": "notice",
-                    "created_at_ms": now_ms,
-                },
-            )
-        elif closed:
-            append_transcript_object(
-                webui_key,
-                {
-                    "event": "message",
-                    "chat_id": chat_id,
-                    "role": "system",
-                    "text": "El gateway se reinició; el turno anterior se cerró.",
-                    "kind": "notice",
-                    "created_at_ms": now_ms,
-                },
-            )
 
     async def _restore_interrupted_sessions(self) -> int:
         """Resume sessions whose last turn was interrupted by a gateway restart.
@@ -2473,11 +2416,7 @@ class AgentLoop:
                             await self.bus.publish_inbound(injection)
                     self._clear_pending_injections(session)
                     self.sessions.save(session)
-                    self._write_transcript_resume_events(
-                        session_key,
-                        resumed=True,
-                        closed=False,
-                    )
+                    self._write_transcript_resume_events(session_key)
                     count += 1
                     continue
 
@@ -2493,11 +2432,7 @@ class AgentLoop:
                         session_key,
                         "idle",
                     )
-                    self._write_transcript_resume_events(
-                        session_key,
-                        resumed=False,
-                        closed=True,
-                    )
+                    self._write_transcript_resume_events(session_key)
                     count += 1
             except Exception:
                 logger.exception("Failed to restore interrupted session {}", session_key)

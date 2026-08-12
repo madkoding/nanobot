@@ -28,7 +28,6 @@ from nanobot.bus.outbound_events import (
     SessionUpdatedEvent,
     TurnEndEvent,
     TurnModelUpdatedEvent,
-    WorkflowUpdateEvent,
     outbound_event_from_message,
     outbound_message_for_event,
 )
@@ -885,18 +884,6 @@ class WebSocketChannel(BaseChannel):
                     error=event.error,
                 )
             return
-        if isinstance(event, WorkflowUpdateEvent):
-            if conns:
-                await self.send_workflow_update(
-                    msg.chat_id,
-                    run_id=event.run_id,
-                    workflow=event.workflow,
-                    phase=event.phase,
-                    status=event.status,
-                    error=event.error,
-                    result_preview=event.result_preview,
-                )
-            return
         # Signal that the agent has fully finished processing the current turn.
         if isinstance(event, TurnEndEvent):
             await self.send_turn_end(
@@ -1175,36 +1162,6 @@ class WebSocketChannel(BaseChannel):
         raw = json.dumps(body, ensure_ascii=False)
         for connection in conns:
             await self._safe_send_to(connection, raw, label=" automation_update ")
-
-    async def send_workflow_update(
-        self,
-        chat_id: str,
-        run_id: str,
-        workflow: str,
-        phase: str | None = None,
-        status: str = "running",
-        error: str | None = None,
-        result_preview: str | None = None,
-    ) -> None:
-        """Push a workflow status frame to subscribers of *chat_id*."""
-        conns = list(self._subs.get(chat_id, ()))
-        if not conns:
-            return
-        body: dict[str, Any] = {
-            "event": "workflow_update",
-            "chat_id": chat_id,
-            "run_id": run_id,
-            "workflow": workflow,
-            "phase": phase,
-            "status": status,
-        }
-        if error:
-            body["error"] = error
-        if result_preview:
-            body["result_preview"] = result_preview
-        raw = json.dumps(body, ensure_ascii=False)
-        for connection in conns:
-            await self._safe_send_to(connection, raw, label=" workflow_update ")
 
     async def send_goal_status(
         self,

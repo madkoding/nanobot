@@ -297,6 +297,8 @@ class Session:
         self.messages = []
         self.last_consolidated = 0
         self.updated_at = datetime.now()
+        for key in _FORK_VOLATILE_METADATA_KEYS:
+            self.metadata.pop(key, None)
         self.metadata.pop("_last_summary", None)
 
     def retain_recent_legal_suffix(

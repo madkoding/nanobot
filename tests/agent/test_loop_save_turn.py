@@ -1314,7 +1314,7 @@ async def test_stop_preserves_runtime_checkpoint_for_next_turn(tmp_path: Path) -
     stop_ctx = CommandContext(msg=stop_msg, session=None, key=stop_msg.session_key, raw="/stop", loop=loop)
     stop_result = await cmd_stop(stop_ctx)
 
-    assert "Stopped 1 task" in stop_result.content
+    assert stop_result.content == ""  # silent: no chat notification on stop
     assert task.done()
 
     loop.sessions.invalidate("feishu:c4")

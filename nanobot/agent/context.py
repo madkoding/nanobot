@@ -101,7 +101,11 @@ class ContextBuilder:
         if session_summary:
             parts.append(f"[Archived Context Summary]\n\n{session_summary}")
 
-        if include_memory_recent_history and session_key:
+        if (
+            include_memory_recent_history
+            and session_key
+            and not (session_metadata or {}).get("_skip_recent_history_once")
+        ):
             recent = self._recent_consolidated_history(session_key, unified_session)
             if recent:
                 parts.append(f"## Recent Consolidated History\n\n{recent}")

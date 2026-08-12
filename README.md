@@ -247,12 +247,11 @@ This fork builds on the upstream [nanobot](https://github.com/re-bin/nanobot) pr
 **WebUI**
 - Live subagent panel (event hook + status TTL + HTTP/WS fan-out)
 - Subagent spawn chips that open the live panel
-- Live workflow panel + automation chips + clickable markdown media
+- Automation chips + clickable markdown media
 - Projects CRUD with chat binding and context injection
 - Responsive layout for mobile (full-screen sidebar on phones, drawer on tablets, support ≤380px)
 
 **Core / tools**
-- Generic background workflow engine + `/workflow` command
 - Text-to-speech tool using edge-tts
 - Native Gemma 4 tool-call and thinking-tag parsing
 - Identity-separation guardrails + `users.json` template

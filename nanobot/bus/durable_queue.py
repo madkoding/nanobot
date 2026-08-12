@@ -37,7 +37,6 @@ from nanobot.bus.outbound_events import (
     StreamEndEvent,
     TurnEndEvent,
     TurnModelUpdatedEvent,
-    WorkflowUpdateEvent,
 )
 from nanobot.utils.atomic_write import atomic_write_text
 
@@ -80,7 +79,6 @@ _EVENT_REGISTRY: dict[str, type[OutboundEvent]] = {
         RuntimeModelUpdatedEvent,
         TurnModelUpdatedEvent,
         AutomationUpdateEvent,
-        WorkflowUpdateEvent,
     )
 }
 

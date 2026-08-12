@@ -513,7 +513,7 @@ class TestAutoCompactIdleDetection:
         ctx = CommandContext(msg=msg, session=session, key="cli:test", raw=raw, loop=loop)
         result = await loop.commands.dispatch_priority(ctx)
         assert result is not None
-        assert "stopped" in result.content.lower() or "no active task" in result.content.lower()
+        assert result.content == ""  # silent: no chat notification on stop
 
         # Session should be untouched since priority commands skip _process_message
         session_after = loop.sessions.get_or_create("cli:test")

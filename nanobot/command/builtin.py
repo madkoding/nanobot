@@ -159,14 +159,6 @@ BUILTIN_COMMAND_SPECS: tuple[BuiltinCommandSpec, ...] = (
         "wrench",
     ),
     BuiltinCommandSpec(
-        "/workflow",
-        "Run workflow",
-        "List workflows, or run one in the background: /workflow <name> key=value ...",
-        "workflow",
-        "<name> key=value ...",
-        accepts_args=True,
-    ),
-    BuiltinCommandSpec(
         "/help",
         "Show help",
         "List available slash commands.",
@@ -202,12 +194,10 @@ async def cmd_stop(ctx: CommandContext) -> OutboundMessage:
                 total += 1
             except Exception:
                 break
-    content = f"Stopped {total} task(s)." if total else "No active task to stop."
     return OutboundMessage(
-        channel=msg.channel, chat_id=msg.chat_id, content=content,
+        channel=msg.channel, chat_id=msg.chat_id, content="",
         metadata=dict(msg.metadata or {})
     )
-
 
 async def cmd_restart(ctx: CommandContext) -> OutboundMessage:
     """Restart the process."""
@@ -311,6 +301,7 @@ async def cmd_new(ctx: CommandContext) -> OutboundMessage:
     if snapshot:
         runtime = ctx.runtime or loop.runtime_for_session(session)
     session.clear()
+    session.metadata["_skip_recent_history_once"] = True
     loop.sessions.save(session)
     loop.sessions.invalidate(session.key)
     if snapshot:
@@ -938,81 +929,6 @@ async def cmd_skill(ctx: CommandContext) -> OutboundMessage:
     )
 
 
-async def cmd_workflow(ctx: CommandContext) -> OutboundMessage:
-    """List workflows, or run one in the background."""
-    from nanobot.workflows.runner import parse_workflow_args
-
-    runner = ctx.loop.workflows
-    parts = ctx.args.strip().split(None, 1)
-    if not parts:
-        if runner is None:
-            content = "Workflows are not available."
-        else:
-            workflows = runner.list_workflows()
-            if not workflows:
-                content = "No workflows available."
-            else:
-                lines = [f"Available workflows ({len(workflows)}):", ""]
-                for entry in workflows:
-                    desc = runner.get_workflow_description(entry["name"])
-                    lines.append(f"- **{entry['name']}** — {desc}")
-                content = "\n".join(lines)
-        return OutboundMessage(
-            channel=ctx.msg.channel,
-            chat_id=ctx.msg.chat_id,
-            content=content,
-            metadata={**dict(ctx.msg.metadata or {}), "render_as": "text"},
-        )
-
-    name = parts[0]
-    if runner is None:
-        return OutboundMessage(
-            channel=ctx.msg.channel,
-            chat_id=ctx.msg.chat_id,
-            content="Workflows are not available on this loop.",
-            metadata={**dict(ctx.msg.metadata or {}), "render_as": "text"},
-        )
-    runtime = ctx.runtime
-    if runtime is None:
-        runtime = (
-            ctx.loop.runtime_for_session(ctx.session)
-            if ctx.session is not None
-            else ctx.loop.llm_runtime()
-        )
-    if runtime is None:
-        return OutboundMessage(
-            channel=ctx.msg.channel,
-            chat_id=ctx.msg.chat_id,
-            content="No active model runtime is available to run a workflow.",
-            metadata={**dict(ctx.msg.metadata or {}), "render_as": "text"},
-        )
-    scope = ctx.loop.workspace_scopes.for_turn(
-        channel=ctx.msg.channel,
-        message_metadata=ctx.msg.metadata,
-        session_metadata=ctx.session.metadata if ctx.session is not None else None,
-    )
-    args_raw = parts[1] if len(parts) > 1 else ""
-    run_id = await runner.start(
-        name=name,
-        args=parse_workflow_args(args_raw),
-        runtime=runtime,
-        session_key=ctx.key,
-        channel=ctx.msg.channel,
-        chat_id=ctx.msg.chat_id,
-        workspace_scope=scope,
-        origin_message_id=(ctx.msg.metadata or {}).get("message_id"),
-    )
-    return OutboundMessage(
-        channel=ctx.msg.channel,
-        chat_id=ctx.msg.chat_id,
-        content=(
-            f"Workflow '{name}' started (run: {run_id}). "
-            "I'll share the result when it completes."
-        ),
-        metadata={**dict(ctx.msg.metadata or {}), "render_as": "text"},
-    )
-
-
 async def cmd_trigger(ctx: CommandContext) -> OutboundMessage:
     """Create a local trigger bound to the current session."""
     name = ctx.args.strip()
@@ -1113,8 +1029,6 @@ def register_builtin_commands(router: CommandRouter) -> None:
     router.exact("/evaluator-prompt", cmd_evaluator_prompt)
     router.prefix("/evaluator-prompt ", cmd_evaluator_prompt)
     router.exact("/skill", cmd_skill)
-    router.exact("/workflow", cmd_workflow)
-    router.prefix("/workflow ", cmd_workflow)
     router.exact("/help", cmd_help)
     router.exact("/pairing", cmd_pairing)
     router.prefix("/pairing ", cmd_pairing)
