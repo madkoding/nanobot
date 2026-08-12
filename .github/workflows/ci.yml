@@ -48,7 +48,6 @@ jobs:
   test:
     name: Python (${{ matrix.name }})
     needs: changes
-    if: needs.changes.outputs.python_required == 'true'
     runs-on: ${{ matrix.os }}
     timeout-minutes: 20
     strategy:
@@ -68,45 +67,56 @@ jobs:
             python-version: "3.14"
             coverage: false
 
+    # The job always runs (required status checks match the expanded matrix
+    # names) but heavy steps are gated: a webui/docs-only PR skips them
+    # while still reporting success for every required check.
     steps:
       - uses: actions/checkout@v4
 
+      - name: Skip — no Python-relevant changes
+        if: needs.changes.outputs.python_required == 'false'
+        run: echo "No Python-relevant changes; skipping install/test steps."
+
       - name: Set up Python ${{ matrix.python-version }}
+        if: needs.changes.outputs.python_required == 'true'
         uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
 
       - name: Install uv
+        if: needs.changes.outputs.python_required == 'true'
         uses: astral-sh/setup-uv@v4
         with:
           enable-cache: true
           cache-dependency-glob: "uv.lock"
 
       - name: Install system dependencies (Linux)
-        if: runner.os == 'Linux'
+        if: runner.os == 'Linux' && needs.changes.outputs.python_required == 'true'
         run: sudo apt-get update && sudo apt-get install -y libolm-dev build-essential
 
       - name: Install dependencies
+        if: needs.changes.outputs.python_required == 'true'
         run: uv sync --all-extras --dev
 
       - name: Install channel dependencies
+        if: needs.changes.outputs.python_required == 'true'
         run: uv run --no-sync python -m scripts.install_channel_dependencies --all-channels
 
       # Channel requirements live in manifests rather than uv.lock. Avoid a
       # later uv run sync pruning the packages installed by the previous step.
       - name: Lint with ruff
-        if: matrix.coverage
+        if: matrix.coverage && needs.changes.outputs.python_required == 'true'
         run: uv run --no-sync ruff check nanobot tests conftest.py
 
       - name: Run tests with coverage
-        if: matrix.coverage
+        if: matrix.coverage && needs.changes.outputs.python_required == 'true'
         run: >-
           uv run --no-sync python -m pytest
           --cov=nanobot --cov-report=term-missing:skip-covered
           --durations=25 --durations-min=1.0
 
       - name: Run compatibility tests
-        if: ${{ !matrix.coverage }}
+        if: ${{ !matrix.coverage && needs.changes.outputs.python_required == 'true' }}
         run: >-
           uv run --no-sync python -m pytest
           --durations=25 --durations-min=1.0
