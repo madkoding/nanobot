@@ -21,8 +21,8 @@ def _make_copilot_provider() -> OpenAICompatProvider:
     p._spec = find_by_name("github_copilot")
     p._effective_base = "https://api.githubcopilot.com"
     p._api_type = "auto"
-    p._responses_failures = {}
-    p._responses_tripped_at = {}
+    from nanobot.providers._circuit import CircuitBreaker
+    p._responses_circuit = CircuitBreaker(3, 300)
     return p
 
 

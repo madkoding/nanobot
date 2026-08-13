@@ -7,6 +7,7 @@ import mimetypes
 import re
 import sys
 import time
+from collections.abc import Awaitable, Callable
 from contextlib import suppress
 from dataclasses import dataclass
 from pathlib import Path
@@ -54,7 +55,7 @@ except ImportError as e:
 from nanobot.bus.events import OutboundMessage
 from nanobot.bus.outbound_events import ProgressEvent
 from nanobot.bus.queue import MessageBus
-from nanobot.channels.base import BaseChannel
+from nanobot.channels.base import BaseChannel, TypingIndicator
 from nanobot.config.paths import get_data_dir, get_media_dir
 from nanobot.config.schema import Base
 from nanobot.utils.helpers import safe_filename
@@ -295,7 +296,11 @@ class MatrixChannel(BaseChannel):
         super().__init__(config, bus)
         self.client: AsyncClient | None = None
         self._sync_task: asyncio.Task | None = None
-        self._typing_tasks: dict[str, asyncio.Task] = {}
+        # Matrix typing refresh must stay below TYPING_NOTICE_TIMEOUT_MS.
+        self._typing = TypingIndicator(interval=TYPING_KEEPALIVE_INTERVAL_MS / 1000)
+        # ponytail: tests inspect _typing_tasks directly; mirror the helper's
+        # task dict so existing assertions keep working without rewriting tests.
+        self._typing_tasks = self._typing._tasks
         self._restrict_to_workspace = bool(restrict_to_workspace)
         self._workspace = (
             Path(workspace).expanduser().resolve(strict=False) if workspace is not None else None
@@ -761,24 +766,19 @@ class MatrixChannel(BaseChannel):
 
     async def _start_typing_keepalive(self, room_id: str) -> None:
         """Start periodic typing refresh (spec-recommended keepalive)."""
-        await self._stop_typing_keepalive(room_id, clear_typing=False)
         await self._set_typing(room_id, True)
-        if not self._running:
-            return
+        self._typing.start(room_id, self._typing_action(room_id))
 
-        async def loop() -> None:
-            with suppress(asyncio.CancelledError):
-                while self._running:
-                    await asyncio.sleep(TYPING_KEEPALIVE_INTERVAL_MS / 1000)
-                    await self._set_typing(room_id, True)
+    def _typing_action(self, room_id: str) -> Callable[[], Awaitable[object]]:
+        async def _action() -> object:
+            if not self.client:
+                raise RuntimeError("matrix client not ready")
+            return await self._set_typing(room_id, True)
 
-        self._typing_tasks[room_id] = asyncio.create_task(loop())
+        return _action
 
     async def _stop_typing_keepalive(self, room_id: str, *, clear_typing: bool) -> None:
-        if task := self._typing_tasks.pop(room_id, None):
-            task.cancel()
-            with suppress(asyncio.CancelledError):
-                await task
+        self._typing.stop(room_id)
         if clear_typing:
             await self._set_typing(room_id, False)
 

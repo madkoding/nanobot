@@ -5,10 +5,8 @@ from __future__ import annotations
 from typing import Any
 from unittest.mock import MagicMock
 
-from nanobot.providers.openai_compat_provider import (
-    OpenAICompatProvider,
-    _deep_merge,
-)
+from nanobot.providers.base import _deep_merge
+from nanobot.providers.openai_compat_provider import OpenAICompatProvider
 from nanobot.providers.registry import find_by_name
 
 # ---------------------------------------------------------------------------

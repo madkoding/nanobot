@@ -849,7 +849,6 @@ class SubagentManager:
                 reset_request_context(request_token)
             status.phase = "done"
             status.stop_reason = result.stop_reason
-            status.stop_reason = result.stop_reason
 
             if result.stop_reason == "tool_error":
                 status.tool_events = list(result.tool_events)

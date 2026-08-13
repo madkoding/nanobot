@@ -245,9 +245,7 @@ class XAIGrokProvider(LLMProvider):
 
 
 def _strip_model_prefix(model: str) -> str:
-    if model.startswith("xai-grok/") or model.startswith("xai_grok/"):
-        return model.split("/", 1)[1]
-    return model
+    return LLMProvider._strip_prefix(model, ("xai-grok", "xai_grok"))
 
 
 def _build_reasoning_options(reasoning_effort: str | None) -> dict[str, str]:

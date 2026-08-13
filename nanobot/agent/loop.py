@@ -120,15 +120,6 @@ class TurnKind(Enum):
 
 
 @dataclass
-class StateTraceEntry:
-    state: TurnState
-    started_at: float
-    duration_ms: float
-    event: str
-    error: str | None = None
-
-
-@dataclass
 class TurnContext:
     msg: InboundMessage
     session_key: str
@@ -177,8 +168,6 @@ class TurnContext:
     turn_wall_started_at: float = field(default_factory=time.time)
     visible_run_started_at: float | None = None
     turn_latency_ms: int | None = None
-
-    trace: list[StateTraceEntry] = field(default_factory=list)
 
 
 class AgentLoop:
@@ -1686,6 +1675,7 @@ class AgentLoop:
             ctx.on_stream = _tracked_stream
             ctx.on_stream_end = _tracked_stream_end
 
+        state_count = 0
         while ctx.state is not TurnState.DONE:
             handler_name = f"_state_{ctx.state.name.lower()}"
             handler = getattr(self, handler_name, None)
@@ -1693,30 +1683,9 @@ class AgentLoop:
                 raise RuntimeError(f"Missing state handler for {ctx.state}")
 
             t0 = time.perf_counter()
-            try:
-                event = await handler(ctx)
-            except Exception:
-                duration = (time.perf_counter() - t0) * 1000
-                ctx.trace.append(
-                    StateTraceEntry(
-                        state=ctx.state,
-                        started_at=t0,
-                        duration_ms=duration,
-                        event="",
-                        error="exception",
-                    )
-                )
-                raise
-
+            event = await handler(ctx)
             duration = (time.perf_counter() - t0) * 1000
-            ctx.trace.append(
-                StateTraceEntry(
-                    state=ctx.state,
-                    started_at=t0,
-                    duration_ms=duration,
-                    event=event,
-                )
-            )
+            state_count += 1
             logger.debug(
                 "[turn {}] State {} took {:.1f}ms -> event {}",
                 ctx.turn_id,
@@ -1736,7 +1705,7 @@ class AgentLoop:
         logger.debug(
             "[turn {}] Turn completed after {} states",
             ctx.turn_id,
-            len(ctx.trace),
+            state_count,
         )
         return ctx.outbound
 

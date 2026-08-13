@@ -6,7 +6,6 @@ import hashlib
 import importlib.util
 import os
 import re
-from collections import OrderedDict
 from pathlib import Path
 from typing import Any
 
@@ -94,7 +93,7 @@ class WecomChannel(BaseChannel):
         super().__init__(config, bus)
         self.config: WecomConfig = config
         self._client: Any = None
-        self._processed_message_ids: OrderedDict[str, None] = OrderedDict()
+        self._processed_message_ids = self._bounded_set(1000)
         self._loop: asyncio.AbstractEventLoop | None = None
         self._generate_req_id = None
         # Store frame headers for each chat to enable replies
@@ -245,11 +244,7 @@ class WecomChannel(BaseChannel):
             # Deduplication check
             if msg_id in self._processed_message_ids:
                 return
-            self._processed_message_ids[msg_id] = None
-
-            # Trim cache
-            while len(self._processed_message_ids) > 1000:
-                self._processed_message_ids.popitem(last=False)
+            self._processed_message_ids.add(msg_id)
 
             # For single chat, chatid is the sender's userid
             # For group chat, chatid is provided in body

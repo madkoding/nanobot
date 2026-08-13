@@ -48,8 +48,9 @@ class InstallResult:
 
 _INSTALL_TIMEOUT_SECONDS = 300
 _LOG_OUTPUT_LIMIT = 4000
-_HIDDEN_OPTIONAL_FEATURES = {"documents", "pdf"}
-_BUNDLED_FEATURE_ALIASES = {"documents", "pdf"}
+# Features that ship with nanobot and require no installable dependencies; hidden from the
+# optional-features list but used when computing enabled/configured/ready status.
+_BUNDLED_FEATURES = {"documents", "pdf"}
 
 
 def load_pyproject(path: Path) -> dict[str, Any]:
@@ -89,12 +90,12 @@ def optional_dependency_groups() -> dict[str, list[str] | None]:
         return {
             name: list(values)
             for name, values in deps.items()
-            if name != "dev" and name not in _HIDDEN_OPTIONAL_FEATURES and isinstance(values, list)
+            if name != "dev" and name not in _BUNDLED_FEATURES and isinstance(values, list)
         }
     return {
         name: values
         for name, values in optional_dependency_groups_from_metadata().items()
-        if name not in _HIDDEN_OPTIONAL_FEATURES
+        if name not in _BUNDLED_FEATURES
     }
 
 
@@ -401,6 +402,110 @@ def _feature_dependencies(
     return extras.get(name)
 
 
+def _build_base_feature(
+    name: str,
+    channel_plugin: Any | None,
+    extras: dict[str, list[str] | None],
+) -> tuple[dict[str, Any], bool]:
+    """Build the common fields shared by channel and non-channel features.
+
+    Returns the feature dict and the pre-computed ``installed`` flag so callers
+    do not re-invoke dependency checks.
+    """
+    is_channel = channel_plugin is not None
+    dependencies = _feature_dependencies(name, channel_plugin, extras)
+    has_dependencies = bool(dependencies)
+    installed = extra_installed(name, dependencies) if has_dependencies else True
+    feature: dict[str, Any] = {
+        "name": name,
+        "display_name": (
+            channel_plugin.display_name
+            if channel_plugin is not None
+            else name.replace("_", " ").title()
+        ),
+        "type": "channel" if is_channel else "feature",
+        "installed": installed,
+        "install_supported": has_dependencies or is_channel,
+        "requires_restart": _feature_requires_restart(name, is_channel=is_channel),
+    }
+    if channel_plugin is not None:
+        feature["capabilities"] = sorted(channel_plugin.capabilities)
+        feature["settings_visible"] = channel_plugin.settings_visible
+        if channel_plugin.webui is not None:
+            feature["webui"] = channel_plugin.webui
+    return feature, installed
+
+
+def _enrich_non_channel_feature(feature: dict[str, Any], installed: bool) -> None:
+    """Fill enabled/configured/ready/status for a dependency-only feature."""
+    feature.update({
+        "enabled": installed,
+        "configured": installed,
+        "ready": installed,
+        "status": "enabled" if installed else "missing_dependency",
+    })
+
+
+def _enrich_channel_feature(
+    feature: dict[str, Any],
+    name: str,
+    channel_plugin: Any,
+    config: Config,
+    installed: bool,
+) -> None:
+    """Fill channel-specific fields from saved config and discovered state."""
+    try:
+        setup_spec = channel_setup_spec(name, plugin=channel_plugin)
+        if setup_spec is not None:
+            feature["setup"] = setup_spec.to_public_dict(name)
+        enabled = channel_enabled(
+            config,
+            name,
+            channel_plugin,
+            default_enabled=channel_plugin.default_enabled,
+        )
+        configured = channel_configured(
+            config,
+            name,
+            setup_spec,
+            channel_plugin,
+            default_enabled=channel_plugin.default_enabled,
+        )
+        ready = bool(enabled and installed)
+        status = "enabled" if ready else "missing_dependency" if not installed else "not_enabled"
+        feature.update({
+            "enabled": enabled,
+            "configured": configured,
+            "ready": ready,
+            "status": status,
+        })
+        config_values, configured_fields = _channel_config_snapshot(
+            getattr(config.channels, name, None),
+            name,
+            setup_spec,
+        )
+        if config_values:
+            feature["config_values"] = config_values
+        if configured_fields:
+            feature["configured_fields"] = configured_fields
+        instances = channel_feature_instances(
+            channel_plugin,
+            getattr(config.channels, name, None),
+            setup_spec=setup_spec,
+        )
+        if instances is not None:
+            feature["instances"] = instances
+    except Exception as exc:
+        logger.warning("Could not inspect {} channel configuration: {}", name, exc)
+        feature.update({
+            "enabled": False,
+            "configured": False,
+            "ready": False,
+            "status": "invalid_config",
+            "error": "Channel configuration could not be inspected.",
+        })
+
+
 def optional_features_payload(
     *,
     config: Config | None = None,
@@ -414,101 +519,20 @@ def optional_features_payload(
     channel_plugins = discover_plugins()
     features: list[dict[str, Any]] = []
 
-    feature_names = set(channel_plugins) | set(extras)
-    for name in sorted(feature_names):
+    for name in sorted(set(channel_plugins) | set(extras)):
         channel_plugin = channel_plugins.get(name)
-        is_channel = channel_plugin is not None
-        dependencies = _feature_dependencies(name, channel_plugin, extras)
-        has_dependencies = bool(dependencies)
-        installed = extra_installed(name, dependencies) if has_dependencies else True
-        feature = {
-            "name": name,
-            "display_name": (
-                channel_plugin.display_name
-                if channel_plugin is not None
-                else name.replace("_", " ").title()
-            ),
-            "type": "channel" if is_channel else "feature",
-            "installed": installed,
-            "install_supported": has_dependencies or is_channel,
-            "requires_restart": _feature_requires_restart(name, is_channel=is_channel),
-        }
-        if channel_plugin is not None:
-            feature["capabilities"] = sorted(channel_plugin.capabilities)
-            feature["settings_visible"] = channel_plugin.settings_visible
-            if channel_plugin.webui is not None:
-                feature["webui"] = channel_plugin.webui
-
-        if not is_channel:
-            feature.update({
-                "enabled": installed,
-                "configured": installed,
-                "ready": installed,
-                "status": "enabled" if installed else "missing_dependency",
-            })
-            features.append(feature)
-            continue
-
-        try:
-            assert channel_plugin is not None
-            setup_spec = channel_setup_spec(name, plugin=channel_plugin)
-            if setup_spec is not None:
-                feature["setup"] = setup_spec.to_public_dict(name)
-            enabled = channel_enabled(
-                config,
-                name,
-                channel_plugin,
-                default_enabled=channel_plugin.default_enabled,
-            )
-            configured = channel_configured(
-                config,
-                name,
-                setup_spec,
-                channel_plugin,
-                default_enabled=channel_plugin.default_enabled,
-            )
-            ready = bool(enabled and installed)
-            status = "enabled" if ready else "missing_dependency" if not installed else "not_enabled"
-            feature.update({
-                "enabled": enabled,
-                "configured": configured,
-                "ready": ready,
-                "status": status,
-            })
-            config_values, configured_fields = _channel_config_snapshot(
-                getattr(config.channels, name, None),
-                name,
-                setup_spec,
-            )
-            if config_values:
-                feature["config_values"] = config_values
-            if configured_fields:
-                feature["configured_fields"] = configured_fields
-            instances = channel_feature_instances(
-                channel_plugin,
-                getattr(config.channels, name, None),
-                setup_spec=setup_spec,
-            )
-            if instances is not None:
-                feature["instances"] = instances
-        except Exception as exc:
-            logger.warning("Could not inspect {} channel configuration: {}", name, exc)
-            feature.update({
-                "enabled": False,
-                "configured": False,
-                "ready": False,
-                "status": "invalid_config",
-                "error": "Channel configuration could not be inspected.",
-            })
+        feature, installed = _build_base_feature(name, channel_plugin, extras)
+        if channel_plugin is None:
+            _enrich_non_channel_feature(feature, installed)
+        else:
+            _enrich_channel_feature(feature, name, channel_plugin, config, installed)
         features.append(feature)
 
-    payload = {
+    return {
         "features": features,
         "enabled_count": sum(1 for feature in features if feature["enabled"]),
+        **({"last_action": last_action} if last_action else {}),
     }
-    if last_action:
-        payload["last_action"] = last_action
-    return payload
 
 
 def with_channel_runtime_status(
@@ -624,7 +648,7 @@ def enable_optional_feature(
     from nanobot.channels.registry import discover_plugins
     from nanobot.config.loader import get_config_path
 
-    if name in _BUNDLED_FEATURE_ALIASES:
+    if name in _BUNDLED_FEATURES:
         payload = optional_features_payload(
             last_action={
                 "ok": True,
@@ -741,7 +765,7 @@ def _feature_requires_restart(name: str, *, is_channel: bool) -> bool:
     if is_channel:
         return True
     # These libraries are imported lazily or used by a newly spawned service.
-    return name not in {"api", "documents", "pdf", "olostep"}
+    return name not in ({"api", "olostep"} | _BUNDLED_FEATURES)
 
 
 def disable_optional_feature(

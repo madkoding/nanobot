@@ -177,6 +177,56 @@ def publish_runtime_model_update(
     )
 
 
+def _build_websocket_gateway_kwargs(manager: Any) -> dict[str, Any]:
+    """Construct gateway services for the WebSocket channel.
+
+    Tests that patch ``build_gateway_services`` at module scope expect this
+    to be an ordinary function call rather than a classmethod, so the work
+    stays here and ``WebSocketChannel.build_kwargs`` just delegates.
+    """
+    from loguru import logger as _logger
+
+    from nanobot.webui.gateway_services import build_gateway_services
+
+    parsed = WebSocketConfig.model_validate(manager.config.channels.websocket)
+    static_path = _default_webui_dist() if manager._webui_static_dist else None
+    workspace = Path(manager.config.workspace_path)
+    gateway = build_gateway_services(
+        config=parsed,
+        bus=manager.bus,
+        session_manager=manager._session_manager,
+        static_dist_path=static_path,
+        workspace_path=workspace,
+        worktree_root=manager.config.worktree_root_path,
+        default_restrict_to_workspace=manager.config.tools.restrict_to_workspace,
+        disabled_skills=set(manager.config.agents.defaults.disabled_skills),
+        runtime_model_name=manager._webui_runtime_model_name,
+        runtime_surface=manager._webui_runtime_surface,
+        runtime_capabilities_overrides=manager._webui_runtime_capabilities,
+        cron_service=manager._cron_service,
+        local_trigger_store=manager._local_trigger_store,
+        cron_pending_job_ids=manager._webui_cron_pending_job_ids,
+        local_trigger_pending_ids=manager._webui_local_trigger_pending_ids,
+        channel_feature_action=manager.apply_channel_feature_action,
+        channel_runtime_status=manager.get_status,
+        agent_loop=getattr(manager, "_agent_loop", None),
+        subagent_manager=getattr(manager, "_subagent_manager", None),
+        runtime_resolver=manager._resolve_subagent_runtime,
+        logger=_logger,
+    )
+    return {"gateway": gateway}
+
+
+def _default_webui_dist() -> Path | None:
+    """Return the absolute path to the bundled webui dist directory if it exists."""
+    try:
+        import nanobot.web as web_pkg  # type: ignore[import-not-found]
+    except ImportError:
+        return None
+    candidate = Path(web_pkg.__file__).resolve().parent / "dist"
+    return candidate if candidate.is_dir() else None
+
+
 def _parse_inbound_payload(raw: str) -> str | None:
     """Parse a client frame into text; return None for empty or unrecognized content."""
     text = raw.strip()
@@ -828,6 +878,22 @@ class WebSocketChannel(BaseChannel):
         """Force-close a connection whose send timed out (send state is unknown)."""
         with suppress(Exception):
             connection.transport.abort()
+
+    @classmethod
+    def build_kwargs(cls, manager: Any) -> dict[str, Any]:
+        """Build gateway services for the WebSocket channel.
+
+        Kept as a normal method so tests that patch ``build_gateway_services``
+        at module scope continue to work.
+        """
+        return _build_websocket_gateway_kwargs(manager)
+
+    def accepts_outbound(self, msg: OutboundMessage) -> bool:
+        """WebSocket accepts fan-out messages even without active subscribers."""
+        event = outbound_event_from_message(msg)
+        if isinstance(event, RuntimeModelUpdatedEvent):
+            return True
+        return bool(self._subs.get(msg.chat_id))
 
     async def send(self, msg: OutboundMessage) -> None:
         event = outbound_event_from_message(msg)

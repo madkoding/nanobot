@@ -6,6 +6,7 @@ import asyncio
 import re
 import time
 import unicodedata
+from collections.abc import Awaitable, Callable
 from contextlib import suppress
 from dataclasses import dataclass
 from pathlib import Path
@@ -28,7 +29,7 @@ from telegram.request import HTTPXRequest
 from nanobot.bus.events import OutboundMessage
 from nanobot.bus.outbound_events import ProgressEvent
 from nanobot.bus.queue import MessageBus
-from nanobot.channels.base import BaseChannel
+from nanobot.channels.base import BaseChannel, TypingIndicator
 from nanobot.command.builtin import build_help_text
 from nanobot.config.paths import get_media_dir
 from nanobot.config.schema import Base
@@ -457,7 +458,7 @@ class TelegramChannel(BaseChannel):
         self.config: TelegramConfig = config
         self._app: Application | None = None
         self._chat_ids: dict[str, int] = {}  # Map sender_id to chat_id for replies
-        self._typing_tasks: dict[str, asyncio.Task] = {}  # chat_id -> typing loop task
+        self._typing = TypingIndicator(interval=4.0)
         self._media_group_buffers: dict[str, dict] = {}
         self._media_group_tasks: dict[str, asyncio.Task] = {}
         self._message_threads: dict[tuple[str, int], int] = {}
@@ -728,8 +729,7 @@ class TelegramChannel(BaseChannel):
     async def send(self, msg: OutboundMessage) -> None:
         """Send a message through Telegram."""
         if not self._app:
-            self.logger.warning("bot not running")
-            return
+            raise RuntimeError("bot not running")
 
         progress_event = msg.event if isinstance(msg.event, ProgressEvent) else None
 
@@ -1571,18 +1571,6 @@ class TelegramChannel(BaseChannel):
         finally:
             self._media_group_tasks.pop(key, None)
 
-    def _start_typing(self, chat_id: str) -> None:
-        """Start sending 'typing...' indicator for a chat."""
-        # Cancel any existing typing task for this chat
-        self._stop_typing(chat_id)
-        self._typing_tasks[chat_id] = asyncio.create_task(self._typing_loop(chat_id))
-
-    def _stop_typing(self, chat_id: str) -> None:
-        """Stop the typing indicator for a chat."""
-        task = self._typing_tasks.pop(chat_id, None)
-        if task and not task.done():
-            task.cancel()
-
     async def _add_reaction(self, chat_id: str, message_id: int, emoji: str) -> None:
         """Add emoji reaction to a message (best-effort, non-blocking)."""
         if not self._app or not emoji:
@@ -1609,15 +1597,36 @@ class TelegramChannel(BaseChannel):
         except Exception as e:
             self.logger.debug("reaction removal failed: {}", e)
 
-    async def _typing_loop(self, chat_id: str) -> None:
-        """Repeatedly send 'typing' action until cancelled."""
+    async def _add_reaction(self, chat_id: str, message_id: int, emoji: str) -> None:
+        """Add emoji reaction to a message (best-effort, non-blocking)."""
+        if not self._app or not emoji:
+            return
         try:
-            with suppress(asyncio.CancelledError):
-                while self._app:
-                    await self._app.bot.send_chat_action(chat_id=int(chat_id), action="typing")
-                    await asyncio.sleep(4)
+            await self._app.bot.set_message_reaction(
+                chat_id=int(chat_id),
+                message_id=message_id,
+                reaction=[ReactionTypeEmoji(emoji=emoji)],
+            )
         except Exception as e:
-            self.logger.debug("Typing indicator stopped for {}: {}", chat_id, e)
+            self.logger.debug("reaction failed: {}", e)
+
+    def _start_typing(self, chat_id: str) -> None:
+        """Start sending 'typing...' indicator for a chat."""
+        if not self._app:
+            return
+        self._typing.start(chat_id, self._send_typing_action(chat_id))
+
+    def _stop_typing(self, chat_id: str) -> None:
+        """Stop the typing indicator for a chat."""
+        self._typing.stop(chat_id)
+
+    def _send_typing_action(self, chat_id: str) -> Callable[[], Awaitable[object]]:
+        async def _action() -> object:
+            if self._app is None:
+                raise RuntimeError("telegram application not ready")
+            return await self._app.bot.send_chat_action(chat_id=int(chat_id), action="typing")
+
+        return _action
 
     @staticmethod
     def _format_telegram_error(exc: Exception) -> str:

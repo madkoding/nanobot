@@ -93,11 +93,13 @@ class RuntimeEventBus:
 
     Subscribers run in registration order. ``publish`` awaits async handlers so
     callers can preserve ordering when a runtime event must follow a user
-    message. ``publish_nowait`` is available for synchronous call sites.
+    message. ``publish_nowait`` schedules ``publish`` on the running loop and
+    tracks the resulting task so it is not dropped at shutdown.
     """
 
     def __init__(self) -> None:
         self._handlers: list[_HandlerEntry] = []
+        self._background_tasks: set[asyncio.Task[Any]] = set()
 
     def subscribe(
         self,
@@ -130,7 +132,16 @@ class RuntimeEventBus:
         except RuntimeError:
             logger.debug("dropping runtime event without a running loop: {}", type(event).__name__)
             return
-        loop.create_task(self.publish(event))
+        task = loop.create_task(self.publish(event))
+        self._background_tasks.add(task)
+        task.add_done_callback(self._background_tasks.discard)
+
+    async def shutdown(self) -> None:
+        """Await any background publish tasks still in flight."""
+        pending = list(self._background_tasks)
+        if pending:
+            await asyncio.gather(*pending, return_exceptions=True)
+            self._background_tasks.clear()
 
 
 class RuntimeEventPublisher:

@@ -996,6 +996,10 @@ def test_manager_loads_websocket_from_default_config():
         def default_config(cls):
             return {"enabled": True, "host": "127.0.0.1"}
 
+        @classmethod
+        def build_kwargs(cls, manager):
+            return {"gateway": "fake-gateway"}
+
     plugin = _channel_plugin(_FakeWebSocket, default_enabled=True)
     with patch("nanobot.channels.registry.discover_plugins", return_value={"websocket": plugin}):
         mgr = ChannelManager(Config(), MessageBus(), webui_static_dist=False)

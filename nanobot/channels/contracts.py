@@ -27,7 +27,6 @@ DefaultConfigFactory = Callable[[], dict[str, Any]]
 InstanceSpecsFactory = Callable[..., Iterable["ChannelInstanceSpec"]]
 InstanceConfigUpdater = Callable[..., dict[str, Any]]
 RuntimeNameFactory = Callable[[str, str], str]
-FeatureInstancesFactory = Callable[..., list[dict[str, Any]] | None]
 LocalStatePresent = Callable[[Any], bool]
 
 __all__ = [
@@ -237,7 +236,6 @@ class ChannelManagementSpec:
     instance_specs: InstanceSpecsFactory | None = None
     update_instance_config: InstanceConfigUpdater | None = None
     runtime_name: RuntimeNameFactory | None = None
-    feature_instances: FeatureInstancesFactory | None = None
     local_state_present: LocalStatePresent | None = None
 
     def __post_init__(self) -> None:
@@ -245,7 +243,6 @@ class ChannelManagementSpec:
             "instance_specs": self.instance_specs,
             "update_instance_config": self.update_instance_config,
             "runtime_name": self.runtime_name,
-            "feature_instances": self.feature_instances,
         }
         if not self.multi_instance:
             unexpected = [
@@ -439,24 +436,19 @@ def channel_feature_instances(
     *,
     setup_spec: ChannelSetupSpec | None = None,
 ) -> list[dict[str, Any]] | None:
-    factory = plugin.management.feature_instances
-    overrides = factory(section, setup_spec=setup_spec) if factory is not None else None
-    if overrides is None and not plugin.management.multi_instance:
+    """Return per-instance metadata for a channel feature.
+
+    Single-instance channels return ``None``; multi-instance channels return one
+    entry per instance so the WebUI can render them independently.
+    """
+    if not plugin.management.multi_instance:
         return None
-    if overrides is not None and (
-        not isinstance(overrides, list)
-        or any(not isinstance(instance, dict) for instance in overrides)
-    ):
-        raise TypeError(
-            f"ChannelPlugin.management.feature_instances for '{plugin.name}' "
-            "must return a list of dicts or None"
-        )
 
     enabled_ids = {
         spec.instance_id for spec in channel_instance_specs(plugin, section, enabled_only=True)
     }
 
-    instances = [
+    return [
         _channel_feature_instance(
             plugin.name,
             spec,
@@ -465,30 +457,6 @@ def channel_feature_instances(
         )
         for spec in channel_instance_specs(plugin, section, enabled_only=False)
     ]
-    if overrides is None:
-        return instances
-
-    by_id = {instance["id"]: instance for instance in instances}
-    seen: set[str] = set()
-    for override in overrides:
-        instance_id = override.get("id")
-        if not isinstance(instance_id, str) or instance_id not in by_id:
-            raise ValueError(
-                f"ChannelPlugin.management.feature_instances for '{plugin.name}' "
-                "returned unknown instance id "
-                f"'{instance_id}'"
-            )
-        if instance_id in seen:
-            raise ValueError(
-                f"ChannelPlugin.management.feature_instances for '{plugin.name}' "
-                "returned duplicate instance id "
-                f"'{instance_id}'"
-            )
-        seen.add(instance_id)
-        for field in ("name", "display_name", "avatar_url"):
-            if field in override:
-                by_id[instance_id][field] = str(override[field] or "")
-    return instances
 
 
 def refresh_channel_feature_metadata(
