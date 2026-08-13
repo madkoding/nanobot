@@ -302,6 +302,7 @@ class AgentLoop:
 
         _tc = tools_config or ToolsConfig()
         defaults = AgentDefaults()
+        self._agent_defaults = defaults
         self.bus = bus
         if turn_delivery_factory is not None:
             if turn_delivery_factory.bus is not bus:
@@ -1152,6 +1153,12 @@ class AgentLoop:
                     message_metadata=metadata,
                 ),
                 on_snip=self._archive_sniped,
+                tool_repeat_nudge_after=self._agent_defaults.tool_repeat_nudge_after,
+                tool_repeat_hard_stop_after=self._agent_defaults.tool_repeat_hard_stop_after,
+                content_repeat_nudge_after=self._agent_defaults.content_repeat_nudge_after,
+                content_repeat_hard_stop_after=self._agent_defaults.content_repeat_hard_stop_after,
+                alternating_pattern_nudge_after=self._agent_defaults.alternating_pattern_nudge_after,
+                alternating_pattern_hard_stop_after=self._agent_defaults.alternating_pattern_hard_stop_after,
             ))
         finally:
             turn_scope_stack.close()
