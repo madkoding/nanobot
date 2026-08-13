@@ -78,6 +78,7 @@ from nanobot.session.goal_state import (
 from nanobot.session.history_visibility import HIDDEN_HISTORY_META
 from nanobot.session.keys import UNIFIED_SESSION_KEY
 from nanobot.session.manager import (
+    SESSION_CACHE_MAX_SIZE,
     Session,
     SessionManager,
     replay_max_messages_for_context,
@@ -377,7 +378,7 @@ class AgentLoop:
         self.tools = ToolRegistry()
         # One file-read/write tracker per logical session. The tool registry is
         # shared by this loop, so tools resolve the active state via contextvars.
-        self._file_state_store = FileStateStore()
+        self._file_state_store = FileStateStore(max_sessions=SESSION_CACHE_MAX_SIZE)
         self._exec_session_manager = ExecSessionManager()
         self.runner = AgentRunner()
         self.subagents = SubagentManager(
@@ -928,7 +929,22 @@ class AgentLoop:
             with suppress(asyncio.CancelledError, Exception):
                 await t
         sub_cancelled = await self.subagents.cancel_by_session(key)
-        return cancelled + sub_cancelled
+        exec_cancelled = await self._exec_session_manager.terminate_by_owner(key)
+        return cancelled + sub_cancelled + exec_cancelled
+
+    async def discard_session(self, key: str) -> None:
+        """Stop active work for *key* and forget its cached session."""
+        self._discarding_sessions.add(key)
+        try:
+            self.sessions.invalidate(key)
+            await self._cancel_active_tasks(key)
+        finally:
+            self.discard_session_file_state(key)
+            self._discarding_sessions.discard(key)
+
+    def discard_session_file_state(self, key: str) -> None:
+        """Forget ephemeral file-read state for a reset or removed session."""
+        self._file_state_store.discard(key)
 
     def _effective_session_key(self, msg: InboundMessage) -> str:
         """Return the session key used for task routing and mid-turn injections."""
