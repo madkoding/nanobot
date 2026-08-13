@@ -383,7 +383,6 @@ class AgentLoop:
         self.sessions.set_file_cap_archiver(self._archive_file_cap)
         self._group_workspace_registries: dict[str, Any] = {}
         self.tools = ToolRegistry()
-        self.tools = tool_registry if tool_registry is not None else ToolRegistry()
         self._exec_session_manager = ExecSessionManager()
         self.runner = AgentRunner()
         self.subagents = SubagentManager(
