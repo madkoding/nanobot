@@ -169,6 +169,9 @@ class _FakeLoginClient:
         # called (the same shutdown path neonize takes on a clean exit).
         await self._stopped.wait()
 
+    def is_connected(self) -> bool:
+        return not self._stopped.is_set()
+
     async def stop(self) -> None:
         self._stop_calls += 1
         self._stopped.set()
@@ -252,6 +255,9 @@ class _LoggedOutClient:
 
     async def idle(self) -> None:
         await self._stopped.wait()
+
+    def is_connected(self) -> bool:
+        return not self._stopped.is_set()
 
     async def stop(self) -> None:
         self._stop_calls += 1
@@ -354,6 +360,9 @@ class _HangingClient:
         # cancel us via the timeout, after which the channel's finally
         # block calls stop() — which signals this event.
         await self._stopped.wait()
+
+    def is_connected(self) -> bool:
+        return not self._stopped.is_set()
 
     async def stop(self) -> None:
         self._stop_calls += 1
@@ -542,6 +551,69 @@ async def test_start_stops_cleanly_on_external_stop(monkeypatch) -> None:
     await ch.stop()
     await asyncio.wait_for(start_task, timeout=5)
     assert ch._new_client.call_count == 1
+
+
+@pytest.mark.asyncio
+async def test_start_reconnects_when_websocket_dies_silently(monkeypatch) -> None:
+    """When is_connected() goes False, the channel reconnects instead of exiting."""
+    _patch_neonize_api(monkeypatch)
+
+    class _FlakyClient(_FakeLoginClient):
+        def __init__(self) -> None:
+            super().__init__()
+            self._connected_flag = True
+            self._reconnect_count = 0
+
+        def is_connected(self) -> bool:
+            return self._connected_flag
+
+        async def connect(self) -> None:
+            self._connected_flag = True
+            self._stopped.clear()
+            self._reconnect_count += 1
+            await self.handlers[whatsapp_module._NEONIZE_API.ConnectedEv](self, _Proto())
+
+        async def stop(self) -> None:
+            self._connected_flag = False
+            self._stop_calls += 1
+            self._stopped.set()
+
+    client = _FlakyClient()
+    ch = _make_channel({"login_timeout_s": 1})
+    ch._new_client = MagicMock(return_value=client)
+
+    # Speed up the health check so the test doesn't wait 15s.
+    async def _fast_health_check(self, client) -> None:
+        while True:
+            await asyncio.sleep(0.05)
+            if not self._connected:
+                continue
+            if not client.is_connected():
+                self._reconnect_triggered = True
+                await client.stop()
+                return
+
+    monkeypatch.setattr(whatsapp_module.WhatsAppChannel, "_health_check", _fast_health_check)
+
+    start_task = asyncio.create_task(ch.start())
+    await asyncio.sleep(0.3)
+
+    # Simulate the silent websocket death the health check detects.
+    client._connected_flag = False
+
+    # Wait until the channel has reconnected at least once.
+    for _ in range(100):
+        if client._reconnect_count >= 2:
+            break
+        await asyncio.sleep(0.05)
+    assert client._reconnect_count >= 2
+
+    # Stop cleanly and let start() return.
+    await ch.stop()
+    await asyncio.wait_for(start_task, timeout=3)
+
+    assert ch._new_client.call_count >= 2
+    assert ch._connected is False
 
 
 def _patch_throttle_path(monkeypatch, tmp_path) -> Path:

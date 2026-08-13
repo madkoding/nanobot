@@ -676,8 +676,14 @@ class WhatsAppChannel(BaseChannel):
         await self._run_session()
 
     async def _run_session(self) -> None:
-        """One connect→idle cycle. Returns when the connection ends or
-        the login-timeout cap elapses without a successful login.
+        """Run connect→idle cycles, reconnecting when the websocket dies.
+
+        neonize's ``idle()`` blocks on a Go call that never returns when the
+        websocket drops (EOF / "stream replaced"), so the channel would sit
+        "connected" but dead until the manager watchdog restarts it ~10 min
+        later. A health-check task polls ``is_connected()`` and stops the
+        client when the socket is actually dead, which unblocks ``idle()`` and
+        lets this loop reconnect immediately.
         """
         self._running = True
         self._started_at = time.time()
@@ -700,63 +706,100 @@ class WhatsAppChannel(BaseChannel):
             )
         self._state_dirty_count = 0
         self._state_last_save_at = 0.0
-        client = self._new_client()
-        self._client = client
-        self._register_handlers(client, handle_messages=True)
 
         login_timeout_s = int(getattr(self.config, "login_timeout_s", 0) or 0)
+        first = True
         try:
-            self.logger.info("Connecting WhatsApp channel with neonize...")
-            await client.connect()
-            if login_timeout_s > 0:
-                self.logger.info(
-                    "WhatsApp login timeout: {} seconds; channel will stop if no login completes by then.",
-                    login_timeout_s,
-                )
-                # The cap only matters before login completes. Once we're
-                # connected, idle() running past the cap must NOT tear down
-                # the channel — that would kill a healthy session every
-                # 300s. Race the login-completion signal against the cap,
-                # then block on idle() for as long as the session stays up.
-                connected_event = asyncio.Event()
-                self._on_connected_for_lifecycle = connected_event.set
+            while self._running:
+                self._reconnect_triggered = False
+                client = self._new_client()
+                self._client = client
+                self._register_handlers(client, handle_messages=True)
                 try:
-                    try:
-                        await asyncio.wait_for(
-                            connected_event.wait(), timeout=login_timeout_s
+                    self.logger.info("Connecting WhatsApp channel with neonize...")
+                    await client.connect()
+                    if first and login_timeout_s > 0:
+                        self.logger.info(
+                            "WhatsApp login timeout: {} seconds; channel will stop if no login completes by then.",
+                            login_timeout_s,
                         )
-                    except asyncio.TimeoutError:
-                        if self._connected:
-                            # Login already happened — the cap doesn't apply.
-                            # Block on idle() so the channel keeps processing
-                            # events until something actually disconnects.
-                            await client.idle()
-                        else:
-                            self.logger.warning(
-                                "WhatsApp login not completed in {} seconds; stopping channel. "
-                                "Scan the QR and restart the gateway to retry.",
-                                login_timeout_s,
-                            )
-                            return
+                        # The cap only matters before login completes. Once
+                        # we're connected, idle() running past the cap must
+                        # NOT tear down the channel — that would kill a
+                        # healthy session every 300s. Race the login-completion
+                        # signal against the cap, then fall through to the
+                        # common idle path below.
+                        connected_event = asyncio.Event()
+                        self._on_connected_for_lifecycle = connected_event.set
+                        try:
+                            try:
+                                await asyncio.wait_for(
+                                    connected_event.wait(), timeout=login_timeout_s
+                                )
+                            except asyncio.TimeoutError:
+                                if not self._connected:
+                                    self.logger.warning(
+                                        "WhatsApp login not completed in {} seconds; stopping channel. "
+                                        "Scan the QR and restart the gateway to retry.",
+                                        login_timeout_s,
+                                    )
+                                    return
+                        finally:
+                            self._on_connected_for_lifecycle = None
+                    # Block on idle() so the channel keeps the websocket
+                    # alive and processes events. A dead socket is detected
+                    # by the health-check task below, which stops the client
+                    # and unblocks this await.
+                    health = asyncio.create_task(self._health_check(client))
+                    try:
+                        await client.idle()
+                    finally:
+                        health.cancel()
+                        with suppress(asyncio.CancelledError):
+                            await health
                 finally:
-                    self._on_connected_for_lifecycle = None
-                # Login completed within the cap — block on idle() so the
-                # channel keeps the websocket alive and processes events.
-                await client.idle()
-            else:
-                await client.idle()
+                    self._connected = False
+                    if self._client is client:
+                        self._client = None
+                    with suppress(Exception):
+                        await client.stop()
+                first = False
+                if not self._running:
+                    break
+                if not self._reconnect_triggered:
+                    # Clean stop or terminal auth error: exit without retry.
+                    break
+                self.logger.warning("WhatsApp connection lost; reconnecting...")
         except asyncio.CancelledError:
             raise
         finally:
             self._running = False
             self._connected = False
-            if self._client is client:
-                self._client = None
-            with suppress(Exception):
-                await client.stop()
             # ponytail: flush dedup + LID map to disk on every session end
             # so the next start() picks up where we left off.
             self._save_message_state()
+
+    async def _health_check(self, client: Any) -> None:
+        """Stop the client when the websocket is dead so idle() unblocks.
+
+        Only acts once we previously believed we were connected (so it never
+        kills an in-progress QR login). ``client.stop()`` cancels the Go-side
+        context, which makes ``idle()`` return and the reconnect loop run.
+        """
+        while True:
+            await asyncio.sleep(15)
+            if not self._connected:
+                continue
+            try:
+                if not client.is_connected():
+                    self._reconnect_triggered = True
+                    self.logger.warning(
+                        "WhatsApp websocket lost; stopping client to reconnect"
+                    )
+                    await client.stop()
+                    return
+            except Exception:
+                return
 
 
     async def stop(self) -> None:
