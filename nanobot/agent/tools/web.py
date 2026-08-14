@@ -8,6 +8,7 @@ import json
 import os
 import re
 import time
+from collections.abc import Awaitable
 from typing import Any, Callable
 from urllib.parse import quote, urljoin, urlparse
 
@@ -169,43 +170,79 @@ def _unsafe_url_request_error(exc: BaseException) -> str | None:
     return str(exc) if isinstance(exc, UnsafeURLRequestError) else None
 
 
+async def _walk_safe_redirects(
+    client: httpx.AsyncClient,
+    url: str,
+    headers: dict[str, str] | None,
+    open_request: Callable[[str], Awaitable[tuple[httpx.Response, Any]]],
+    close_context: Callable[[Any], Awaitable[None]],
+) -> tuple[httpx.Response | None, Any | None, str | None]:
+    """Follow redirects while validating each target, using *open_request* to start a request.
+
+    *open_request* receives the current URL and must return the response plus an async
+    context object (or ``None`` for non-streamed requests). *close_context* is called to
+    close that context before following a redirect. This keeps the redirect-walking logic
+    identical for plain GETs and streamed GETs.
+    """
+    current_url = url
+    for _ in range(MAX_REDIRECTS + 1):
+        is_valid, error_msg, _ = _resolve_url_safe(current_url)
+        if not is_valid:
+            return None, None, f"Redirect blocked: {error_msg}"
+
+        try:
+            response, context = await open_request(current_url)
+        except httpx.RequestError as exc:
+            unsafe_error = _unsafe_url_request_error(exc)
+            if unsafe_error is not None:
+                return None, None, f"Redirect blocked: {unsafe_error}"
+            raise
+
+        is_redirect = 300 <= response.status_code < 400
+        if not is_redirect:
+            return response, context, None
+
+        location = response.headers.get("location")
+        if not location:
+            return response, context, None
+
+        next_url = urljoin(str(response.url), location)
+        is_valid, error_msg = _validate_url_safe(next_url)
+        if not is_valid:
+            await close_context(context)
+            return None, None, f"Redirect blocked: {error_msg}"
+
+        await close_context(context)
+        current_url = next_url
+
+    return None, None, f"Too many redirects: exceeded limit of {MAX_REDIRECTS}"
+
+
 async def _get_with_safe_redirects(
     client: httpx.AsyncClient,
     url: str,
     headers: dict[str, str] | None = None,
 ) -> tuple[httpx.Response | None, str | None]:
     """GET a URL while validating every redirect target before requesting it."""
-    current_url = url
-    for _ in range(MAX_REDIRECTS + 1):
-        is_valid, error_msg, _ = _resolve_url_safe(current_url)
-        if not is_valid:
-            return None, f"Redirect blocked: {error_msg}"
+    response_holder: list[httpx.Response] = []
 
-        try:
-            response = await client.get(current_url, headers=headers, follow_redirects=False)
-        except httpx.RequestError as exc:
-            unsafe_error = _unsafe_url_request_error(exc)
-            if unsafe_error is not None:
-                return None, f"Redirect blocked: {unsafe_error}"
-            raise
-        is_redirect = 300 <= response.status_code < 400
-        if not is_redirect:
-            return response, None
+    async def _open(current_url: str) -> tuple[httpx.Response, None]:
+        response = await client.get(current_url, headers=headers, follow_redirects=False)
+        response_holder.append(response)
+        return response, None
 
-        location = response.headers.get("location")
-        if not location:
-            return response, None
+    async def _close(_ctx: None) -> None:
+        if response_holder:
+            await response_holder[-1].aclose()
 
-        next_url = urljoin(str(response.url), location)
-        is_valid, error_msg = _validate_url_safe(next_url)
-        if not is_valid:
-            await response.aclose()
-            return None, f"Redirect blocked: {error_msg}"
-
-        await response.aclose()
-        current_url = next_url
-
-    return None, f"Too many redirects: exceeded limit of {MAX_REDIRECTS}"
+    response, _, error = await _walk_safe_redirects(
+        client,
+        url,
+        headers,
+        open_request=_open,
+        close_context=_close,
+    )
+    return response, error
 
 
 async def _stream_with_safe_redirects(
@@ -214,50 +251,37 @@ async def _stream_with_safe_redirects(
     headers: dict[str, str] | None = None,
 ) -> tuple[httpx.Response | None, Any | None, str | None]:
     """Open a streamed response while validating every redirect target first."""
-    current_url = url
-    for _ in range(MAX_REDIRECTS + 1):
-        is_valid, error_msg, _ = _resolve_url_safe(current_url)
-        if not is_valid:
-            return None, None, f"Redirect blocked: {error_msg}"
+    stream_holder: list[httpx.AsyncResponseStream[Any]] = []
 
+    async def _open(current_url: str) -> tuple[httpx.Response, httpx.AsyncResponseStream[Any]]:
         stream = client.stream(
             "GET",
             current_url,
             headers=headers,
             follow_redirects=False,
         )
-        try:
-            response = await stream.__aenter__()
-        except httpx.RequestError as exc:
-            unsafe_error = _unsafe_url_request_error(exc)
-            if unsafe_error is not None:
-                return None, None, f"Redirect blocked: {unsafe_error}"
-            raise
-        is_redirect = 300 <= response.status_code < 400
-        if not is_redirect:
-            return response, stream, None
+        stream_holder.append(stream)
+        response = await stream.__aenter__()
+        return response, stream
 
-        location = response.headers.get("location")
-        if not location:
-            return response, stream, None
+    async def _close(ctx: httpx.AsyncResponseStream[Any] | None) -> None:
+        if ctx is not None:
+            await ctx.__aexit__(None, None, None)
 
-        next_url = urljoin(str(response.url), location)
-        is_valid, error_msg = _validate_url_safe(next_url)
-        if not is_valid:
-            await stream.__aexit__(None, None, None)
-            return None, None, f"Redirect blocked: {error_msg}"
-
-        await stream.__aexit__(None, None, None)
-        current_url = next_url
-
-    return None, None, f"Too many redirects: exceeded limit of {MAX_REDIRECTS}"
+    return await _walk_safe_redirects(
+        client,
+        url,
+        headers,
+        open_request=_open,
+        close_context=_close,
+    )
 
 
 def _format_results(query: str, items: list[dict[str, Any]], n: int) -> str:
     """Format provider results into shared plaintext output."""
     if not items:
-        return f"No results for: {query}"
-    lines = [f"Results for: {query}\n"]
+        return f"{_UNTRUSTED_BANNER}\nNo results for: {query}"
+    lines = [f"{_UNTRUSTED_BANNER}\nResults for: {query}\n"]
     for i, item in enumerate(items[:n], 1):
         title = _normalize(_strip_tags(item.get("title", "")))
         snippet = _normalize(_strip_tags(item.get("content", "")))

@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-import time
 from collections.abc import Awaitable, Callable
 from typing import Any
 
 from loguru import logger
 
+from nanobot.providers._circuit import CircuitBreaker
 from nanobot.providers.base import LLMProvider, LLMResponse
 
 # Circuit breaker tuned to match OpenAICompatProvider's Responses API breaker.
@@ -118,8 +118,7 @@ class FallbackProvider(LLMProvider):
         self._provider_factory = provider_factory
         self._fallback_model_observer = fallback_model_observer
         self._has_fallbacks = bool(fallback_presets)
-        self._primary_failures = 0
-        self._primary_tripped_at: float | None = None
+        self._circuit = CircuitBreaker(_PRIMARY_FAILURE_THRESHOLD, _PRIMARY_COOLDOWN_S)
 
     @property
     def provider_name(self) -> str:
@@ -146,12 +145,7 @@ class FallbackProvider(LLMProvider):
 
     def _primary_available(self) -> bool:
         """Return True if the primary provider is not currently tripped."""
-        if self._primary_tripped_at is None:
-            return True
-        if time.monotonic() - self._primary_tripped_at >= _PRIMARY_COOLDOWN_S:
-            # Half-open: allow one probe attempt.
-            return True
-        return False
+        return self._circuit.allow_probe(None)
 
     async def chat(self, **kwargs: Any) -> LLMResponse:
         if not self._has_fallbacks:
@@ -197,8 +191,7 @@ class FallbackProvider(LLMProvider):
             primary_was_attempted = True
             response = await call(self._primary, kwargs)
             if response.finish_reason != "error":
-                self._primary_failures = 0
-                self._primary_tripped_at = None
+                self._circuit.record_success(None)
                 return response
             primary_error = (response.content or primary_error)[:120]
 
@@ -229,12 +222,10 @@ class FallbackProvider(LLMProvider):
                 )
                 return response
 
-            self._primary_failures += 1
-            if self._primary_failures >= _PRIMARY_FAILURE_THRESHOLD:
-                self._primary_tripped_at = time.monotonic()
+            if self._circuit.record_failure(None):
                 logger.warning(
                     "Primary model '{}' circuit open after {} consecutive failures",
-                    primary_model, self._primary_failures,
+                    primary_model, self._circuit._failures.get(None, 0),
                 )
         else:
             logger.debug("Primary model '{}' circuit open; skipping", primary_model)

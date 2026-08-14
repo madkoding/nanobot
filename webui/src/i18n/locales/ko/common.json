@@ -641,7 +641,13 @@
         "needs_setup": "설정 필요",
         "invalid": "잘못됨",
         "unsupported": "수동 설정"
-      }
+      },
+      "keyValueKey": "Key",
+      "keyValueValue": "Value",
+      "keyValueKeyAria": "Key",
+      "keyValueValueAria": "Value",
+      "keyValueAdd": "Add",
+      "keyValueRemove": "Remove entry"
     },
     "nanobotFeatures": {
       "enabled": "활성화됨",

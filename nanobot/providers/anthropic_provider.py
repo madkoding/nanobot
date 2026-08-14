@@ -144,9 +144,7 @@ class AnthropicProvider(LLMProvider):
 
     @staticmethod
     def _strip_prefix(model: str) -> str:
-        if model.startswith("anthropic/"):
-            return model[len("anthropic/"):]
-        return model
+        return LLMProvider._strip_prefix(model, ("anthropic",))
 
     # ------------------------------------------------------------------
     # Message conversion: OpenAI chat format → Anthropic Messages API

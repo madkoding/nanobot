@@ -6,7 +6,6 @@ import asyncio
 import hashlib
 from collections.abc import Callable, Iterable
 from contextlib import suppress
-from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from loguru import logger
@@ -40,19 +39,9 @@ from nanobot.utils.restart import (
 )
 
 if TYPE_CHECKING:
-    from nanobot.channels.whatsapp.group_workspace import GroupWorkspaceRegistry
-    from nanobot.session.manager import SessionManager
+    from nanobot.channels.whatsapp.group_workspace import ChatWorkspaceRegistry
 
-
-def _default_webui_dist() -> Path | None:
-    """Return the absolute path to the bundled webui dist directory if it exists."""
-    try:
-        import nanobot.web as web_pkg  # type: ignore[import-not-found]
-    except ImportError:
-        return None
-    candidate = Path(web_pkg.__file__).resolve().parent / "dist"
-    return candidate if candidate.is_dir() else None
-
+from nanobot.session.manager import SessionManager
 
 # Retry delays for message sending (exponential backoff: 1s, 2s, 4s)
 _SEND_RETRY_DELAYS = (1, 2, 4)
@@ -188,41 +177,11 @@ class ChannelManager:
         *,
         runtime_name: str | None = None,
     ) -> BaseChannel:
-        kwargs: dict[str, Any] = {}
-        if cls.name == "websocket":
-            from nanobot.channels.websocket.runtime import WebSocketConfig
-            from nanobot.webui.gateway_services import build_gateway_services
-
-            parsed = WebSocketConfig.model_validate(section)
-            static_path = _default_webui_dist() if self._webui_static_dist else None
-            workspace = Path(self.config.workspace_path)
-            gateway = build_gateway_services(
-                config=parsed,
-                bus=self.bus,
-                session_manager=self._session_manager,
-                static_dist_path=static_path,
-                workspace_path=workspace,
-                worktree_root=self.config.worktree_root_path,
-                default_restrict_to_workspace=self.config.tools.restrict_to_workspace,
-                disabled_skills=set(self.config.agents.defaults.disabled_skills),
-                runtime_model_name=self._webui_runtime_model_name,
-                runtime_surface=self._webui_runtime_surface,
-                runtime_capabilities_overrides=self._webui_runtime_capabilities,
-                cron_service=self._cron_service,
-                local_trigger_store=self._local_trigger_store,
-                cron_pending_job_ids=self._webui_cron_pending_job_ids,
-                local_trigger_pending_ids=self._webui_local_trigger_pending_ids,
-                channel_feature_action=self.apply_channel_feature_action,
-                channel_runtime_status=self.get_status,
-                agent_loop=getattr(self, "_agent_loop", None),
-                subagent_manager=getattr(self, "_subagent_manager", None),
-                runtime_resolver=self._resolve_subagent_runtime,
-                logger=logger,
-            )
-            kwargs["gateway"] = gateway
+        kwargs = cls.build_kwargs(self)
         channel = cls(section, self.bus, **kwargs)
-        if cls.name == "websocket" and self._subagent_manager is not None:
-            self._wire_subagent_broadcast(channel)
+        if cls.accepts_outbound and self._subagent_manager is not None:
+            if hasattr(channel, "send_subagent_update"):
+                self._wire_subagent_broadcast(channel)
         if runtime_name and runtime_name != channel.name:
             channel.name = runtime_name
         channel.send_progress = self._resolve_bool_override(
@@ -262,7 +221,7 @@ class ChannelManager:
         set_registry = getattr(loop, "set_group_workspace_registry", None)
         if not callable(set_registry):
             return
-        merged: dict[str, "GroupWorkspaceRegistry"] = {}
+        merged: dict[str, "ChatWorkspaceRegistry"] = {}
         for channel in self.channels.values():
             registry = getattr(channel, "group_workspace_registry", None)
             if registry is not None:
@@ -815,13 +774,11 @@ class ChannelManager:
                     await self.bus.ack_outbound(msg)
                     continue
 
-                if (
-                    isinstance(event, RuntimeModelUpdatedEvent)
-                    and msg.channel == "websocket"
-                    and "websocket" not in self.channels
-                ):
-                    await self.bus.ack_outbound(msg)
-                    continue
+                if isinstance(event, RuntimeModelUpdatedEvent):
+                    channel = self.channels.get(msg.channel)
+                    if channel is None or not channel.accepts_outbound(msg):
+                        await self.bus.ack_outbound(msg)
+                        continue
 
                 # Coalesce consecutive stream delta messages for the same (channel, chat_id)
                 # to reduce API calls and improve streaming latency

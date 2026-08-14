@@ -10,7 +10,6 @@ import os
 import re
 import secrets
 import time
-from collections import OrderedDict
 from collections.abc import Awaitable, Callable
 from contextlib import suppress
 from pathlib import Path
@@ -20,8 +19,8 @@ from pydantic import Field
 
 from nanobot.bus.events import OutboundMessage
 from nanobot.bus.queue import MessageBus
-from nanobot.channels.base import BaseChannel
-from nanobot.channels.whatsapp.group_workspace import GroupWorkspaceRegistry
+from nanobot.channels.base import BaseChannel, BoundedSet
+from nanobot.channels.whatsapp.group_workspace import ChatWorkspaceRegistry
 from nanobot.config.paths import get_media_dir, get_runtime_subdir
 from nanobot.config.schema import Base
 from nanobot.runtime_context import RUNTIME_CONTEXT_INPUT_META, RuntimeContextBlock
@@ -64,6 +63,12 @@ class WhatsAppConfig(Base):
     # that don't exist as directories are skipped (with a warning) so a
     # stale entry never breaks a turn.
     group_workspaces: dict[str, str] = Field(default_factory=dict)
+    # Per-DM workspace override. Single path used for all DMs when no
+    # per-sender dm_workspaces entry matches.
+    dm_workspace: str = ""
+    # Per-sender DM workspace override. The key can be a bare phone number,
+    # a WhatsApp "lid", or a full "56912345678@s.whatsapp.net" JID.
+    dm_workspaces: dict[str, str] = Field(default_factory=dict)
 
 
 class _NeonizeAPI(NamedTuple):
@@ -389,7 +394,7 @@ class WhatsAppChannel(BaseChannel):
             )
         self._client: Any | None = None
         self._connected = False
-        self._processed_message_ids: OrderedDict[str, None] = OrderedDict()
+        self._processed_message_ids = self._bounded_set(1000)
         self._lid_to_phone: dict[str, str] = self._load_lid_mappings()
         # ponytail: debounced persistence for _processed_message_ids and
         # _lid_to_phone. Saves happen on a background task so the hot path
@@ -411,11 +416,14 @@ class WhatsAppChannel(BaseChannel):
         # Persisted display-name mappings per chat (phone/sender_id -> push_name).
         self._display_names: dict[str, dict[str, str]] = {}
         self._display_names_path = get_runtime_subdir("whatsapp-auth") / "display_names.json"
-        # Per-group workspace override registry. Channels.manager hands this
-        # to AgentLoop so turns originating in a mapped group pick up the
-        # group's AGENTS.md/SOUL.md instead of the channel-level workspace.
-        self.group_workspace_registry = GroupWorkspaceRegistry(
-            self.config.group_workspaces, log=self.logger
+        # Per-chat workspace registry. Channels.manager hands this to
+        # AgentLoop so turns originating in a mapped group or DM pick up
+        # the chat's AGENTS.md/SOUL.md instead of the channel-level workspace.
+        self.group_workspace_registry = ChatWorkspaceRegistry(
+            group_workspaces=self.config.group_workspaces,
+            dm_workspace=self.config.dm_workspace,
+            dm_workspaces=self.config.dm_workspaces,
+            log=self.logger,
         )
 
     def _database_path(self) -> Path:
@@ -454,23 +462,23 @@ class WhatsAppChannel(BaseChannel):
     def _message_state_path(self) -> Path:
         return self._display_names_path.parent / "message_state.json"
 
-    def _load_message_state(self) -> tuple[OrderedDict[str, None], dict[str, str]]:
-        """Load persisted dedup LRU and LID->phone map. Missing file → empty."""
+    def _load_message_state(self) -> tuple[BoundedSet, dict[str, str]]:
+        """Load persisted dedup cache and LID->phone map. Missing file → empty."""
         path = self._message_state_path()
         if not path.exists():
-            return OrderedDict(), {}
+            return self._bounded_set(1000), {}
         try:
             data = json.loads(path.read_text(encoding="utf-8"))
         except Exception:
             self.logger.exception("Failed to load WhatsApp message state; resetting")
-            return OrderedDict(), {}
+            return self._bounded_set(1000), {}
         ids_raw = data.get("processed_ids") if isinstance(data, dict) else None
         lid_raw = data.get("lid_to_phone") if isinstance(data, dict) else None
-        ids: OrderedDict[str, None] = OrderedDict()
+        ids = self._bounded_set(1000)
         if isinstance(ids_raw, list):
             for mid in ids_raw[-1000:]:
                 if isinstance(mid, str) and mid:
-                    ids[mid] = None
+                    ids.add(mid)
         lid: dict[str, str] = {}
         if isinstance(lid_raw, dict):
             for k, v in lid_raw.items():
@@ -487,7 +495,7 @@ class WhatsAppChannel(BaseChannel):
             tmp.write_text(
                 json.dumps(
                     {
-                        "processed_ids": list(self._processed_message_ids.keys())[-1000:],
+                        "processed_ids": self._processed_message_ids.keys(),
                         "lid_to_phone": dict(self._lid_to_phone),
                     },
                     ensure_ascii=False,
@@ -1259,9 +1267,7 @@ class WhatsAppChannel(BaseChannel):
             if message_id in self._processed_message_ids:
                 self.logger.debug("Ignoring duplicate WhatsApp message id={}", message_id)
                 return
-            self._processed_message_ids[message_id] = None
-            while len(self._processed_message_ids) > 1000:
-                self._processed_message_ids.popitem(last=False)
+            self._processed_message_ids.add(message_id)
             self._touch_message_state()
 
         # Mark the incoming message as read (blue double-check). Best-effort.

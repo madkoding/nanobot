@@ -641,7 +641,13 @@
         "needs_setup": "設定が必要",
         "invalid": "無効",
         "unsupported": "手動設定"
-      }
+      },
+      "keyValueKey": "Key",
+      "keyValueValue": "Value",
+      "keyValueKeyAria": "Key",
+      "keyValueValueAria": "Value",
+      "keyValueAdd": "Add",
+      "keyValueRemove": "Remove entry"
     },
     "nanobotFeatures": {
       "enabled": "有効",

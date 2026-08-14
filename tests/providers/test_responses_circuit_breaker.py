@@ -4,11 +4,11 @@ import time
 
 import pytest
 
-from nanobot.providers.openai_compat_provider import (
-    _RESPONSES_FAILURE_THRESHOLD,
-    _RESPONSES_PROBE_INTERVAL_S,
-    OpenAICompatProvider,
-)
+import nanobot.providers._circuit
+from nanobot.providers.openai_compat_provider import OpenAICompatProvider
+
+_RESPONSES_FAILURE_THRESHOLD = 3
+_RESPONSES_PROBE_INTERVAL_S = 300
 
 
 @pytest.fixture()
@@ -19,8 +19,9 @@ def provider():
     p._spec = type("Spec", (), {"name": "openai"})()
     p._effective_base = "https://api.openai.com/v1"
     p._api_type = "auto"
-    p._responses_failures = {}
-    p._responses_tripped_at = {}
+    p._responses_circuit = nanobot.providers._circuit.CircuitBreaker(
+        _RESPONSES_FAILURE_THRESHOLD, _RESPONSES_PROBE_INTERVAL_S
+    )
     return p
 
 
@@ -80,9 +81,10 @@ def test_probe_after_interval(provider, monkeypatch):
         provider._record_responses_failure("gpt-5", None)
     assert provider._should_use_responses_api("gpt-5", None) is False
 
-    # Fast-forward past the probe interval
+    # Fast-forward past the probe interval by monkeypatching the circuit's internal clock.
     key = "gpt-5:"
-    provider._responses_tripped_at[key] = time.monotonic() - _RESPONSES_PROBE_INTERVAL_S - 1
+    circuit = provider._responses_circuit
+    circuit._tripped_at[key] = time.monotonic() - _RESPONSES_PROBE_INTERVAL_S - 1
     assert provider._should_use_responses_api("gpt-5", None) is True
 
 

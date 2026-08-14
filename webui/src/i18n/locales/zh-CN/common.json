@@ -641,7 +641,13 @@
         "needs_setup": "需要配置",
         "invalid": "无效",
         "unsupported": "手动配置"
-      }
+      },
+      "keyValueKey": "Key",
+      "keyValueValue": "Value",
+      "keyValueKeyAria": "Key",
+      "keyValueValueAria": "Value",
+      "keyValueAdd": "Add",
+      "keyValueRemove": "Remove entry"
     },
     "nanobotFeatures": {
       "enabled": "已启用",

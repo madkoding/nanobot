@@ -641,7 +641,13 @@
         "needs_setup": "Cần thiết lập",
         "invalid": "Không hợp lệ",
         "unsupported": "Thiết lập thủ công"
-      }
+      },
+      "keyValueKey": "Key",
+      "keyValueValue": "Value",
+      "keyValueKeyAria": "Key",
+      "keyValueValueAria": "Value",
+      "keyValueAdd": "Add",
+      "keyValueRemove": "Remove entry"
     },
     "nanobotFeatures": {
       "enabled": "Đã bật",

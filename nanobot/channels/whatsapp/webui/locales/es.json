@@ -28,6 +28,36 @@
       "allowSendTo": {
         "label": "Destinatarios permitidos",
         "placeholder": "Números o ID de WhatsApp"
+      },
+      "loginTimeoutS": {
+        "label": "Tiempo de espera de inicio de sesión (segundos)",
+        "placeholder": "300"
+      },
+      "throttleThreshold": {
+        "label": "Umbral de limitación",
+        "placeholder": "3"
+      },
+      "throttleCooldownS": {
+        "label": "Enfriamiento de limitación (segundos)",
+        "placeholder": "7200"
+      },
+      "lidMappings": {
+        "label": "Mapeos de LID",
+        "placeholder": "lid123=56912345678"
+      },
+      "groupWorkspaces": {
+        "label": "Workspaces de grupos",
+        "placeholder": "120363000@g.us=/ruta/al/workspace"
+      },
+      "dmWorkspace": {
+        "label": "Workspace para DMs",
+        "placeholder": "/ruta/al/workspace-dm",
+        "help": "Ruta absoluta usada como workspace para todos los DMs cuando no haya una entrada por remitente."
+      },
+      "dmWorkspaces": {
+        "label": "Workspaces por DM",
+        "placeholder": "56912345678=/ruta/al/workspace-dm",
+        "help": "Asocia un remitente (número de teléfono, LID o JID de WhatsApp) a una ruta absoluta de workspace."
       }
     }
   }

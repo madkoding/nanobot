@@ -14,20 +14,50 @@
     ],
     "fields": {
       "allowFrom": {
-        "label": "허용된 연락처",
-        "placeholder": "전화번호 또는 WhatsApp ID"
+        "label": "Allowed contacts",
+        "placeholder": "Phone numbers or WhatsApp IDs"
       },
       "groupPolicy": {
-        "label": "그룹 동작",
+        "label": "Group behavior",
         "choices": {
-          "mention": "멘션만",
-          "open": "모든 메시지",
-          "allowlist": "허용 목록"
+          "mention": "Mention only",
+          "open": "All messages",
+          "allowlist": "Allowlist"
         }
       },
       "allowSendTo": {
-        "label": "허용된 수신자",
-        "placeholder": "전화번호 또는 WhatsApp ID"
+        "label": "Allowed recipients",
+        "placeholder": "Phone numbers or WhatsApp IDs"
+      },
+      "loginTimeoutS": {
+        "label": "Login timeout (seconds)",
+        "placeholder": "300"
+      },
+      "throttleThreshold": {
+        "label": "Throttle threshold",
+        "placeholder": "3"
+      },
+      "throttleCooldownS": {
+        "label": "Throttle cooldown (seconds)",
+        "placeholder": "7200"
+      },
+      "lidMappings": {
+        "label": "LID mappings",
+        "placeholder": "lid123=56912345678"
+      },
+      "groupWorkspaces": {
+        "label": "Group workspaces",
+        "placeholder": "120363000@g.us=/path/to/workspace"
+      },
+      "dmWorkspace": {
+        "label": "DM workspace",
+        "placeholder": "/path/to/dm-workspace",
+        "help": "Absolute path used as the workspace for all DMs when no per-sender entry matches."
+      },
+      "dmWorkspaces": {
+        "label": "DM workspaces",
+        "placeholder": "56912345678=/path/to/dm-workspace",
+        "help": "Map a sender (phone number, LID, or WhatsApp JID) to an absolute workspace path."
       }
     }
   }

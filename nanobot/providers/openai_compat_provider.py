@@ -10,7 +10,6 @@ import os
 import re
 import secrets
 import string
-import time
 import uuid
 from collections import deque
 from collections.abc import Awaitable, Callable
@@ -21,10 +20,12 @@ from urllib.parse import urlparse
 from loguru import logger
 from pydantic.alias_generators import to_snake
 
+from nanobot.providers._circuit import CircuitBreaker
 from nanobot.providers.base import (
     LLMProvider,
     LLMResponse,
     ToolCallRequest,
+    _deep_merge,
     parse_tool_arguments,
     resolve_stream_idle_timeout_s,
     tool_arguments_json_for_replay,
@@ -474,10 +475,6 @@ def _uses_openrouter_attribution(spec: "ProviderSpec | None", api_base: str | No
     return bool(api_base and "openrouter" in api_base.lower())
 
 
-_RESPONSES_FAILURE_THRESHOLD = 3
-_RESPONSES_PROBE_INTERVAL_S = 300  # 5 minutes
-
-
 def _is_local_endpoint(
     spec: "ProviderSpec | None",
     api_base: str | None,
@@ -525,25 +522,6 @@ def _responses_circuit_key(
     model_name = (model or default_model).lower()
     effort = reasoning_effort.lower() if isinstance(reasoning_effort, str) else ""
     return f"{model_name}:{effort}"
-
-
-def _deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
-    """Recursively merge *override* into *base*, returning a new dict.
-
-    Nested dicts are merged key-by-key; all other types in *override*
-    replace the corresponding key in *base*.
-    """
-    merged = dict(base)
-    for key, value in override.items():
-        if (
-            key in merged
-            and isinstance(merged[key], dict)
-            and isinstance(value, dict)
-        ):
-            merged[key] = _deep_merge(merged[key], value)
-        else:
-            merged[key] = value
-    return merged
 
 
 def _merge_unique_list(base: Any, override: Any) -> Any:
@@ -634,9 +612,8 @@ class OpenAICompatProvider(LLMProvider):
         self._client_lock = asyncio.Lock()
 
         # Responses API circuit breaker: skip after repeated failures,
-        # probe again after _RESPONSES_PROBE_INTERVAL_S seconds.
-        self._responses_failures: dict[str, int] = {}
-        self._responses_tripped_at: dict[str, float] = {}
+        # probe again after a cooldown.
+        self._responses_circuit = CircuitBreaker(3, 300)
 
     def _build_client(self) -> None:
         """Create the OpenAI client using the current module-level AsyncOpenAI."""
@@ -897,6 +874,7 @@ class OpenAICompatProvider(LLMProvider):
     def _supports_temperature(
         model_name: str,
         reasoning_effort: str | None = None,
+        spec: Any = None,
     ) -> bool:
         """Return True when the model accepts a temperature parameter.
 
@@ -906,10 +884,12 @@ class OpenAICompatProvider(LLMProvider):
         """
         if _model_slug(model_name) == _KIMI_K3_MODEL:
             return False
-        if reasoning_effort and reasoning_effort.lower() != "none":
-            return False
-        name = model_name.lower()
-        return not any(token in name for token in ("gpt-5", "o1", "o3", "o4"))
+        blacklist = getattr(spec, "temperature_blacklist_tokens", ()) or ()
+        return LLMProvider._supports_temperature(
+            model_name,
+            reasoning_effort,
+            extra_blacklist_tokens=tuple(blacklist),
+        )
 
     def _build_kwargs(
         self,
@@ -1122,20 +1102,11 @@ class OpenAICompatProvider(LLMProvider):
     ) -> bool:
         """Return False when the Responses API circuit breaker is open."""
         key = _responses_circuit_key(model, self.default_model, reasoning_effort)
-        failures = self._responses_failures.get(key, 0)
-        if failures >= _RESPONSES_FAILURE_THRESHOLD:
-            tripped = self._responses_tripped_at.get(key, 0.0)
-            if (time.monotonic() - tripped) < _RESPONSES_PROBE_INTERVAL_S:
-                return False
-            # Half-open: allow one probe attempt
-        return True
+        return self._responses_circuit.allow_probe(key)
 
     def _record_responses_failure(self, model: str | None, reasoning_effort: str | None) -> None:
         key = _responses_circuit_key(model, self.default_model, reasoning_effort)
-        count = self._responses_failures.get(key, 0) + 1
-        self._responses_failures[key] = count
-        if count >= _RESPONSES_FAILURE_THRESHOLD:
-            self._responses_tripped_at[key] = time.monotonic()
+        if self._responses_circuit.record_failure(key):
             logger.warning(
                 "Responses API circuit open for {} — falling back to Chat Completions",
                 key,
@@ -1143,8 +1114,7 @@ class OpenAICompatProvider(LLMProvider):
 
     def _record_responses_success(self, model: str | None, reasoning_effort: str | None) -> None:
         key = _responses_circuit_key(model, self.default_model, reasoning_effort)
-        self._responses_failures.pop(key, None)
-        self._responses_tripped_at.pop(key, None)
+        self._responses_circuit.record_success(key)
 
     @staticmethod
     def _should_fallback_from_responses_error(e: Exception) -> bool:

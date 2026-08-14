@@ -2,7 +2,6 @@
 
 import asyncio
 import re
-from pathlib import Path
 from typing import Any
 
 import httpx
@@ -17,10 +16,9 @@ from nanobot.bus.events import OutboundMessage
 from nanobot.bus.outbound_events import ProgressEvent
 from nanobot.bus.queue import MessageBus
 from nanobot.channels.base import BaseChannel
-from nanobot.config.paths import get_media_dir
 from nanobot.config.schema import Base
 from nanobot.pairing import is_approved
-from nanobot.utils.helpers import safe_filename, split_message
+from nanobot.utils.helpers import split_message
 
 
 class SlackDMConfig(Base):
@@ -152,8 +150,7 @@ class SlackChannel(BaseChannel):
     async def send(self, msg: OutboundMessage) -> None:
         """Send a message through Slack."""
         if not self._web_client:
-            self.logger.warning("client not running")
-            return
+            raise RuntimeError("client not running")
         try:
             target_chat_id = await self._resolve_target_chat_id(msg.chat_id)
             slack_meta = msg.metadata.get("slack", {}) if msg.metadata else {}
@@ -464,29 +461,25 @@ class SlackChannel(BaseChannel):
             or "slack-file"
         )
         marker_type = "image" if str(file_info.get("mimetype") or "").startswith("image/") else "file"
-        marker = f"[{marker_type}: {name}]"
         url = str(file_info.get("url_private_download") or file_info.get("url_private") or "")
         if not url:
             return None, self._download_failure_marker(marker_type, name, "missing download url")
         if not self.config.bot_token:
             return None, self._download_failure_marker(marker_type, name, "missing bot token")
 
-        filename = safe_filename(f"{file_id}_{name}")
-        path = Path(get_media_dir("slack")) / filename
-        try:
-            async with httpx.AsyncClient(timeout=SLACK_DOWNLOAD_TIMEOUT, follow_redirects=True) as client:
-                response = await client.get(
-                    url,
-                    headers={"Authorization": f"Bearer {self.config.bot_token}"},
-                )
-                response.raise_for_status()
-            if self._looks_like_html_download(response):
-                raise ValueError("Slack returned HTML instead of file content")
-            path.write_bytes(response.content)
-            return str(path), marker
-        except Exception as e:
-            self.logger.warning("Failed to download file {}: {}", file_id, e)
-            return None, self._download_failure_marker(marker_type, name, "download failed")
+        filename = f"{file_id}_{name}"
+        path, marker = await self._download_to_media_dir(
+            url,
+            filename,
+            headers={"Authorization": f"Bearer {self.config.bot_token}"},
+            timeout=SLACK_DOWNLOAD_TIMEOUT,
+            marker_type=marker_type,
+        )
+        if path is not None and self._looks_like_html_download_bytes(
+            path.read_bytes(), {}
+        ):
+            return None, self._download_failure_marker(marker_type, name, "slack returned html")
+        return (str(path), marker) if path else (None, marker)
 
     @staticmethod
     def _download_failure_marker(marker_type: str, name: str, reason: str) -> str:
@@ -501,6 +494,11 @@ class SlackChannel(BaseChannel):
         if "text/html" in content_type:
             return True
         preview = response.content[:256].lstrip().lower()
+        return preview.startswith(_HTML_DOWNLOAD_PREFIXES)
+
+    @staticmethod
+    def _looks_like_html_download_bytes(body: bytes, _headers: dict[str, str]) -> bool:
+        preview = body[:256].lstrip().lower()
         return preview.startswith(_HTML_DOWNLOAD_PREFIXES)
 
     async def _on_block_action(self, client: SocketModeClient, req: SocketModeRequest) -> None:

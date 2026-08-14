@@ -155,6 +155,42 @@ class AgentDefaults(Base):
         validation_alias=AliasChoices("consolidationRatio"),
         serialization_alias="consolidationRatio",
     )  # Consolidation target ratio (0.5 = 50% of budget retained after compression)
+    tool_repeat_nudge_after: int = Field(
+        default=3,
+        ge=1,
+        validation_alias=AliasChoices("toolRepeatNudgeAfter"),
+        serialization_alias="toolRepeatNudgeAfter",
+    )
+    tool_repeat_hard_stop_after: int = Field(
+        default=5,
+        ge=1,
+        validation_alias=AliasChoices("toolRepeatHardStopAfter"),
+        serialization_alias="toolRepeatHardStopAfter",
+    )
+    content_repeat_nudge_after: int = Field(
+        default=2,
+        ge=1,
+        validation_alias=AliasChoices("contentRepeatNudgeAfter"),
+        serialization_alias="contentRepeatNudgeAfter",
+    )
+    content_repeat_hard_stop_after: int = Field(
+        default=3,
+        ge=1,
+        validation_alias=AliasChoices("contentRepeatHardStopAfter"),
+        serialization_alias="contentRepeatHardStopAfter",
+    )
+    alternating_pattern_nudge_after: int = Field(
+        default=6,
+        ge=1,
+        validation_alias=AliasChoices("alternatingPatternNudgeAfter"),
+        serialization_alias="alternatingPatternNudgeAfter",
+    )
+    alternating_pattern_hard_stop_after: int = Field(
+        default=8,
+        ge=1,
+        validation_alias=AliasChoices("alternatingPatternHardStopAfter"),
+        serialization_alias="alternatingPatternHardStopAfter",
+    )
     dream: DreamConfig = Field(default_factory=DreamConfig)
 
     @field_validator("timezone")
@@ -402,6 +438,12 @@ class Config(BaseSettings):
         default_factory=dict,
         validation_alias=AliasChoices("modelPresets", "model_presets"),
         serialization_alias="modelPresets",
+    )
+    owner_id: str | None = Field(
+        default=None,
+        description="Operator identity. Non-matching senders are treated as untrusted context.",
+        validation_alias=AliasChoices("ownerId", "owner_id"),
+        serialization_alias="ownerId",
     )
 
     def __init__(self, **values: Any) -> None:

@@ -18,7 +18,7 @@ from mcp.types import ErrorData
 from nanobot.agent.loop import AgentLoop
 from nanobot.agent.tools import mcp as mcp_runtime
 from nanobot.agent.tools.base import Tool
-from nanobot.agent.tools.mcp import MCPResourceWrapper, MCPToolWrapper
+from nanobot.agent.tools.mcp import _MCP_UNTRUSTED_BANNER, MCPResourceWrapper, MCPToolWrapper
 from nanobot.bus.queue import MessageBus
 from nanobot.config.loader import load_config, save_config
 from nanobot.config.schema import MCPServerConfig
@@ -460,7 +460,7 @@ async def test_mcp_tool_reconnects_after_session_terminated(
 
     output = await old_tool.execute(symbol="AAPL")
 
-    assert output == "recovered"
+    assert output == f"{_MCP_UNTRUSTED_BANNER}\nrecovered"
     assert connect_count == 2
     assert closed == ["remote"]
     assert sessions[0].call_count == 1
@@ -513,7 +513,7 @@ async def test_mcp_reconnect_handler_uses_sanitized_server_prefix(
 
     output = await old_tool.execute()
 
-    assert output == "recovered"
+    assert output == f"{_MCP_UNTRUSTED_BANNER}\nrecovered"
     assert connect_count == 2
     assert loop.tools.get("mcp_remote_quote") is not old_tool
 
@@ -575,6 +575,9 @@ async def test_concurrent_mcp_reconnect_reuses_fresh_session(
 
     outputs = await asyncio.gather(old_alpha.execute(), old_beta.execute())
 
-    assert outputs == ["fresh:alpha", "fresh:beta"]
+    assert outputs == [
+        f"{_MCP_UNTRUSTED_BANNER}\nfresh:alpha",
+        f"{_MCP_UNTRUSTED_BANNER}\nfresh:beta",
+    ]
     assert connect_count == 2
     assert closed == ["remote"]
