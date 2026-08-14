@@ -43,7 +43,6 @@ if TYPE_CHECKING:
 
 from nanobot.session.manager import SessionManager
 
-
 # Retry delays for message sending (exponential backoff: 1s, 2s, 4s)
 _SEND_RETRY_DELAYS = (1, 2, 4)
 _RESTART_NOTICE_START_TIMEOUT_S = 30.0
