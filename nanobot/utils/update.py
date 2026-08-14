@@ -88,8 +88,12 @@ def _read_direct_url(dist: Any) -> dict[str, Any] | None:
         return None
 
 
-def _find_repo_path() -> Path | None:
-    """Locate the source checkout for an editable install."""
+def _find_repo_path_from_direct_url() -> Path | None:
+    """Locate the source checkout recorded in pip's ``direct_url.json``.
+
+    This is the primary source for editable installs, but it may be stale if
+    the repo was moved after ``pip install -e`` was run.
+    """
     try:
         import importlib.metadata as md
 
@@ -105,6 +109,37 @@ def _find_repo_path() -> Path | None:
     if url.startswith("file://"):
         return Path(url[len("file://"):]).resolve(strict=False)
     return None
+
+
+def _find_repo_path_from_package() -> Path | None:
+    """Derive the source checkout from the installed ``nanobot`` package.
+
+    This is a fallback when ``direct_url.json`` points to a stale or invalid
+    path (e.g. the repo was moved after the editable install).
+    """
+    try:
+        from nanobot import __file__ as nb_file
+    except ImportError:
+        return None
+    if not nb_file:
+        return None
+    candidate = Path(nb_file).resolve().parent.parent
+    if (candidate / "pyproject.toml").is_file():
+        return candidate
+    return None
+
+
+def _find_repo_path() -> Path | None:
+    """Locate the source checkout for an editable install.
+
+    Prefers the path recorded by pip, but validates that it still looks like a
+    source checkout (has ``pyproject.toml``). Falls back to deriving the path
+    from the installed package location when the recorded path is stale.
+    """
+    candidate = _find_repo_path_from_direct_url()
+    if candidate is not None and (candidate / "pyproject.toml").is_file():
+        return candidate
+    return _find_repo_path_from_package()
 
 
 def _local_version() -> str:
