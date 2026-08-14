@@ -12,6 +12,7 @@ import pytest
 
 import nanobot.agent.tools.mcp as mcp_mod
 from nanobot.agent.tools.mcp import (
+    _MCP_UNTRUSTED_BANNER,
     MCPPromptWrapper,
     MCPResourceWrapper,
     MCPToolWrapper,
@@ -339,7 +340,7 @@ async def test_execute_returns_text_blocks() -> None:
 
     result = await wrapper.execute(value=1)
 
-    assert result == "hello\n42"
+    assert result == f"{_MCP_UNTRUSTED_BANNER}\nhello\n42"
 
 
 @pytest.mark.asyncio
@@ -354,7 +355,7 @@ async def test_execute_wraps_mcp_is_error_result() -> None:
 
     result = await wrapper.execute()
 
-    assert result == "Error: server-side MCP failure"
+    assert result == f"{_MCP_UNTRUSTED_BANNER}\nError: server-side MCP failure"
     assert is_tool_error_result(wrapper.name, result)
 
 
@@ -399,7 +400,7 @@ async def test_execute_preserves_success_text_that_starts_with_error() -> None:
 
     result = await wrapper.execute()
 
-    assert result == "Error: generated report successfully"
+    assert result == f"{_MCP_UNTRUSTED_BANNER}\nError: generated report successfully"
     assert not is_tool_error_result(wrapper.name, result)
 
 
@@ -454,7 +455,7 @@ async def test_execute_notes_unstorable_image_block(tmp_path: Path) -> None:
 
     result = await wrapper.execute()
 
-    assert result == "(MCP tool returned an image that could not be stored)"
+    assert result == f"{_MCP_UNTRUSTED_BANNER}\n(MCP tool returned an image that could not be stored)"
 
 
 @pytest.mark.asyncio
@@ -1171,7 +1172,7 @@ async def test_resource_wrapper_execute_returns_text() -> None:
 
     wrapper = _make_resource_wrapper(SimpleNamespace(read_resource=read_resource))
     result = await wrapper.execute()
-    assert result == "line1\nline2"
+    assert result == f"{_MCP_UNTRUSTED_BANNER}\nline1\nline2"
 
 
 @pytest.mark.asyncio

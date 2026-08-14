@@ -256,8 +256,8 @@ async def _stream_with_safe_redirects(
 def _format_results(query: str, items: list[dict[str, Any]], n: int) -> str:
     """Format provider results into shared plaintext output."""
     if not items:
-        return f"No results for: {query}"
-    lines = [f"Results for: {query}\n"]
+        return f"{_UNTRUSTED_BANNER}\nNo results for: {query}"
+    lines = [f"{_UNTRUSTED_BANNER}\nResults for: {query}\n"]
     for i, item in enumerate(items[:n], 1):
         title = _normalize(_strip_tags(item.get("title", "")))
         snippet = _normalize(_strip_tags(item.get("content", "")))
