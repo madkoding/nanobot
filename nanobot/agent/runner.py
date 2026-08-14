@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import inspect
 import json
 import os
@@ -60,6 +61,24 @@ _MAX_EMPTY_RETRIES = 2
 _MAX_LENGTH_RECOVERIES = 3
 _MAX_INJECTIONS_PER_TURN = 3
 _MAX_INJECTION_CYCLES = 5
+
+# ponytail: repeated tool call detection — the model is stuck calling the same
+# target over and over. Nudge at 3, hard stop at 5.
+_REPEAT_TOOL_NUDGE_LIMIT = 3
+_REPEAT_TOOL_HARD_LIMIT = 5
+
+# ponytail: alternating tool-call pattern (A→B→A→B). The model is ping-ponging
+# between two tools without making progress. Nudge at 3 cycles (6 calls),
+# hard stop at 4 cycles (8 calls).
+_ALTERNATING_PATTERN_NUDGE_LIMIT = 6
+_ALTERNATING_PATTERN_HARD_LIMIT = 8
+_MAX_TOOL_SIGNATURE_HISTORY = 12
+
+# ponytail: content/reasoning repetition — the model repeats the same final
+# response or reasoning without tools. More aggressive because no tools means
+# no forward motion at all.
+_REPEAT_CONTENT_NUDGE_LIMIT = 2
+_REPEAT_CONTENT_HARD_LIMIT = 3
 
 # ponytail: marker strings whose presence suggests the tool result is a
 # transient / retryable failure rather than a definitive validation
@@ -126,6 +145,15 @@ class AgentRunSpec:
     goal_continue_message: GoalContinueMessage | None = None
     finalize_on_max_iterations: bool = True
     on_snip: Callable[[list[dict[str, Any]], str | None], None] | None = None
+    # Thresholds for repetition / stuck-loop detection. These default to the
+    # module-level constants so tests and subagent callers don't have to pass
+    # them; AgentLoop wires them from AgentDefaults.
+    tool_repeat_nudge_after: int = _REPEAT_TOOL_NUDGE_LIMIT
+    tool_repeat_hard_stop_after: int = _REPEAT_TOOL_HARD_LIMIT
+    content_repeat_nudge_after: int = _REPEAT_CONTENT_NUDGE_LIMIT
+    content_repeat_hard_stop_after: int = _REPEAT_CONTENT_HARD_LIMIT
+    alternating_pattern_nudge_after: int = _ALTERNATING_PATTERN_NUDGE_LIMIT
+    alternating_pattern_hard_stop_after: int = _ALTERNATING_PATTERN_HARD_LIMIT
 
 
 @dataclass(slots=True)
@@ -429,8 +457,18 @@ class AgentRunner:
         # ponytail: detect identical consecutive tool calls (model stuck in a
         # read_file/exec loop). Track the last call signature and count repeats.
         last_tool_signature: str | None = None
+        last_tool_result_hash: str | None = None
         repeat_count = 0
         repeat_nudge_done = False
+        tool_signature_history: list[str] = []
+        alternating_nudge_done = False
+        # ponytail: detect identical consecutive final content / reasoning (model
+        # stuck in a loop saying the same thing without tools). Track a content
+        # signature and count repeats.
+        last_content_signature: str | None = None
+        content_repeat_count = 0
+        content_nudge_done = False
+        goal_conflict_nudge_done = False
         governance_config = ContextGovernanceConfig(
             provider=spec.runtime.provider,
             model=spec.runtime.model,
@@ -483,51 +521,6 @@ class AgentRunner:
             if response.should_execute_tools:
                 context.tool_calls = list(response.tool_calls)
 
-                # ponytail: detect repeated tool calls on the same target — the
-                # model is stuck in a loop (e.g. read_file force:true same path
-                # 80×, or grep with slightly different patterns on the same file).
-                # Signature = tool name + target (path/command). Variations in
-                # other args (limit, offset, pattern) don't break the detection.
-                sig = _tool_call_signature(response.tool_calls)
-                if sig == last_tool_signature:
-                    repeat_count += 1
-                else:
-                    last_tool_signature = sig
-                    repeat_count = 1
-                if repeat_count >= _REPEAT_TOOL_HARD_LIMIT:
-                    logger.warning(
-                        "Repeated tool call loop detected ({}x) for {}; stopping turn",
-                        repeat_count,
-                        spec.session_key or "default",
-                    )
-                    final_content = (
-                        "I detected that I am repeating the same tool call without "
-                        "making progress. I will review the context of what I was "
-                        "doing to resume the objective and continue."
-                    )
-                    stop_reason = "repeated_tool_loop"
-                    self._append_final_message(messages, final_content)
-                    context.final_content = final_content
-                    context.stop_reason = stop_reason
-                    break
-                if repeat_count >= _REPEAT_TOOL_NUDGE_LIMIT and not repeat_nudge_done:
-                    repeat_nudge_done = True
-                    messages.append({
-                        "role": "user",
-                        "content": (
-                            "You are repeating the same tool call with the same "
-                            "arguments. The file/result is not going to change. "
-                            "Review the context of what you were doing, resume "
-                            "the task objective, and move on to the next step with "
-                            "another tool or approach."
-                        ),
-                    })
-                    logger.warning(
-                        "Repeated tool call nudge injected ({}x) for {}",
-                        repeat_count,
-                        spec.session_key or "default",
-                    )
-
                 if hook.wants_streaming():
                     await hook.on_stream_end(context, resuming=True)
 
@@ -560,6 +553,110 @@ class AgentRunner:
                     hook,
                     context,
                 )
+
+                # ponytail: detect repeated tool calls on the same target — the
+                # model is stuck in a loop (e.g. read_file force:true same path
+                # 80×, or grep with slightly different patterns on the same file).
+                # Signature = tool name + target (path/command). Variations in
+                # other args (limit, offset, pattern) don't break the detection.
+                # We compare AFTER executing tools so that we can also check the
+                # tool result hash: if the same call returned a *different*
+                # result, the model is making progress and we reset the counter.
+                sig = _tool_call_signature(response.tool_calls)
+                result_hash = _hash_tool_results(results)
+                if sig == last_tool_signature:
+                    if result_hash == last_tool_result_hash:
+                        repeat_count += 1
+                    else:
+                        # same call, different result -> legitimate progress
+                        repeat_count = 1
+                        repeat_nudge_done = False
+                else:
+                    last_tool_signature = sig
+                    last_tool_result_hash = result_hash
+                    repeat_count = 1
+                    repeat_nudge_done = False
+
+                # ponytail: detect A->B->A->B alternating patterns. The model
+                # ping-pongs between two tool calls without making progress.
+                tool_signature_history.append(sig)
+                if len(tool_signature_history) > _MAX_TOOL_SIGNATURE_HISTORY:
+                    tool_signature_history.pop(0)
+                if _is_alternating_pattern(
+                    tool_signature_history,
+                    spec.alternating_pattern_hard_stop_after,
+                ):
+                    logger.warning(
+                        "Alternating tool-call pattern detected for {}; stopping turn",
+                        spec.session_key or "default",
+                    )
+                    final_content = (
+                        "I detected that I am alternating between the same two "
+                        "tool calls without making progress. I will review the "
+                        "context and continue with a different approach."
+                    )
+                    stop_reason = "alternating_tool_loop"
+                    self._append_final_message(messages, final_content)
+                    context.final_content = final_content
+                    context.stop_reason = stop_reason
+                    break
+                if (
+                    _is_alternating_pattern(
+                        tool_signature_history,
+                        spec.alternating_pattern_nudge_after,
+                    )
+                    and not alternating_nudge_done
+                ):
+                    alternating_nudge_done = True
+                    messages.append({
+                        "role": "user",
+                        "content": (
+                            "You are alternating between the same two tool "
+                            "calls without making progress. Stop repeating this "
+                            "pattern, review the results you already have, and "
+                            "move on to the next step with a different approach."
+                        ),
+                    })
+                    logger.warning(
+                        "Alternating tool-call nudge injected for {}",
+                        spec.session_key or "default",
+                    )
+
+                if repeat_count >= spec.tool_repeat_hard_stop_after:
+                    logger.warning(
+                        "Repeated tool call loop detected ({}x) for {}; stopping turn",
+                        repeat_count,
+                        spec.session_key or "default",
+                    )
+                    final_content = (
+                        "I detected that I am repeating the same tool call without "
+                        "making progress. I will review the context of what I was "
+                        "doing to resume the objective and continue."
+                    )
+                    stop_reason = "repeated_tool_loop"
+                    self._append_final_message(messages, final_content)
+                    context.final_content = final_content
+                    context.stop_reason = stop_reason
+                    break
+                if repeat_count >= spec.tool_repeat_nudge_after and not repeat_nudge_done:
+                    repeat_nudge_done = True
+                    messages.append({
+                        "role": "user",
+                        "content": (
+                            "You are repeating the same tool call with the same "
+                            "arguments. The file/result is not going to change. "
+                            "Review the context of what you were doing, resume "
+                            "the task objective, and move on to the next step with "
+                            "another tool or approach."
+                        ),
+                    })
+                    logger.warning(
+                        "Repeated tool call nudge injected ({}x) for {}",
+                        repeat_count,
+                        spec.session_key or "default",
+                    )
+
+                last_tool_result_hash = result_hash
                 tool_events.extend(new_events)
                 tools_used.extend(
                     tool_call.name
@@ -613,6 +710,12 @@ class AgentRunner:
                 )
                 empty_content_retries = 0
                 length_recovery_count = 0
+                # ponytail: executing tools is forward progress. Reset content-
+                # repetition tracking so that any later return to text starts
+                # fresh instead of inheriting a stale repeat count.
+                last_content_signature = None
+                content_repeat_count = 0
+                content_nudge_done = False
                 # Checkpoint 1: drain injections after tools, before next LLM call
                 _drained, injection_cycles = await self._try_drain_injections(
                     spec, messages, None, injection_cycles,
@@ -728,6 +831,95 @@ class AgentRunner:
                     reasoning_content=response.reasoning_content,
                     thinking_blocks=response.thinking_blocks,
                 )
+
+            # ponytail: sustained-goal conflict nudge. The model emitted a final
+            # response without tools, but a sustained goal is still active. Tell
+            # it explicitly how to close the goal or keep working. This attacks
+            # the most common root cause of repeated final-response loops.
+            if (
+                assistant_message is not None
+                and response.finish_reason != "error"
+                and not response.has_tool_calls
+                and spec.tools.get_definitions()
+                and spec.goal_active_predicate is not None
+                and spec.goal_active_predicate()
+                and not goal_conflict_nudge_done
+            ):
+                goal_conflict_nudge_done = True
+                messages.append({"role": "user", "content": _GOAL_CONFLICT_NUDGE})
+                logger.warning(
+                    "Goal-conflict nudge injected for {} (model replied without tools "
+                    "while a sustained goal is active)",
+                    spec.session_key or "default",
+                )
+                if hook.wants_streaming():
+                    await hook.on_stream_end(context, resuming=True)
+                await hook.after_iteration(context)
+                continue
+
+            # ponytail: repeated final content / reasoning detection. The model
+            # is stuck emitting the same text/reasoning without tools. Nudge at
+            # 2, hard stop at 3 when no sustained goal is active (with a goal
+            # active we keep nudging instead of giving up).
+            if (
+                assistant_message is not None
+                and response.finish_reason != "error"
+                and not response.has_tool_calls
+            ):
+                current_reasoning, _ = extract_reasoning(
+                    response.reasoning_content,
+                    response.thinking_blocks,
+                    "",
+                )
+                content_sig = _content_signature(current_reasoning, clean)
+                if content_sig is not None:
+                    if content_sig == last_content_signature:
+                        content_repeat_count += 1
+                    else:
+                        last_content_signature = content_sig
+                        content_repeat_count = 1
+                        content_nudge_done = False
+                    goal_active = (
+                        spec.goal_active_predicate is not None
+                        and spec.goal_active_predicate()
+                    )
+                    if (
+                        content_repeat_count >= spec.content_repeat_hard_stop_after
+                        and not goal_active
+                    ):
+                        logger.warning(
+                            "Repeated content loop detected ({}x) for {}; stopping turn",
+                            content_repeat_count,
+                            spec.session_key or "default",
+                        )
+                        final_content = (
+                            "I detected that I am repeating the same response or "
+                            "reasoning without making progress. I will stop and "
+                            "review the context before continuing."
+                        )
+                        stop_reason = "repeated_content_loop"
+                        self._append_final_message(messages, final_content)
+                        context.final_content = final_content
+                        context.stop_reason = stop_reason
+                        break
+                    if (
+                        content_repeat_count >= spec.content_repeat_nudge_after
+                        and not content_nudge_done
+                    ):
+                        content_nudge_done = True
+                        nudge = _REPEAT_CONTENT_NUDGE_TEMPLATE.format(
+                            count=content_repeat_count,
+                        )
+                        messages.append({"role": "user", "content": nudge})
+                        logger.warning(
+                            "Repeated content nudge injected ({}x) for {}",
+                            content_repeat_count,
+                            spec.session_key or "default",
+                        )
+                        if hook.wants_streaming():
+                            await hook.on_stream_end(context, resuming=True)
+                        await hook.after_iteration(context)
+                        continue
 
             # Check for mid-turn injections BEFORE signaling stream end.
             # If injections are found we keep the stream alive (resuming=True)
@@ -1578,10 +1770,29 @@ class AgentRunner:
         return batches
 
 
-# ponytail: repeated identical tool call detection — the model is stuck in a
-# loop calling read_file/exec with the same args. Nudge at 3, hard stop at 5.
-_REPEAT_TOOL_NUDGE_LIMIT = 3
-_REPEAT_TOOL_HARD_LIMIT = 5
+# Nudge text injected when the model repeats the same final content/reasoning
+# without tools. Phrases "update_goal" and "action='complete'" help the model
+# resolve the sustained-goal conflict described in the nudge comment below.
+_REPEAT_CONTENT_NUDGE_TEMPLATE = (
+    "You have produced the same response or reasoning {count} times in a row "
+    "without making progress. Stop repeating it. If the objective is complete, "
+    "call update_goal with action='complete'. If you are blocked, explain the "
+    "specific blocker and ask the operator for guidance. Otherwise continue "
+    "with a different tool or approach."
+)
+
+
+# Goal-conflict nudge: the model emitted a final response without tools but a
+# sustained goal is still active. The model likely believes it is done; we tell
+# it explicitly how to close the goal or keep working. This attacks the most
+# common root cause of content repetition loops.
+_GOAL_CONFLICT_NUDGE = (
+    "You responded as if the task were finished, but a sustained goal is still "
+    "active. If the work is truly complete, call update_goal with "
+    "action='complete' to close the goal. If there are remaining steps, use the "
+    "available tools. If you are blocked, describe the blocker concretely and "
+    "ask the operator for guidance."
+)
 
 
 def _tool_call_signature(tool_calls: list[ToolCallRequest]) -> str:
@@ -1621,3 +1832,61 @@ def _tool_target(tc: ToolCallRequest) -> str:
         return json.dumps(args, sort_keys=True, ensure_ascii=False)
     except (TypeError, ValueError):
         return str(args)
+
+
+def _content_signature(reasoning: str | None, content: str | None) -> str | None:
+    """Canonical fingerprint for an assistant's visible output.
+
+    Combines reasoning and content so repetition in either is detected.
+    Strips whitespace, lowercases, and caps length to keep comparisons cheap.
+    Returns None when there is nothing to fingerprint (blank assistant turn).
+    """
+    blob = f"{reasoning or ''}\n{content or ''}"
+    blob = blob.strip().lower()
+    if not blob:
+        return None
+    # collapse whitespace so formatting drift does not evade detection
+    blob = " ".join(blob.split())
+    return blob[:_MAX_CONTENT_SIGNATURE_CHARS]
+
+
+_MAX_CONTENT_SIGNATURE_CHARS = 500
+
+
+# Maximum characters of a tool result to hash for the action-observation
+# detector. Large results are truncated before hashing to keep the comparison
+# cheap while still catching meaningful changes in the head of the output.
+_MAX_RESULT_HASH_CHARS = 50_000
+
+
+def _hash_tool_results(results: list[Any]) -> str:
+    """Return a stable, short fingerprint for a batch of tool results.
+
+    Uses SHA-256 over a canonical JSON serialization. Non-serializable values
+    fall back to ``str()``. Truncates very large results before hashing so a
+    multi-MB tool output does not dominate CPU/memory. The hash is stable enough
+    to detect "the same result again" while cheap enough to compute every turn.
+    """
+    try:
+        blob = json.dumps(results, sort_keys=True, ensure_ascii=False, default=str)
+    except (TypeError, ValueError):
+        blob = str(results)
+    if len(blob) > _MAX_RESULT_HASH_CHARS:
+        blob = blob[:_MAX_RESULT_HASH_CHARS]
+    return hashlib.sha256(blob.encode("utf-8", errors="replace")).hexdigest()[:32]
+
+
+def _is_alternating_pattern(history: list[str], threshold: int) -> bool:
+    """Detect an A->B->A->B alternating tool-call pattern.
+
+    Returns True when the last ``threshold`` signatures alternate perfectly
+    between two distinct signatures: [A, B, A, B, A, B] for threshold=6.
+    A threshold below 4 is treated as disabled (no pattern possible).
+    """
+    if threshold < 4 or len(history) < threshold:
+        return False
+    recent = history[-threshold:]
+    if len(set(recent)) != 2:
+        return False
+    # even indices must match each other, odd indices must match each other
+    return all(recent[i] == recent[i + 2] for i in range(threshold - 2))
