@@ -214,6 +214,7 @@ export function CredentialForm({
                     id={field.key}
                     value={values[field.key] ?? ""}
                     placeholder={field.placeholder}
+                    ariaLabel={field.label}
                     addLabel={tx("settings.channels.keyValueAdd", "Add")}
                     removeLabel={tx("settings.channels.keyValueRemove", "Remove entry")}
                     compact={compact}

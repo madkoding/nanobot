@@ -1521,9 +1521,11 @@ describe("SettingsView Apps catalog", () => {
       target: { value: "discord-token" },
     });
     fireEvent.click(screen.getByText("Advanced"));
-    fireEvent.change(screen.getByLabelText("Allowed channels"), {
-      target: { value: "123, 456" },
-    });
+    const allowedChannels = screen.getByLabelText("Allowed channels");
+    fireEvent.change(allowedChannels, { target: { value: "123" } });
+    fireEvent.keyDown(allowedChannels, { key: "Enter" });
+    fireEvent.change(allowedChannels, { target: { value: "456" } });
+    fireEvent.keyDown(allowedChannels, { key: "Enter" });
     fireEvent.click(within(screen.getByRole("radiogroup", { name: "Group behavior" })).getByRole(
       "radio",
       { name: "All messages" },
@@ -1629,7 +1631,8 @@ describe("SettingsView Apps catalog", () => {
     expect(screen.queryByDisplayValue("discord-secret-token")).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByText("Advanced"));
-    expect(screen.getByLabelText("Allowed channels")).toHaveValue("123, 456");
+    expect(screen.getByText("123")).toBeInTheDocument();
+    expect(screen.getByText("456")).toBeInTheDocument();
     expect(within(screen.getByRole("radiogroup", { name: "Group behavior" })).getByRole(
       "radio",
       { name: "All messages" },

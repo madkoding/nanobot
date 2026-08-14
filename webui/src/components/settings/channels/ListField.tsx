@@ -23,6 +23,7 @@ export function ListField({
   addLabel,
   removeLabel,
   compact = false,
+  ariaLabel,
   onChange,
 }: {
   id: string;
@@ -31,6 +32,7 @@ export function ListField({
   addLabel?: string;
   removeLabel?: string;
   compact?: boolean;
+  ariaLabel?: string;
   onChange: (next: string) => void;
 }) {
   const items = useMemo(() => parseListValue(value), [value]);
@@ -104,6 +106,7 @@ export function ListField({
           value={draft}
           onChange={(event) => setDraft(event.target.value)}
           onKeyDown={handleKeyDown}
+          aria-label={ariaLabel ?? placeholder}
           placeholder={placeholder ?? "Add an item and press Enter"}
           className="h-8 flex-1 rounded-[8px] border-border/60 bg-background/70 px-2.5 text-[12px] placeholder:text-muted-foreground/50"
         />
