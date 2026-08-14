@@ -705,7 +705,7 @@ class AgentLoop:
         }
         self._group_workspace_registries: dict[str, Any] = cleaned
 
-    def _group_workspace_for(self, channel: str | None, chat_id: str | None) -> Path | None:
+    def _group_workspace_for(self, channel: str | None, chat_id: str | None, sender_id: str | None = None) -> Path | None:
         """Return the configured group-workspace root for this turn, if any."""
         if not channel or not chat_id:
             return None
@@ -716,7 +716,7 @@ class AgentLoop:
         if not callable(resolve):
             return None
         try:
-            root = resolve(chat_id)
+            root = resolve(chat_id, sender_id=sender_id)
         except Exception:
             return None
         return root if isinstance(root, Path) else None
@@ -813,7 +813,7 @@ class AgentLoop:
         """
         channel = ctx.delivery.route.channel
         chat_id = ctx.delivery.route.chat_id
-        root = self._group_workspace_for(channel, chat_id)
+        root = self._group_workspace_for(channel, chat_id, sender_id=ctx.msg.sender_id)
         return [root] if root is not None else []
 
     def _request_context_for_turn(self, ctx: TurnContext) -> RequestContext:

@@ -4,6 +4,8 @@ import { useTranslation } from "react-i18next";
 
 import { Input } from "@/components/ui/input";
 import type { ChannelConfigField } from "@/components/settings/channels/catalog";
+import { KeyValueField } from "@/components/settings/channels/KeyValueField";
+import { ListField } from "@/components/settings/channels/ListField";
 import { cn } from "@/lib/utils";
 
 export function channelFieldValue(field: ChannelConfigField, values: Record<string, string>): string {
@@ -183,27 +185,61 @@ export function CredentialForm({
             </div>
           );
         }
+        const isTextarea = field.inputType === "textarea";
+        const isList = field.kind === "list";
         return (
           <label key={field.key} className="block">
             {header}
             <span className="relative mt-1 block">
-              <Input
-                aria-label={field.label}
-                type={inputType}
-                autoComplete={field.secret ? "off" : undefined}
-                inputMode={field.inputType === "number" ? "numeric" : undefined}
-                placeholder={
-                  savedSecret
-                    ? tx("settings.channels.savedSecretPlaceholder", "Saved secret")
-                    : field.placeholder
-                }
-                value={values[field.key] ?? ""}
-                onChange={(event) => onChange(field.key, event.target.value)}
-                className={cn(
-                  "h-9 rounded-[10px] border-border/60 bg-muted/35 text-[13px]",
-                  showSecretToggle && "pr-9",
-                )}
-              />
+              {isTextarea ? (
+                <>
+                  <KeyValueField
+                    id={field.key}
+                    value={values[field.key] ?? ""}
+                    placeholder={field.placeholder}
+                    keyPlaceholder={tx("settings.channels.keyValueKey", "Key")}
+                    valuePlaceholder={tx("settings.channels.keyValueValue", "Value")}
+                    keyAriaLabel={tx("settings.channels.keyValueKeyAria", "Key")}
+                    valueAriaLabel={tx("settings.channels.keyValueValueAria", "Value")}
+                    addLabel={tx("settings.channels.keyValueAdd", "Add")}
+                    removeLabel={tx("settings.channels.keyValueRemove", "Remove entry")}
+                    compact={compact}
+                    onChange={(next) => onChange(field.key, next)}
+                  />
+                  {help}
+                </>
+              ) : isList ? (
+                <>
+                  <ListField
+                    id={field.key}
+                    value={values[field.key] ?? ""}
+                    placeholder={field.placeholder}
+                    addLabel={tx("settings.channels.keyValueAdd", "Add")}
+                    removeLabel={tx("settings.channels.keyValueRemove", "Remove entry")}
+                    compact={compact}
+                    onChange={(next) => onChange(field.key, next)}
+                  />
+                  {help}
+                </>
+              ) : (
+                <Input
+                  aria-label={field.label}
+                  type={inputType}
+                  autoComplete={field.secret ? "off" : undefined}
+                  inputMode={field.inputType === "number" ? "numeric" : undefined}
+                  placeholder={
+                    savedSecret
+                      ? tx("settings.channels.savedSecretPlaceholder", "Saved secret")
+                      : field.placeholder
+                  }
+                  value={values[field.key] ?? ""}
+                  onChange={(event) => onChange(field.key, event.target.value)}
+                  className={cn(
+                    "h-9 rounded-[10px] border-border/60 bg-muted/35 text-[13px] placeholder:text-muted-foreground/55",
+                    showSecretToggle && "pr-9",
+                  )}
+                />
+              )}
               {showSecretToggle ? (
                 <button
                   type="button"
@@ -223,7 +259,7 @@ export function CredentialForm({
                 </button>
               ) : null}
               </span>
-            {help}
+            {!isTextarea && !isList ? help : null}
           </label>
         );
       })}

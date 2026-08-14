@@ -183,6 +183,7 @@ _SETUP_PLUGIN_SPEC = ChannelSetupSpec(
             kind="enum",
             choices=frozenset({"us", "eu"}),
         ),
+        "metadata": ChannelFieldSpec(kind="kv"),
     },
     required=(SetupRequirement((("token",),)),),
     official_url="https://plugin.example/setup",
@@ -584,6 +585,13 @@ def test_plugin_setup_contract_drives_feature_payload(monkeypatch: pytest.Monkey
                 "choices": ["eu", "us"],
                 "required": False,
             },
+            {
+                "key": "channels.setupplugin.metadata",
+                "field": "metadata",
+                "kind": "kv",
+                "choices": [],
+                "required": False,
+            },
         ],
         "official_url": "https://plugin.example/setup",
     }
@@ -668,6 +676,7 @@ def test_plugin_setup_contract_drives_save_and_validation(
         {
             "channels.setupplugin.token": "plugin-secret",
             "channels.setupplugin.region": "eu",
+            "channels.setupplugin.metadata": "env=prod\nowner=ci",
         },
     )
     validation = validate_channel_config("setupplugin")
@@ -675,8 +684,10 @@ def test_plugin_setup_contract_drives_save_and_validation(
     assert saved == [
         "channels.setupplugin.token",
         "channels.setupplugin.region",
+        "channels.setupplugin.metadata",
     ]
     assert load_config(config_path).channels.setupplugin["token"] == "plugin-secret"
+    assert load_config(config_path).channels.setupplugin["metadata"] == {"env": "prod", "owner": "ci"}
     assert validation["status"] == "connected"
     assert validation["checks"][0]["id"] == "plugin"
 

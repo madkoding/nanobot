@@ -641,7 +641,13 @@
         "needs_setup": "Requer configuração",
         "invalid": "Inválido",
         "unsupported": "Configuração manual"
-      }
+      },
+      "keyValueKey": "Key",
+      "keyValueValue": "Value",
+      "keyValueKeyAria": "Key",
+      "keyValueValueAria": "Value",
+      "keyValueAdd": "Add",
+      "keyValueRemove": "Remove entry"
     },
     "nanobotFeatures": {
       "enabled": "Habilitado",

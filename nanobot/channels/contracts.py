@@ -11,7 +11,7 @@ from typing import TYPE_CHECKING, Any, Callable, Literal
 if TYPE_CHECKING:
     from nanobot.channels.plugin import ChannelPlugin
 
-FieldKind = Literal["string", "secret", "list", "bool", "int", "enum"]
+FieldKind = Literal["string", "secret", "list", "bool", "int", "enum", "kv"]
 RouteFieldType = str | tuple[str, set[str]]
 
 
@@ -115,6 +115,7 @@ class ChannelFieldSpec:
     default: Any = None
     writable: bool = True
     snapshot: bool = True
+    help: str | None = None
 
     @property
     def route_type(self) -> RouteFieldType:
@@ -206,6 +207,8 @@ class ChannelSetupSpec:
             }
             if field.default is not None:
                 public_field["default_value"] = stringify_channel_value(field.default)
+            if field.help is not None:
+                public_field["help"] = field.help
             fields.append(public_field)
         payload: dict[str, Any] = {
             "fields": fields,
@@ -543,6 +546,8 @@ def stringify_channel_value(value: Any) -> str:
         return "true" if value else "false"
     if isinstance(value, list):
         return ", ".join(str(item) for item in value)
+    if isinstance(value, dict):
+        return "\n".join(f"{k}={v}" for k, v in value.items())
     return str(value)
 
 

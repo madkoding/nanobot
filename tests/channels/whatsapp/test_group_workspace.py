@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from nanobot.channels.whatsapp.group_workspace import (
+    ChatWorkspaceRegistry,
     GroupWorkspaceRegistry,
     is_group_jid,
 )
@@ -126,3 +127,41 @@ class TestRegistryLoadRuleset:
         # didn't happen.
         assert len(ruleset) <= 8_100
         assert len(ruleset) < 20_000
+
+
+class TestDmWorkspaceRegistry:
+    def _setup_dm(self, root: Path, *, agents: str = "", soul: str = "") -> None:
+        root.mkdir(parents=True, exist_ok=True)
+        if agents:
+            (root / "AGENTS.md").write_text(agents, encoding="utf-8")
+        if soul:
+            (root / "SOUL.md").write_text(soul, encoding="utf-8")
+
+    def test_default_dm_workspace(self, tmp_path):
+        ws = tmp_path / "dms"
+        self._setup_dm(ws, agents="DM rules")
+        registry = ChatWorkspaceRegistry(dm_workspace=str(ws))
+        assert registry.resolve("5491155555555@s.whatsapp.net") == ws.resolve()
+
+    def test_per_sender_dm_workspace(self, tmp_path):
+        ws = tmp_path / "dms"
+        self._setup_dm(ws, agents="Sender rules")
+        registry = ChatWorkspaceRegistry(dm_workspaces={"56912345678": str(ws)})
+        assert registry.resolve("5491155555555@s.whatsapp.net", sender_id="56912345678") == ws.resolve()
+
+    def test_sender_override_beats_default(self, tmp_path):
+        default = tmp_path / "default"
+        specific = tmp_path / "specific"
+        self._setup_dm(default, agents="default")
+        self._setup_dm(specific, agents="specific")
+        registry = ChatWorkspaceRegistry(
+            dm_workspace=str(default),
+            dm_workspaces={"56912345678": str(specific)},
+        )
+        assert registry.resolve("5491155555555@s.whatsapp.net", sender_id="56912345678") == specific.resolve()
+
+    def test_dm_ignores_non_dm_chat(self, tmp_path):
+        ws = tmp_path / "dms"
+        self._setup_dm(ws, agents="DM rules")
+        registry = ChatWorkspaceRegistry(dm_workspace=str(ws))
+        assert registry.resolve("120363000@g.us") is None

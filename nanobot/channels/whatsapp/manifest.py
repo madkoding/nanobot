@@ -8,15 +8,17 @@ from nanobot.channels.whatsapp.validation import validate
 
 SETUP_SPEC = ChannelSetupSpec(
     fields={
-        "allowFrom": field("list", snapshot=False),
-        "groupPolicy": field(
-            "enum",
-            choices=DIRECT_GROUP_POLICIES,
-            default="open",
-            snapshot=False,
-        ),
-        "allowSendTo": field("list", snapshot=False),
+        "allowFrom": field("list"),
+        "groupPolicy": field("enum", choices=DIRECT_GROUP_POLICIES, default="open"),
+        "allowSendTo": field("list"),
         "databasePath": field(writable=False, snapshot=False),
+        "loginTimeoutS": field("int", default=300),
+        "throttleThreshold": field("int", default=3),
+        "throttleCooldownS": field("int", default=7200),
+        "lidMappings": field("kv"),
+        "groupWorkspaces": field("kv"),
+        "dmWorkspace": field("string", help="Absolute path used as workspace for all DMs when no per-sender entry matches."),
+        "dmWorkspaces": field("kv", help="Map sender id (phone number, LID, or WhatsApp JID) to an absolute workspace path."),
     },
     official_url="https://faq.whatsapp.com/",
     validator=validate,

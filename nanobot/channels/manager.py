@@ -40,8 +40,9 @@ from nanobot.utils.restart import (
 )
 
 if TYPE_CHECKING:
-    from nanobot.channels.whatsapp.group_workspace import GroupWorkspaceRegistry
-    from nanobot.session.manager import SessionManager
+    from nanobot.channels.whatsapp.group_workspace import ChatWorkspaceRegistry
+
+from nanobot.session.manager import SessionManager
 
 
 def _default_webui_dist() -> Path | None:
@@ -262,7 +263,7 @@ class ChannelManager:
         set_registry = getattr(loop, "set_group_workspace_registry", None)
         if not callable(set_registry):
             return
-        merged: dict[str, "GroupWorkspaceRegistry"] = {}
+        merged: dict[str, "ChatWorkspaceRegistry"] = {}
         for channel in self.channels.values():
             registry = getattr(channel, "group_workspace_registry", None)
             if registry is not None:

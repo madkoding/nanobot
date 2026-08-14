@@ -21,7 +21,7 @@ from pydantic import Field
 from nanobot.bus.events import OutboundMessage
 from nanobot.bus.queue import MessageBus
 from nanobot.channels.base import BaseChannel
-from nanobot.channels.whatsapp.group_workspace import GroupWorkspaceRegistry
+from nanobot.channels.whatsapp.group_workspace import ChatWorkspaceRegistry
 from nanobot.config.paths import get_media_dir, get_runtime_subdir
 from nanobot.config.schema import Base
 from nanobot.runtime_context import RUNTIME_CONTEXT_INPUT_META, RuntimeContextBlock
@@ -64,6 +64,12 @@ class WhatsAppConfig(Base):
     # that don't exist as directories are skipped (with a warning) so a
     # stale entry never breaks a turn.
     group_workspaces: dict[str, str] = Field(default_factory=dict)
+    # Per-DM workspace override. Single path used for all DMs when no
+    # per-sender dm_workspaces entry matches.
+    dm_workspace: str = ""
+    # Per-sender DM workspace override. The key can be a bare phone number,
+    # a WhatsApp "lid", or a full "56912345678@s.whatsapp.net" JID.
+    dm_workspaces: dict[str, str] = Field(default_factory=dict)
 
 
 class _NeonizeAPI(NamedTuple):
@@ -411,11 +417,14 @@ class WhatsAppChannel(BaseChannel):
         # Persisted display-name mappings per chat (phone/sender_id -> push_name).
         self._display_names: dict[str, dict[str, str]] = {}
         self._display_names_path = get_runtime_subdir("whatsapp-auth") / "display_names.json"
-        # Per-group workspace override registry. Channels.manager hands this
-        # to AgentLoop so turns originating in a mapped group pick up the
-        # group's AGENTS.md/SOUL.md instead of the channel-level workspace.
-        self.group_workspace_registry = GroupWorkspaceRegistry(
-            self.config.group_workspaces, log=self.logger
+        # Per-chat workspace registry. Channels.manager hands this to
+        # AgentLoop so turns originating in a mapped group or DM pick up
+        # the chat's AGENTS.md/SOUL.md instead of the channel-level workspace.
+        self.group_workspace_registry = ChatWorkspaceRegistry(
+            group_workspaces=self.config.group_workspaces,
+            dm_workspace=self.config.dm_workspace,
+            dm_workspaces=self.config.dm_workspaces,
+            log=self.logger,
         )
 
     def _database_path(self) -> Path:

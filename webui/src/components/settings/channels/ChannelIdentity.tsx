@@ -85,8 +85,10 @@ export function channelSetup(
       label: copy.label,
       secret: field.kind === "secret",
       optional: !field.required,
-      inputType: field.kind === "int" ? "number" : undefined,
+      inputType: field.kind === "int" ? "number" : field.kind === "kv" ? "textarea" : undefined,
       defaultValue: field.default_value,
+      help: copy.help ?? field.help,
+      kind: field.kind as ChannelConfigField["kind"],
       options:
         field.kind === "enum" || field.kind === "bool"
           ? choices.map((choice) => ({

@@ -67,9 +67,10 @@ export type ChannelConfigField = {
   secret?: boolean;
   optional?: boolean;
   help?: string;
-  inputType?: "text" | "number";
+  inputType?: "text" | "number" | "textarea";
   defaultValue?: string;
   options?: ChannelConfigOption[];
+  kind?: "string" | "secret" | "int" | "bool" | "list" | "enum" | "kv";
 };
 
 export type ChannelConfigOption = {
