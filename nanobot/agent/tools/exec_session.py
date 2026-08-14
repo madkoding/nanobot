@@ -88,7 +88,14 @@ class _ExecSession:
             return
         first = True
         while True:
-            chunk = await stream.read(4096)
+            try:
+                chunk = await stream.read(4096)
+            except (ConnectionResetError, asyncio.CancelledError):
+                # On Windows the stream reader can surface CancelledError
+                # (asyncio/streams.py) when the child process exits mid-read.
+                # That is a normal close path for the reader task, not a real
+                # failure: stop reading and let the session conclude normally.
+                return
             if not chunk:
                 break
             text = chunk.decode("utf-8", errors="replace")
