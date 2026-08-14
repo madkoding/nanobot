@@ -403,6 +403,12 @@ class Config(BaseSettings):
         validation_alias=AliasChoices("modelPresets", "model_presets"),
         serialization_alias="modelPresets",
     )
+    owner_id: str | None = Field(
+        default=None,
+        description="Operator identity. Non-matching senders are treated as untrusted context.",
+        validation_alias=AliasChoices("ownerId", "owner_id"),
+        serialization_alias="ownerId",
+    )
 
     def __init__(self, **values: Any) -> None:
         if not type(self).__pydantic_complete__:
