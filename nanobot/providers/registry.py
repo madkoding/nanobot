@@ -122,6 +122,10 @@ class ProviderSpec:
     # wire to keep thinking-mode history intact.
     strip_history_reasoning_content: bool = False
 
+    # Substring match against the wire model name (lowercased). Models whose
+    # names contain any of these tokens reject the temperature kwarg.
+    temperature_blacklist_tokens: tuple[str, ...] = ()
+
     @property
     def label(self) -> str:
         return self.display_name or self.name.title()

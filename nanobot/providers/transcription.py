@@ -11,7 +11,7 @@ import base64
 import json
 import mimetypes
 import os
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import Any
 
@@ -118,80 +118,15 @@ async def _request_json_with_retry(
     provider_label: str,
     **kwargs: object,
 ) -> dict[str, Any] | None:
-    for attempt in range(_MAX_RETRIES + 1):
-        try:
-            request = getattr(client, method.lower(), None)
-            if request is None:
-                response = await client.request(method, url, **kwargs)
-            else:
-                response = await request(url, **kwargs)
-        except _RETRYABLE_EXCEPTIONS as e:
-            if attempt < _MAX_RETRIES:
-                logger.warning(
-                    "{} transcription transient error (attempt {}/{}): {}",
-                    provider_label,
-                    attempt + 1,
-                    _MAX_RETRIES + 1,
-                    e,
-                )
-                await asyncio.sleep(_BACKOFF_S[attempt])
-                continue
-            logger.exception(
-                "{} transcription error after {} attempts: {}",
-                provider_label,
-                _MAX_RETRIES + 1,
-                e,
-            )
-            return None
-        except Exception as e:
-            logger.exception("{} transcription error: {}", provider_label, e)
-            return None
+    """Send an HTTP request with *client* and return the JSON body, retrying on transient errors."""
 
-        if response.status_code in _RETRYABLE_STATUS and attempt < _MAX_RETRIES:
-            logger.warning(
-                "{} transcription transient HTTP {} (attempt {}/{})",
-                provider_label,
-                response.status_code,
-                attempt + 1,
-                _MAX_RETRIES + 1,
-            )
-            await asyncio.sleep(_BACKOFF_S[attempt])
-            continue
+    async def _execute() -> httpx.Response:
+        request = getattr(client, method.lower(), None)
+        if request is None:
+            return await client.request(method, url, **kwargs)
+        return await request(url, **kwargs)
 
-        try:
-            response.raise_for_status()
-        except httpx.HTTPStatusError:
-            body = response.text.strip().replace("\n", " ")[:500]
-            logger.error(
-                "{} transcription HTTP {}{}{}",
-                provider_label,
-                response.status_code,
-                f" {response.reason_phrase}" if response.reason_phrase else "",
-                f": {body}" if body else "",
-            )
-            return None
-        except Exception as e:
-            logger.exception("{} transcription error: {}", provider_label, e)
-            return None
-
-        try:
-            payload = response.json()
-        except Exception as e:
-            logger.exception(
-                "{} transcription error: malformed response body: {}",
-                provider_label,
-                e,
-            )
-            return None
-        if not isinstance(payload, dict):
-            logger.error(
-                "{} transcription error: unexpected response shape: {!r}",
-                provider_label,
-                type(payload).__name__,
-            )
-            return None
-        return payload
-    return None
+    return await _retry_http(_execute, provider_label=provider_label, extract_fn=_json_dict_from_response)
 
 
 async def _post_transcription_with_retry(
@@ -420,7 +355,7 @@ async def _post_stepfun_asr_with_retry(
                     f" {e.response.reason_phrase}" if e.response.reason_phrase else "",
                 )
                 return ""
-            except (httpx.RequestError, Exception):
+            except _RETRYABLE_EXCEPTIONS:
                 if attempt < _MAX_RETRIES:
                     await asyncio.sleep(_BACKOFF_S[attempt])
                     continue
@@ -434,77 +369,102 @@ async def _post_with_retry(
     provider_label: str,
     extract_text: Callable[[dict[str, Any]], str],
 ) -> str:
-    async with httpx.AsyncClient() as client:
-        for attempt in range(_MAX_RETRIES + 1):
-            try:
-                response = await client.post(**build_request())
-            except _RETRYABLE_EXCEPTIONS as e:
-                if attempt < _MAX_RETRIES:
-                    logger.warning(
-                        "{} transcription transient error (attempt {}/{}): {}",
-                        provider_label,
-                        attempt + 1,
-                        _MAX_RETRIES + 1,
-                        e,
-                    )
-                    await asyncio.sleep(_BACKOFF_S[attempt])
-                    continue
-                logger.exception(
-                    "{} transcription error after {} attempts: {}",
-                    provider_label,
-                    _MAX_RETRIES + 1,
-                    e,
-                )
-                return ""
-            except Exception as e:
-                logger.exception("{} transcription error: {}", provider_label, e)
-                return ""
+    """POST with kwargs from ``build_request`` and return extracted text."""
 
-            if response.status_code in _RETRYABLE_STATUS and attempt < _MAX_RETRIES:
+    async def _execute() -> httpx.Response:
+        async with httpx.AsyncClient() as client:
+            return await client.post(**build_request())
+
+    return await _retry_http(_execute, provider_label=provider_label, extract_fn=extract_text)
+
+
+async def _retry_http(
+    execute: Callable[[], Awaitable[httpx.Response]],
+    *,
+    provider_label: str,
+    extract_fn: Callable[[dict[str, Any]], Any],
+) -> Any:
+    """Execute ``execute()`` to obtain an ``httpx.Response``, retrying on transient errors.
+
+    Returns the result of ``extract_fn(payload)`` for a successful JSON-dict
+    response. On HTTP/network failure returns the sentinel for the extractor
+    (``""`` for text extractors, ``None`` for JSON extractors).
+    """
+    default: Any = None if extract_fn is _json_dict_from_response else ""
+    for attempt in range(_MAX_RETRIES + 1):
+        try:
+            response = await execute()
+        except _RETRYABLE_EXCEPTIONS as e:
+            if attempt < _MAX_RETRIES:
                 logger.warning(
-                    "{} transcription transient HTTP {} (attempt {}/{})",
+                    "{} transcription transient error (attempt {}/{}): {}",
                     provider_label,
-                    response.status_code,
                     attempt + 1,
                     _MAX_RETRIES + 1,
+                    e,
                 )
                 await asyncio.sleep(_BACKOFF_S[attempt])
                 continue
+            logger.exception(
+                "{} transcription error after {} attempts: {}",
+                provider_label,
+                _MAX_RETRIES + 1,
+                e,
+            )
+            return default
+        except Exception as e:
+            logger.exception("{} transcription error: {}", provider_label, e)
+            return default
 
-            try:
-                response.raise_for_status()
-            except httpx.HTTPStatusError:
-                body = response.text.strip().replace("\n", " ")[:500]
-                logger.error(
-                    "{} transcription HTTP {}{}{}",
-                    provider_label,
-                    response.status_code,
-                    f" {response.reason_phrase}" if response.reason_phrase else "",
-                    f": {body}" if body else "",
-                )
-                return ""
-            except Exception as e:
-                logger.exception("{} transcription error: {}", provider_label, e)
-                return ""
+        if response.status_code in _RETRYABLE_STATUS and attempt < _MAX_RETRIES:
+            logger.warning(
+                "{} transcription transient HTTP {} (attempt {}/{})",
+                provider_label,
+                response.status_code,
+                attempt + 1,
+                _MAX_RETRIES + 1,
+            )
+            await asyncio.sleep(_BACKOFF_S[attempt])
+            continue
 
-            try:
-                payload = response.json()
-            except Exception as e:
-                logger.exception(
-                    "{} transcription error: malformed response body: {}",
-                    provider_label,
-                    e,
-                )
-                return ""
-            if not isinstance(payload, dict):
-                logger.error(
-                    "{} transcription error: unexpected response shape: {!r}",
-                    provider_label,
-                    type(payload).__name__,
-                )
-                return ""
-            return extract_text(payload)
-    return ""
+        try:
+            response.raise_for_status()
+        except httpx.HTTPStatusError:
+            body = response.text.strip().replace("\n", " ")[:500]
+            logger.error(
+                "{} transcription HTTP {}{}{}",
+                provider_label,
+                response.status_code,
+                f" {response.reason_phrase}" if response.reason_phrase else "",
+                f": {body}" if body else "",
+            )
+            return default
+        except Exception as e:
+            logger.exception("{} transcription error: {}", provider_label, e)
+            return default
+
+        try:
+            payload = response.json()
+        except Exception as e:
+            logger.exception(
+                "{} transcription error: malformed response body: {}",
+                provider_label,
+                e,
+            )
+            return default
+        if not isinstance(payload, dict):
+            logger.error(
+                "{} transcription error: unexpected response shape: {!r}",
+                provider_label,
+                type(payload).__name__,
+            )
+            return default
+        return extract_fn(payload)
+    return default
+
+
+def _json_dict_from_response(payload: dict[str, Any]) -> dict[str, Any]:
+    return payload
 
 
 def _text_from_transcription_payload(payload: dict[str, Any]) -> str:

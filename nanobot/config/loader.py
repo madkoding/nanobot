@@ -176,17 +176,6 @@ def _resolve_in_place(obj: Any) -> Any:
     return obj
 
 
-def _resolve_env_vars(obj: object) -> object:
-    """Recursively resolve ``${VAR}`` patterns in plain strings/dicts/lists."""
-    if isinstance(obj, str):
-        return _ENV_REF_PATTERN.sub(_env_replace, obj)
-    if isinstance(obj, dict):
-        return {k: _resolve_env_vars(v) for k, v in obj.items()}
-    if isinstance(obj, list):
-        return [_resolve_env_vars(v) for v in obj]
-    return obj
-
-
 def _env_replace(match: re.Match[str]) -> str:
     name = match.group(1)
     value = os.environ.get(name)

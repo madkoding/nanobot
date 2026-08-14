@@ -14,6 +14,7 @@ from nanobot.providers.base import (
     LLMProvider,
     LLMResponse,
     ToolCallRequest,
+    _deep_merge,
     parse_tool_arguments,
     resolve_stream_idle_timeout_s,
     tool_arguments_object_for_replay,
@@ -24,16 +25,6 @@ _TEXT_BLOCK_TYPES = {"text", "input_text", "output_text"}
 _TEMPERATURE_UNSUPPORTED_MODEL_TOKENS = ("claude-opus-4-7",)
 _ADAPTIVE_THINKING_ONLY_MODEL_TOKENS = ("claude-opus-4-7",)
 _NOOP_TOOL_NAME = "nanobot_noop"
-
-
-def _deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
-    merged = dict(base)
-    for key, value in override.items():
-        if key in merged and isinstance(merged[key], dict) and isinstance(value, dict):
-            merged[key] = _deep_merge(merged[key], value)
-        else:
-            merged[key] = value
-    return merged
 
 
 def _next_or_none(iterator: Iterator[dict[str, Any]]) -> dict[str, Any] | None:
@@ -88,9 +79,7 @@ class BedrockProvider(LLMProvider):
 
     @staticmethod
     def _strip_prefix(model: str) -> str:
-        if model.startswith("bedrock/"):
-            return model[len("bedrock/"):]
-        return model
+        return LLMProvider._strip_prefix(model, ("bedrock",))
 
     @staticmethod
     def _matches_model_token(model: str, tokens: tuple[str, ...]) -> bool:

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 import time
+from collections import OrderedDict
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field, replace
 from typing import Any
@@ -53,8 +54,10 @@ TITLE_GENERATION_MAX_TOKENS = 96
 TITLE_GENERATION_REASONING_EFFORT = "none"
 
 # Wall-clock turn start per ``chat_id`` (websocket only). Survives browser refresh while the
-# gateway process stays up; cleared on idle/stop and implicitly dropped on restart.
-_WEBSOCKET_TURN_WALL_STARTED_AT: dict[str, float] = {}
+# gateway process stays up; cleared on idle/stop, dropped on restart, and bounded so a missed
+# terminal status cannot leak memory in a long-lived gateway process.
+_MAX_WEBSOCKET_TURN_WALL_CLOCKS = 512
+_WEBSOCKET_TURN_WALL_STARTED_AT: OrderedDict[str, float] = OrderedDict()
 
 
 def mark_webui_session(session: Session, metadata: dict[str, Any]) -> bool:
@@ -199,6 +202,14 @@ async def maybe_generate_webui_title_after_turn(
     )
 
 
+def _set_websocket_turn_wall_started_at(chat_id: str, started_at: float) -> None:
+    """Record a running websocket turn, evicting the oldest entry if over capacity."""
+    registry = _WEBSOCKET_TURN_WALL_STARTED_AT
+    registry[chat_id] = started_at
+    while len(registry) > _MAX_WEBSOCKET_TURN_WALL_CLOCKS:
+        registry.popitem(last=False)
+
+
 def websocket_turn_wall_started_at(chat_id: str) -> float | None:
     """Return ``time.time()`` when the active user turn began, if still running."""
     return _WEBSOCKET_TURN_WALL_STARTED_AT.get(chat_id)
@@ -230,7 +241,7 @@ async def publish_turn_run_status(
         else:
             t0 = time.time()
         started_at_event = t0
-        _WEBSOCKET_TURN_WALL_STARTED_AT[cid] = t0
+        _set_websocket_turn_wall_started_at(cid, t0)
     else:
         _WEBSOCKET_TURN_WALL_STARTED_AT.pop(cid, None)
     await bus.publish_outbound(

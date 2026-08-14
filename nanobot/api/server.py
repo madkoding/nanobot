@@ -45,22 +45,6 @@ _AGENT_LOOP_KEY = web.AppKey[Any]("agent_loop")
 _MODEL_NAME_KEY = web.AppKey[str]("model_name")
 _REQUEST_TIMEOUT_KEY = web.AppKey[float]("request_timeout")
 _SESSION_LOCKS_KEY = web.AppKey[dict]("session_locks")
-_MISSING = object()
-
-
-def _app_value(
-    app: Any,
-    key: web.AppKey[Any],
-    legacy_key: str,
-    default: Any = _MISSING,
-) -> Any:
-    """Read typed aiohttp state while accepting lightweight dict test doubles."""
-    try:
-        return app[key]
-    except KeyError:
-        if default is _MISSING:
-            return app[legacy_key]
-        return app.get(legacy_key, default)
 
 
 # ---------------------------------------------------------------------------
@@ -229,14 +213,9 @@ async def handle_chat_completions(request: web.Request) -> web.Response:
     if not isinstance(content_type, str):
         content_type = ""
 
-    agent_loop = _app_value(request.app, _AGENT_LOOP_KEY, "agent_loop")
-    timeout_s: float = _app_value(
-        request.app,
-        _REQUEST_TIMEOUT_KEY,
-        "request_timeout",
-        120.0,
-    )
-    model_name: str = _app_value(request.app, _MODEL_NAME_KEY, "model_name", "nanobot")
+    agent_loop = request.app[_AGENT_LOOP_KEY]
+    timeout_s: float = request.app.get(_REQUEST_TIMEOUT_KEY, 120.0)
+    model_name: str = request.app.get(_MODEL_NAME_KEY, "nanobot")
 
     stream = False
     try:
@@ -263,11 +242,7 @@ async def handle_chat_completions(request: web.Request) -> web.Response:
         return _error_json(400, f"Only configured model '{model_name}' is available")
 
     session_key = f"api:{session_id}" if session_id else API_SESSION_KEY
-    session_locks: dict[str, asyncio.Lock] = _app_value(
-        request.app,
-        _SESSION_LOCKS_KEY,
-        "session_locks",
-    )
+    session_locks: dict[str, asyncio.Lock] = request.app[_SESSION_LOCKS_KEY]
     session_lock = session_locks.setdefault(session_key, asyncio.Lock())
 
     logger.info(
@@ -378,7 +353,7 @@ async def handle_chat_completions(request: web.Request) -> web.Response:
 
 async def handle_models(request: web.Request) -> web.Response:
     """GET /v1/models"""
-    model_name = _app_value(request.app, _MODEL_NAME_KEY, "model_name", "nanobot")
+    model_name: str = request.app.get(_MODEL_NAME_KEY, "nanobot")
     return web.json_response(
         {
             "object": "list",

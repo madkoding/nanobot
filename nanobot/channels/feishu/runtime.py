@@ -10,7 +10,6 @@ import re
 import threading
 import time
 import uuid
-from collections import OrderedDict
 from contextlib import suppress
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -922,7 +921,7 @@ class FeishuChannel(BaseChannel):
         self._client: Any = None
         self._ws_client: Any = None
         self._ws_runner = get_feishu_ws_runner()
-        self._processed_message_ids: OrderedDict[str, None] = OrderedDict()  # Ordered dedup cache
+        self._processed_message_ids = self._bounded_set(1000)  # Bounded dedup cache
         self._loop: asyncio.AbstractEventLoop | None = None
         self._stream_bufs: dict[str, _FeishuStreamBuf] = {}
         self._bot_open_id: str | None = None
@@ -2573,11 +2572,7 @@ class FeishuChannel(BaseChannel):
             # Deduplication check
             if message_id in self._processed_message_ids:
                 return
-            self._processed_message_ids[message_id] = None
-
-            # Trim cache
-            while len(self._processed_message_ids) > 1000:
-                self._processed_message_ids.popitem(last=False)
+            self._processed_message_ids.add(message_id)
 
             # Early permission check — avoid side effects for unauthorized users.
             # Group chats are silently ignored; DMs get a pairing code.

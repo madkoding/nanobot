@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import importlib.util
 import time
+from collections.abc import Awaitable, Callable
 from contextlib import suppress
 from dataclasses import dataclass
 from pathlib import Path
@@ -15,7 +16,7 @@ from pydantic import Field
 from nanobot.bus.events import OutboundMessage
 from nanobot.bus.outbound_events import ProgressEvent
 from nanobot.bus.queue import MessageBus
-from nanobot.channels.base import BaseChannel
+from nanobot.channels.base import BaseChannel, TypingIndicator
 from nanobot.command.builtin import build_help_text
 from nanobot.config.paths import get_media_dir
 from nanobot.config.schema import Base
@@ -389,7 +390,9 @@ class DiscordChannel(BaseChannel):
         super().__init__(config, bus)
         self.config: DiscordConfig = config
         self._client: DiscordBotClient | None = None
-        self._typing_tasks: dict[str, asyncio.Task[None]] = {}
+        self._typing = TypingIndicator(interval=TYPING_INTERVAL_S)
+        # ponytail: tests still inspect _typing_tasks; mirror helper tasks.
+        self._typing_tasks = self._typing._tasks
         self._bot_user_id: str | None = None
         self._pending_reactions: dict[str, Any] = {}  # chat_id -> message object
         self._working_emoji_tasks: dict[str, asyncio.Task[None]] = {}
@@ -775,29 +778,19 @@ class DiscordChannel(BaseChannel):
     async def _start_typing(self, channel: Messageable) -> None:
         """Start periodic typing indicator for a channel."""
         channel_id = self._channel_key(channel)
-        await self._stop_typing(channel_id)
+        self._typing.start(channel_id, self._typing_action(channel))
 
-        async def typing_loop() -> None:
-            while self._running:
-                try:
-                    async with channel.typing():
-                        await asyncio.sleep(TYPING_INTERVAL_S)
-                except asyncio.CancelledError:
-                    return
-                except Exception as e:
-                    self.logger.debug("typing indicator failed for {}: {}", channel_id, e)
-                    return
+    def _typing_action(self, channel: Messageable) -> Callable[[], Awaitable[object]]:
+        async def _action() -> object:
+            async with channel.typing():
+                await asyncio.sleep(TYPING_INTERVAL_S)
+            return None
 
-        self._typing_tasks[channel_id] = asyncio.create_task(typing_loop())
+        return _action
 
     async def _stop_typing(self, channel_id: str) -> None:
         """Stop typing indicator for a channel."""
-        task = self._typing_tasks.pop(self._channel_key(channel_id), None)
-        if task is None:
-            return
-        task.cancel()
-        with suppress(asyncio.CancelledError):
-            await task
+        self._typing.stop(self._channel_key(channel_id))
 
     async def _clear_reactions(self, chat_id: str) -> None:
         """Remove all pending reactions after bot replies."""

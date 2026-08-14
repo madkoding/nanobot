@@ -4,7 +4,10 @@ import asyncio
 import json
 import os
 import re
+import secrets
+import string
 from abc import ABC, abstractmethod
+from collections import deque
 from collections.abc import Awaitable, Callable
 from contextlib import suppress
 from dataclasses import dataclass, field
@@ -17,10 +20,90 @@ from loguru import logger
 
 from nanobot.utils.helpers import sanitize_surrogates_deep
 
+
+class ToolIdRemapper:
+    """Map raw tool_call IDs to provider-safe IDs while keeping pairs matched.
+
+    Some providers (Mistral, Anthropic) reject normal OpenAI-style IDs such as
+    ``call_...`` or IDs containing dots/pipes.  This helper generates short,
+    provider-acceptable IDs and maintains a pending queue so that matching
+    ``tool_call_id`` references in ``role="tool"`` messages map to the same ID.
+    """
+
+    def __init__(
+        self,
+        normalize: Callable[[str], str],
+        *,
+        short_id: Callable[[], str] | None = None,
+    ) -> None:
+        self._normalize = normalize
+        self._short_id = short_id or self._default_short_id
+        self._seen: set[str] = set()
+        self._pending: dict[str, deque[str]] = {}
+
+    @staticmethod
+    def _default_short_id() -> str:
+        """9-char alphanumeric ID compatible with most providers."""
+        return "".join(secrets.choice(_ALNUM) for _ in range(9))
+
+    def unique_tool_id(self, raw_id: Any, idx: int = 0) -> str:
+        """Return a new, unique provider-safe ID for a tool call."""
+        raw_key = str(raw_id) if raw_id else ""
+        if raw_key:
+            base = self._normalize(raw_key)
+        else:
+            base = self._short_id()
+        if not isinstance(base, str) or not base:
+            base = self._short_id()
+        if base not in self._seen:
+            self._seen.add(base)
+            if raw_key:
+                self._pending.setdefault(raw_key, deque()).append(base)
+            return base
+        seed = raw_key or base
+        salt = 1
+        while True:
+            candidate = self._normalize(f"{seed}:{idx}:{salt}")
+            if isinstance(candidate, str) and candidate and candidate not in self._seen:
+                self._seen.add(candidate)
+                if raw_key:
+                    self._pending.setdefault(raw_key, deque()).append(candidate)
+                return candidate
+            salt += 1
+
+    def map_tool_result_id(self, raw_id: Any) -> Any:
+        """Map a tool_result reference back to the ID used in the paired tool call."""
+        if not isinstance(raw_id, str):
+            return raw_id
+        queue = self._pending.get(raw_id)
+        if queue:
+            mapped = queue.popleft()
+            if not queue:
+                self._pending.pop(raw_id, None)
+            return mapped
+        return self._normalize(raw_id)
+
+
 STREAM_IDLE_TIMEOUT_ENV = "NANOBOT_STREAM_IDLE_TIMEOUT_S"
 DEFAULT_STREAM_IDLE_TIMEOUT_S = 90.0
 MAX_STREAM_IDLE_TIMEOUT_S = 3600.0
 RETRY_AFTER_BUFFER = 1
+_ALNUM = string.ascii_letters + string.digits
+
+
+def _deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
+    """Recursively merge *override* into *base*, returning a new dict.
+
+    Nested dicts are merged key-by-key; all other types in *override*
+    replace the corresponding key in *base*.
+    """
+    merged = dict(base)
+    for key, value in override.items():
+        if key in merged and isinstance(merged[key], dict) and isinstance(value, dict):
+            merged[key] = _deep_merge(merged[key], value)
+        else:
+            merged[key] = value
+    return merged
 
 
 def resolve_stream_idle_timeout_s(
@@ -629,6 +712,56 @@ class LLMProvider(ABC):
                 break
 
         return merged
+
+
+
+
+    @staticmethod
+    def _supports_temperature(
+        model_name: str,
+        reasoning_effort: str | None = None,
+        *,
+        extra_blacklist_tokens: tuple[str, ...] = (),
+    ) -> bool:
+        """Return True when a model likely accepts a temperature parameter.
+
+        O1/o3/o4 reasoning models and GPT-5 family reject temperature when
+        reasoning_effort is active (anything other than ``"none"``). Provider
+        specs can add extra tokens via ``temperature_blacklist_tokens``.
+        """
+        if reasoning_effort and reasoning_effort.lower() != "none":
+            return False
+        name = model_name.lower()
+        tokens = ("gpt-5", "o1", "o3", "o4", *extra_blacklist_tokens)
+        return not any(token in name for token in tokens)
+
+    @staticmethod
+    def _deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
+        """Recursively merge *override* into *base*, returning a new dict.
+
+        Nested dicts are merged key-by-key; all other types in *override*
+        replace the corresponding key in *base*.
+        """
+        merged = dict(base)
+        for key, value in override.items():
+            if key in merged and isinstance(merged[key], dict) and isinstance(value, dict):
+                merged[key] = LLMProvider._deep_merge(merged[key], value)
+            else:
+                merged[key] = value
+        return merged
+
+    @staticmethod
+    def _strip_prefix(model: str, prefixes: tuple[str, ...]) -> str:
+        """Strip a namespace prefix from a model slug if present.
+
+        Used by providers whose registry name includes a category prefix
+        (e.g. ``xai-grok/grok-4``) but whose upstream API expects the bare
+        model id.
+        """
+        for prefix in prefixes:
+            if model.startswith(f"{prefix}/"):
+                return model.split("/", 1)[1]
+        return model
 
     @staticmethod
     def _strip_image_content(messages: list[dict[str, Any]]) -> list[dict[str, Any]] | None:

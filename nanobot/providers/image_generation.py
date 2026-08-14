@@ -14,6 +14,7 @@ from typing import Any
 import httpx
 from loguru import logger
 
+from nanobot.providers.base import LLMProvider
 from nanobot.providers.registry import find_by_name
 from nanobot.utils.helpers import detect_image_mime
 
@@ -964,9 +965,7 @@ class OpenAIImageGenerationClient(ImageGenerationProvider):
     @staticmethod
     def _strip_model_prefix(model: str) -> str:
         """Remove ``openai/`` prefix if present (OpenRouter convention)."""
-        if model.startswith("openai/") or model.startswith("openai_codex/"):
-            return model.split("/", 1)[1]
-        return model
+        return LLMProvider._strip_prefix(model, ("openai", "openai_codex"))
 
     async def _parse_images_response(self, payload: dict[str, Any]) -> list[str]:
         client = self._client

@@ -107,7 +107,6 @@ def test_multi_instance_support_is_declared_by_management_spec() -> None:
         "instance_specs",
         "update_instance_config",
         "runtime_name",
-        "feature_instances",
     ],
 )
 def test_single_instance_management_rejects_multi_instance_callbacks(callback: str) -> None:
@@ -307,12 +306,6 @@ def test_channel_feature_instances_use_generic_setup_snapshot() -> None:
             runtime_name=lambda name, instance_id: (
                 name if instance_id == "default" else f"{name}.{instance_id}"
             ),
-            feature_instances=lambda section, *, setup_spec=None: [{
-                "id": "product",
-                "display_name": "Catalog product helper",
-                "enabled": False,
-                "config_values": {"channels.feature_multi.token": "leaked"},
-            }],
         ),
     )
     section = {
@@ -340,7 +333,7 @@ def test_channel_feature_instances_use_generic_setup_snapshot() -> None:
         {
             "id": "product",
             "name": "Product bot",
-            "display_name": "Catalog product helper",
+            "display_name": "Product helper",
             "avatar_url": "https://example.com/product.png",
             "enabled": True,
             "configured": True,
