@@ -3,6 +3,7 @@
 import difflib
 import mimetypes
 import os
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -17,8 +18,10 @@ from nanobot.agent.tools.schema import (
     tool_parameters_schema,
 )
 from nanobot.config_base import Base
-from nanobot.security.workspace_access import current_tool_workspace
+from nanobot.security.workspace_access import current_tool_workspace, current_workspace_scope
 from nanobot.utils.helpers import build_image_content_blocks, detect_image_mime
+
+_IS_LINUX = sys.platform.startswith("linux")
 
 
 class FileToolsConfig(Base):
@@ -71,6 +74,22 @@ class _FsTool(Tool):
         # current async task, which keeps shared tool instances session-safe.
         self._explicit_file_states = file_states
         self._fallback_file_states = FileStates()
+
+    def _effective_sandbox_restricts(self) -> bool:
+        """Return whether the configured exec sandbox should restrict this call.
+
+        bwrap only runs on Linux, so on other platforms the configured sandbox
+        never applies. On Linux, skip the sandbox restriction when the active
+        workspace scope grants full access.
+        """
+        if not self._sandbox_restricts_workspace:
+            return False
+        if not _IS_LINUX:
+            return False
+        scope = current_workspace_scope()
+        if scope is not None and not scope.restrict_to_workspace:
+            return False
+        return True
 
     @classmethod
     def create(cls, ctx: Any) -> Tool:
@@ -126,7 +145,7 @@ class _FsTool(Tool):
         access = current_tool_workspace(
             self._workspace,
             restrict_to_workspace=self._restrict_to_workspace,
-            sandbox_restricts_workspace=self._sandbox_restricts_workspace,
+            sandbox_restricts_workspace=self._effective_sandbox_restricts(),
         )
         allowed_root = self._effective_allowed_root(access.allowed_root)
         if extra_files_require_allowed_root and allowed_root is None:
@@ -144,7 +163,7 @@ class _FsTool(Tool):
         access = current_tool_workspace(
             self._workspace,
             restrict_to_workspace=self._restrict_to_workspace,
-            sandbox_restricts_workspace=self._sandbox_restricts_workspace,
+            sandbox_restricts_workspace=self._effective_sandbox_restricts(),
         )
         extra_read_dirs = [
             *self._extra_read_allowed_dirs,
