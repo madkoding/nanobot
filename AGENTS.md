@@ -6,10 +6,10 @@ nanobot is a lightweight, open-source AI agent framework written in Python with 
 
 ## Workspace Setup
 
-This repository lives at `/home/madkoding/nanobot`. The companion agent workspace (sessions, logs, runtime state) lives at `~/.nanobot/workspace/` and is configured at `~/.nanobot/config.json`.
+This repository lives at `/home/madkoding/repos/nanobot`. The companion agent workspace (sessions, logs, runtime state) lives at `~/.nanobot/workspace/` and is configured at `~/.nanobot/config.json`.
 
 ```
-/home/madkoding/nanobot/            # <- this repo (source of truth for code + WebUI)
+/home/madkoding/repos/nanobot/      # <- this repo (source of truth for code + WebUI)
 /home/madkoding/.nanobot/            # <- runtime workspace (config, sessions, venv)
   ├── config.json                    # gateway configuration
   ├── workspace/                     # session memory + logs
@@ -59,7 +59,7 @@ The gateway runs from the venv as `nanobot-gateway.service` (user systemd). Beca
 
 2. **WebUI changes** (`webui/src/*`):
    ```bash
-   cd /home/madkoding/nanobot/webui
+   cd /home/madkoding/repos/nanobot/webui
    bun run build
    # Vite writes to ../nanobot/web/dist. Since the venv is editable, the
    # gateway will pick up the new dist on the next request — but you still
@@ -74,7 +74,7 @@ The gateway runs from the venv as `nanobot-gateway.service` (user systemd). Beca
 
 > If `pip install -e .` ever gets out of sync (e.g. after moving the repo), re-run:
 > ```bash
-> ~/.nanobot/venv/bin/pip install -e /home/madkoding/nanobot --no-deps --quiet
+> ~/.nanobot/venv/bin/pip install -e /home/madkoding/repos/nanobot --no-deps --quiet
 > ```
 
 ## WebUI Architecture
