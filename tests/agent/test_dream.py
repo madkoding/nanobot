@@ -174,7 +174,7 @@ class TestBuildDreamPrompt:
 
     def test_owner_filter_includes_only_matching_sender(self, store):
         """Dream must only fold the owner's memories into durable memory files."""
-        owner_id = "whatsapp:56975746099@s.whatsapp.net"
+        owner_id = "whatsapp:15551234567@s.whatsapp.net"
         other_id = "whatsapp:56999999999@s.whatsapp.net"
         store.append_history("owner fact", sender_id=owner_id)
         store.append_history("other person fact", sender_id=other_id)
@@ -187,7 +187,7 @@ class TestBuildDreamPrompt:
 
     def test_owner_filter_excludes_legacy_entries_without_sender(self, store):
         """Entries written before sender_id tracking must not be attributed to the owner."""
-        owner_id = "whatsapp:56975746099@s.whatsapp.net"
+        owner_id = "whatsapp:15551234567@s.whatsapp.net"
         store.append_history("legacy fact")
         store.append_history("owner fact", sender_id=owner_id)
 
@@ -212,7 +212,7 @@ class TestBuildDreamPrompt:
         """Dream should be a no-op when the owner has no unprocessed entries."""
         store.append_history("other fact", sender_id="whatsapp:56999999999@s.whatsapp.net")
 
-        assert store.build_dream_prompt(owner_id="whatsapp:56975746099@s.whatsapp.net") is None
+        assert store.build_dream_prompt(owner_id="whatsapp:15551234567@s.whatsapp.net") is None
 
     def test_dream_prompt_consumes_consolidator_attribute_tags(self):
         prompt = render_template(

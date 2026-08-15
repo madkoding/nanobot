@@ -65,6 +65,7 @@ from nanobot.runtime_context import (
 from nanobot.security.workspace_access import (
     WorkspaceScopeResolver,
     bind_workspace_scope,
+    build_workspace_scope,
     reset_workspace_scope,
 )
 from nanobot.session import turn_continuation
@@ -88,7 +89,7 @@ from nanobot.session.model_selection import (
 from nanobot.triggers.local_turns import LocalTriggerTurnCoordinator
 from nanobot.utils.cancellation import task_is_cancelling
 from nanobot.utils.document import extract_documents, reference_non_image_attachments
-from nanobot.utils.helpers import image_placeholder_text
+from nanobot.utils.helpers import image_placeholder_text, normalize_owner_match
 from nanobot.utils.helpers import truncate_text as truncate_text_fn
 from nanobot.utils.llm_runtime import LLMRuntime
 from nanobot.utils.runtime import (
@@ -857,7 +858,7 @@ class AgentLoop:
         if (
             self._owner_id
             and request.sender_id
-            and request.sender_id != self._owner_id
+            and normalize_owner_match(request.sender_id) != normalize_owner_match(self._owner_id)
         ):
             blocks.append(
                 RuntimeContextBlock(
@@ -1097,12 +1098,20 @@ class AgentLoop:
             message_metadata=metadata,
             session_metadata=session.metadata if session is not None else None,
         )
-        effective_tools = tools or self.tools
-        if (
+        is_owner = bool(
             self._owner_id
             and sender_id
-            and sender_id != self._owner_id
-        ):
+            and normalize_owner_match(sender_id) == normalize_owner_match(self._owner_id)
+        )
+        if is_owner:
+            # Owner gets full filesystem access regardless of channel defaults.
+            effective_scope = build_workspace_scope(
+                effective_scope.project_path,
+                "full",
+                source_channel=effective_scope.source_channel,
+            )
+        effective_tools = tools or self.tools
+        if self._owner_id and sender_id and not is_owner:
             effective_tools = effective_tools.filtered_view(self._NON_OWNER_ALLOWED_TOOLS)
         request_ctx = request_context or RequestContext(
             channel=channel,

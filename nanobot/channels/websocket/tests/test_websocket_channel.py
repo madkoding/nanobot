@@ -540,13 +540,13 @@ def test_only_bootstrap_tokens_mark_webui_connections(bus: MagicMock) -> None:
 
 def test_webui_authenticated_connection_uses_owner_id_as_sender(bus: MagicMock) -> None:
     channel = _ch(bus)
-    channel.gateway = _basic_handler(bus, owner_id="56975746099")
+    channel.gateway = _basic_handler(bus, owner_id="15551234567")
     webui_connection = MagicMock()
     other_connection = MagicMock()
 
     channel._webui_connections.add(webui_connection)
 
-    assert channel._sender_id_for(webui_connection, "anon-123") == "56975746099"
+    assert channel._sender_id_for(webui_connection, "anon-123") == "15551234567"
     assert channel._sender_id_for(other_connection, "anon-456") == "anon-456"
 
     # Without owner_id configured, WebUI connection falls back to client_id

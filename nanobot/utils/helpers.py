@@ -21,6 +21,24 @@ _TOOLS_TOKEN_CACHE_MAX_ENTRIES = 64
 _TOOLS_TOKEN_CACHE: dict[int, tuple[tuple[int, ...], dict[bool, int]]] = {}
 
 
+def normalize_owner_match(value: str | None) -> str:
+    """Return a bare owner/sender identity suitable for cross-channel matching.
+
+    Strips WhatsApp-style server suffixes (``@s.whatsapp.net``, ``@g.us``,
+    ``@lid``), leading ``+`` signs, and whitespace so that a phone number
+    owner configured as ``15551234567`` matches inbound sender IDs like
+    ``15551234567@s.whatsapp.net`` or ``+15551234567``.
+    """
+    if not value:
+        return ""
+    normalized = value.strip().lstrip("+")
+    if "@" in normalized:
+        normalized = normalized.split("@", 1)[0]
+    if ":" in normalized:
+        normalized = normalized.split(":", 1)[0]
+    return normalized
+
+
 def sanitize_surrogates(text: str) -> str:
     """Reconstruct surrogate pairs and replace unpaired surrogates.
 

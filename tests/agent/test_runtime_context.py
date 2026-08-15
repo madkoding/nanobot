@@ -81,7 +81,7 @@ def test_webui_quote_is_bounded_and_projected_as_model_only_context() -> None:
 
 
 def test_blocks_survive_durable_queue_json_round_trip() -> None:
-    block = RuntimeContextBlock(source="whatsapp_sender_identity", content="phone: +56975746099")
+    block = RuntimeContextBlock(source="whatsapp_sender_identity", content="phone: +15551234567")
     round_tripped = json.loads(
         json.dumps([dataclasses.asdict(block)], default=str)
     )

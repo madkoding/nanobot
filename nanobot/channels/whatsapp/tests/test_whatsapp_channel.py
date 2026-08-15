@@ -654,7 +654,7 @@ async def test_463_throttle_trips_after_threshold_and_blocks_sends(
     ch._connected = True
 
     from nanobot.bus.events import OutboundMessage
-    msg = OutboundMessage(channel="whatsapp", chat_id="56975746099", content="x")
+    msg = OutboundMessage(channel="whatsapp", chat_id="15551234567", content="x")
 
     # First two 463s: counter climbs but no cooldown yet.
     for _ in range(2):
@@ -692,7 +692,7 @@ async def test_send_during_cooldown_raises_without_calling_client(
     ch._connected = True
 
     from nanobot.bus.events import OutboundMessage
-    msg = OutboundMessage(channel="whatsapp", chat_id="56975746099", content="hi")
+    msg = OutboundMessage(channel="whatsapp", chat_id="15551234567", content="hi")
 
     # Trip the gate directly.
     ch._save_throttle_state(consecutive=1, cooldown_until=time.time() + 600)
@@ -721,7 +721,7 @@ async def test_cooldown_expires_and_send_resumes(monkeypatch, tmp_path) -> None:
     ch._connected = True
 
     from nanobot.bus.events import OutboundMessage
-    msg = OutboundMessage(channel="whatsapp", chat_id="56975746099", content="hi")
+    msg = OutboundMessage(channel="whatsapp", chat_id="15551234567", content="hi")
 
     # Pretend the cooldown expired 1 second ago.
     ch._save_throttle_state(consecutive=3, cooldown_until=time.time() - 1)
@@ -750,7 +750,7 @@ async def test_successful_send_resets_consecutive_463(monkeypatch, tmp_path) -> 
     ch._connected = True
 
     from nanobot.bus.events import OutboundMessage
-    msg = OutboundMessage(channel="whatsapp", chat_id="56975746099", content="hi")
+    msg = OutboundMessage(channel="whatsapp", chat_id="15551234567", content="hi")
 
     # Two prior 463s (counter at 2, no cooldown).
     ch._save_throttle_state(consecutive=2, cooldown_until=0.0)
@@ -783,7 +783,7 @@ async def test_throttle_threshold_zero_disables_cooldown(
     ch._connected = True
 
     from nanobot.bus.events import OutboundMessage
-    msg = OutboundMessage(channel="whatsapp", chat_id="56975746099", content="x")
+    msg = OutboundMessage(channel="whatsapp", chat_id="15551234567", content="x")
 
     for _ in range(5):
         with pytest.raises(SendMessageError):
@@ -1099,7 +1099,7 @@ async def test_send_resolves_lid_chat_to_phone(monkeypatch) -> None:
     ch = _make_channel()
     ch._client = client
     ch._connected = True
-    ch._lid_to_phone = {"230343776985329": "56975746099"}
+    ch._lid_to_phone = {"230343776985329": "15551234567"}
 
     await ch.send(
         OutboundMessage(
@@ -1109,7 +1109,7 @@ async def test_send_resolves_lid_chat_to_phone(monkeypatch) -> None:
         )
     )
 
-    client.send_message.assert_awaited_once_with(("56975746099", "s.whatsapp.net"), _message_with_conversation("hola"))
+    client.send_message.assert_awaited_once_with(("15551234567", "s.whatsapp.net"), _message_with_conversation("hola"))
 
 
 def test_whatsapp_session_key_isolates_group_members() -> None:
@@ -1711,14 +1711,14 @@ async def test_outbound_allowlist_blocks_unknown_recipient(monkeypatch) -> None:
         send_document=AsyncMock(),
     )
     ch = WhatsAppChannel(
-        {"enabled": True, "allowFrom": ["*"], "allowSendTo": ["56975746099"]},
+        {"enabled": True, "allowFrom": ["*"], "allowSendTo": ["15551234567"]},
         MagicMock(),
     )
     ch._client = client
     ch._connected = True
 
     # Allowed number — send succeeds.
-    await ch.send(OutboundMessage(channel="whatsapp", chat_id="56975746099@s.whatsapp.net", content="hi"))
+    await ch.send(OutboundMessage(channel="whatsapp", chat_id="15551234567@s.whatsapp.net", content="hi"))
     client.send_message.assert_awaited_once()
 
     # Blocked number — send raises, client.send_message not called again.
