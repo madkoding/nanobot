@@ -13,7 +13,7 @@ import sys
 from contextlib import suppress
 from dataclasses import dataclass
 from pathlib import Path, PureWindowsPath
-from typing import Any, Protocol, cast
+from typing import Any
 from urllib.parse import unquote
 
 from loguru import logger
