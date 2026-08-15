@@ -2305,3 +2305,31 @@ async def test_callback_query_ignores_unauthorized_user_before_side_effects() ->
     query.answer.assert_not_awaited()
     query.message.edit_reply_markup.assert_not_awaited()
     channel._handle_message.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_stop_cancels_typing_indicator_and_shuts_down_app() -> None:
+    """stop() must not crash on the refactored TypingIndicator (regression: _typing_tasks)."""
+    channel = TelegramChannel(
+        TelegramConfig(enabled=True, token="123:abc", allow_from=["*"]),
+        MessageBus(),
+    )
+    app = _FakeApp(lambda: None)
+    app.updater.stop = AsyncMock()
+    channel._app = app
+
+    # Start a live typing indicator for a chat
+    channel._start_typing("123")
+    assert "123" in channel._typing._tasks
+    task = channel._typing._tasks["123"]
+    assert not task.done()
+
+    await channel.stop()
+
+    # Typing task cancelled and removed, and the app shutdown path was reached
+    assert "123" not in channel._typing._tasks
+    assert task.cancelling() > 0 or task.cancelled()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    app.updater.stop.assert_awaited_once()
+    assert channel._app is None

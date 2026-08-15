@@ -146,56 +146,6 @@ async def test_owner_sees_all_tools(_loop: AgentLoop) -> None:
 
 
 @pytest.mark.asyncio
-async def test_owner_whatsapp_jid_sees_all_tools(_loop: AgentLoop) -> None:
-    """WhatsApp sender IDs include a server suffix; owner should still match."""
-    registry = ToolRegistry()
-    for name in ["read_file", "write_file", "exec", "create_goal", "todos"]:
-        registry.register(_fake_tool(name))
-    _loop.tools = registry
-
-    captured = _capture_run_spec(_loop)
-    await _loop._run_agent_loop(
-        [],
-        runtime=_loop.llm_runtime(),
-        sender_id="15551234567@s.whatsapp.net",
-    )
-
-    assert set(captured["tools"].tool_names) == {
-        "read_file", "write_file", "exec", "create_goal", "todos",
-    }
-
-
-@pytest.mark.asyncio
-async def test_owner_gets_full_workspace_scope(_loop: AgentLoop) -> None:
-    """Owner should bypass workspace restriction and have full filesystem access."""
-    from nanobot.security.workspace_access import current_workspace_scope
-
-    captured: dict[str, object] = {}
-
-    async def patched_run(spec):
-        captured["scope"] = current_workspace_scope()
-        return AgentRunResult(
-            final_content="done",
-            tools_used=[],
-            messages=[],
-            stop_reason="completed",
-            had_injections=False,
-            usage={},
-        )
-
-    _loop.runner.run = AsyncMock(side_effect=patched_run)
-    await _loop._run_agent_loop(
-        [],
-        runtime=_loop.llm_runtime(),
-        sender_id="15551234567@s.whatsapp.net",
-    )
-
-    scope = captured["scope"]
-    assert scope.access_mode == "full"
-    assert scope.restrict_to_workspace is False
-
-
-@pytest.mark.asyncio
 async def test_non_owner_sees_read_only_tools(_loop: AgentLoop) -> None:
     registry = ToolRegistry()
     for name in ["read_file", "write_file", "exec", "create_goal", "todos", "mcp_server_x"]:

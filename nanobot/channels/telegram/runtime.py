@@ -623,8 +623,7 @@ class TelegramChannel(BaseChannel):
         self._running = False
 
         # Cancel all typing indicators
-        for chat_id in list(self._typing_tasks):
-            self._stop_typing(chat_id)
+        self._typing.stop_all()
 
         for task in self._media_group_tasks.values():
             task.cancel()
