@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.5.0](https://github.com/madkoding/nanobot/compare/v0.4.0...v0.5.0) (2026-08-15)
+
+
+### Features
+
+* **telegram:** generative UI — rich messages, drafts nativos, reply keyboards, comandos dinámicos y ephemeral ([#22](https://github.com/madkoding/nanobot/issues/22)) ([51585b1](https://github.com/madkoding/nanobot/commit/51585b1e4005b71ccba95f20d577879d1f21229c))
+
+
+### Bug Fixes
+
+* **channels:** keep outbound dispatcher alive on stale durable messages ([#28](https://github.com/madkoding/nanobot/issues/28)) ([d8a06d8](https://github.com/madkoding/nanobot/commit/d8a06d8ee323c6bd434517af4abcd2d81c74061f))
+* **owner:** full WhatsApp owner access + normalized sender match ([#30](https://github.com/madkoding/nanobot/issues/30)) ([5658f55](https://github.com/madkoding/nanobot/commit/5658f5543ba477f6f6c5c77c98386fb4a5d80072))
+* **telegram:** cancel typing indicators in stop() via TypingIndicator.stop_all() ([#29](https://github.com/madkoding/nanobot/issues/29)) ([16476a6](https://github.com/madkoding/nanobot/commit/16476a6d7e2486bcd093b40b45b4c051d00fa10e))
+
 ## [0.4.0](https://github.com/madkoding/nanobot/compare/v0.3.12...v0.4.0) (2026-08-15)
 
 
