@@ -202,6 +202,24 @@ def _commit_dream_changes(memory: Any) -> str | None:
     return memory.git.auto_commit(message)
 
 
+def _dream_workspaces(agent: Any) -> list[Path]:
+    """Return all workspaces that Dream should consolidate independently.
+
+    Includes the default workspace plus every workspace registered for a
+    WhatsApp group/DM.
+    """
+    roots: set[Path] = set()
+    default = getattr(agent, "workspace", None)
+    if default is not None:
+        roots.add(Path(default))
+    registries = getattr(agent, "_group_workspace_registries", None) or {}
+    for registry in registries.values():
+        known = getattr(registry, "known_workspaces", None)
+        if callable(known):
+            roots.update(known())
+    return sorted(roots)
+
+
 class SafeFileHistory(FileHistory):
     """FileHistory subclass that sanitizes surrogate characters on write.
 
@@ -1924,64 +1942,73 @@ def _run_gateway(
             dream_session_key = MemoryStore.dream_session_key
             prune_dream_sessions = MemoryStore.prune_dream_sessions
 
-            store = agent.context.memory
-            progress = DreamRunProgress()
-            resp = None
-            diff_body = ""
-            try:
-                result = store.build_dream_prompt()
-                if result is None:
-                    logger.info("Dream: nothing to process")
-                    return None
-                prompt, last_cursor = result
-                key = dream_session_key()
-                resp = await agent.process_direct(
-                    prompt,
-                    session_key=key,
-                    ephemeral=True,
-                    tools=store.build_dream_tools(),
-                    on_progress=progress,
-                )
-                # The real file delta grounds the audit record; clean completion
-                # decides whether this history batch has finished processing.
-                diff_body = store.dream_content_diff()
-                completed = MemoryStore.dream_run_completed(
-                    resp,
-                    had_tool_errors=progress.had_tool_errors,
-                )
-                if completed:
-                    store.set_last_dream_cursor(last_cursor)
-                    if diff_body:
-                        logger.info(
-                            "Dream cron job completed, cursor advanced to {}",
-                            last_cursor,
-                        )
-                    else:
-                        logger.info(
-                            "Dream cron job completed with no memory changes; "
-                            "cursor advanced to {}",
-                            last_cursor,
-                        )
-                else:
-                    logger.warning(
-                        "Dream cron job did not complete; cursor remains at {}",
-                        store.get_last_dream_cursor(),
+            workspaces = _dream_workspaces(agent)
+            any_processed = False
+            for workspace in workspaces:
+                store = agent.context.memory_store_for(workspace)
+                progress = DreamRunProgress()
+                resp = None
+                diff_body = ""
+                try:
+                    result = store.build_dream_prompt(owner_id=getattr(agent, "_owner_id", None))
+                    if result is None:
+                        logger.debug("Dream: nothing to process for {}", workspace)
+                        continue
+                    prompt, last_cursor = result
+                    any_processed = True
+                    key = dream_session_key()
+                    resp = await agent.process_direct(
+                        prompt,
+                        session_key=key,
+                        ephemeral=True,
+                        tools=store.build_dream_tools(),
+                        on_progress=progress,
                     )
-            except Exception:
-                logger.exception("Dream cron job failed")
-            finally:
-                from nanobot.webui.token_usage import record_response_token_usage
+                    # The real file delta grounds the audit record; clean completion
+                    # decides whether this history batch has finished processing.
+                    diff_body = store.dream_content_diff()
+                    completed = MemoryStore.dream_run_completed(
+                        resp,
+                        had_tool_errors=progress.had_tool_errors,
+                    )
+                    if completed:
+                        store.set_last_dream_cursor(last_cursor)
+                        if diff_body:
+                            logger.info(
+                                "Dream workspace={} completed, cursor advanced to {}",
+                                workspace,
+                                last_cursor,
+                            )
+                        else:
+                            logger.info(
+                                "Dream workspace={} completed with no memory changes; "
+                                "cursor advanced to {}",
+                                workspace,
+                                last_cursor,
+                            )
+                    else:
+                        logger.warning(
+                            "Dream workspace={} did not complete; cursor remains at {}",
+                            workspace,
+                            store.get_last_dream_cursor(),
+                        )
+                except Exception:
+                    logger.exception("Dream cron job failed for workspace={}", workspace)
+                finally:
+                    from nanobot.webui.token_usage import record_response_token_usage
 
-                record_response_token_usage(
-                    resp,
-                    source="dream",
-                    timezone_name=config.agents.defaults.timezone,
-                )
-                sha = _commit_dream_changes(store)
-                if sha:
-                    logger.info("Dream commit: {}", sha)
-                store.compact_history()
-                prune_dream_sessions(agent.sessions.sessions_dir)
+                    record_response_token_usage(
+                        resp,
+                        source="dream",
+                        timezone_name=config.agents.defaults.timezone,
+                    )
+                    sha = _commit_dream_changes(store)
+                    if sha:
+                        logger.info("Dream commit workspace={}: {}", workspace, sha)
+                    store.compact_history()
+            if not any_processed:
+                logger.info("Dream: nothing to process")
+            prune_dream_sessions(agent.sessions.sessions_dir)
             return None
 
         # Heartbeat is a system job that checks HEARTBEAT.md for active tasks.

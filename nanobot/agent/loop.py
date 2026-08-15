@@ -695,6 +695,12 @@ class AgentLoop:
         }
         self._group_workspace_registries: dict[str, Any] = cleaned
 
+    def _turn_workspace(self, ctx: TurnContext) -> Path | None:
+        """Return the effective workspace for *ctx*, if it has a dedicated one."""
+        channel = ctx.delivery.route.channel
+        chat_id = ctx.delivery.route.chat_id
+        return self._group_workspace_for(channel, chat_id, sender_id=ctx.msg.sender_id)
+
     def _group_workspace_for(self, channel: str | None, chat_id: str | None, sender_id: str | None = None) -> Path | None:
         """Return the configured group-workspace root for this turn, if any."""
         if not channel or not chat_id:
@@ -1541,7 +1547,13 @@ class AgentLoop:
             await asyncio.gather(*self._archive_tasks, return_exceptions=True)
             self._archive_tasks.clear()
 
-    def _archive_file_cap(self, messages: list[dict], *, session_key: str | None = None) -> None:
+    def _archive_file_cap(
+        self,
+        messages: list[dict],
+        *,
+        session_key: str | None = None,
+        sender_id: str | None = None,
+    ) -> None:
         """Archive file-cap overflow with an LLM summary instead of a raw dump.
 
         Called synchronously from ``SessionManager.save()`` (via
@@ -1561,10 +1573,12 @@ class AgentLoop:
                 session_key,
                 exc_info=True,
             )
-            self.context.memory.raw_archive(messages, session_key=session_key)
+            self.context.memory.raw_archive(messages, session_key=session_key, sender_id=sender_id)
             return
         self._schedule_archive(
-            self._archive_with_llm(messages, runtime=runtime, session_key=session_key)
+            self._archive_with_llm(
+                messages, runtime=runtime, session_key=session_key, sender_id=sender_id
+            )
         )
 
     def _archive_sniped(self, messages: list[dict], session_key: str | None = None) -> None:
@@ -1599,13 +1613,18 @@ class AgentLoop:
         *,
         runtime: LLMRuntime,
         session_key: str | None,
+        sender_id: str | None = None,
     ) -> None:
         """Run the LLM archive, tolerating a non-awaitable consolidator (tests)."""
-        result = self.consolidator.archive(messages, runtime=runtime, session_key=session_key)
+        result = self.consolidator.archive(
+            messages, runtime=runtime, session_key=session_key, sender_id=sender_id
+        )
         if asyncio.iscoroutine(result):
             await result
         else:
-            self.context.memory.raw_archive(messages, session_key=session_key)
+            self.context.memory.raw_archive(
+                messages, session_key=session_key, sender_id=sender_id
+            )
 
     def stop(self) -> None:
         """Stop the agent loop."""
@@ -1905,10 +1924,14 @@ class AgentLoop:
             runtime.context_window_tokens
         )
         if not ctx.ephemeral:
+            consolidation_workspace = self._turn_workspace(ctx)
+            store = self.context.memory_store_for(consolidation_workspace)
             await self.consolidator.maybe_consolidate_by_tokens(
                 ctx.session,
                 runtime=runtime,
                 replay_max_messages=replay_max_messages,
+                store=store,
+                sender_id=ctx.msg.sender_id,
             )
         is_subagent = ctx.kind is TurnKind.SYSTEM and ctx.msg.sender_id == "subagent"
 
@@ -2018,7 +2041,11 @@ class AgentLoop:
         ctx.delivery.record_latency(ctx.turn_latency_ms)
         if not ctx.ephemeral:
             ctx.session.enforce_file_cap(
-                on_archive=partial(self._archive_file_cap, session_key=ctx.session_key)
+                on_archive=partial(
+                    self._archive_file_cap,
+                    session_key=ctx.session_key,
+                    sender_id=ctx.msg.sender_id,
+                )
             )
         self._clear_pending_user_turn(ctx.session)
         self._clear_runtime_checkpoint(ctx.session)

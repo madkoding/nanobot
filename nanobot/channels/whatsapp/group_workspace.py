@@ -119,6 +119,10 @@ class ChatWorkspaceRegistry:
     def known_dm_targets(self) -> tuple[str, ...]:
         return tuple(self._dm_paths.keys())
 
+    def known_workspaces(self) -> set[Path]:
+        """Return all configured workspace roots."""
+        return set(self._group_paths.values()) | set(self._dm_paths.values()) | {self._default_dm_path} - {None}
+
 
 class GroupWorkspaceRegistry(ChatWorkspaceRegistry):
     """Deprecated alias kept for compatibility with callers that import it.

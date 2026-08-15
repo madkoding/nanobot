@@ -67,6 +67,21 @@ class ContextBuilder:
         # source files' mtimes. Invalidated automatically when any of AGENTS.md,
         # SOUL.md, USER.md, MEMORY.md, or a skill file changes.
         self._static_prompt_cache: dict[tuple[str, str], tuple[str, str]] = {}
+        # Per-workspace memory stores so that WhatsApp group/DM workspaces keep
+        # their own consolidation history and durable memory files.
+        self._memory_stores: dict[str, MemoryStore] = {}
+
+    def memory_store_for(self, workspace: Path | None) -> MemoryStore:
+        """Return the MemoryStore for *workspace* (defaulting to self.workspace)."""
+        ws = workspace or self.workspace
+        if ws == self.workspace:
+            return self.memory
+        key = str(ws)
+        store = self._memory_stores.get(key)
+        if store is None:
+            store = MemoryStore(ws)
+            self._memory_stores[key] = store
+        return store
 
     def build_system_prompt(
         self,
@@ -88,8 +103,19 @@ class ContextBuilder:
         primary workspace and appended as a separate ``## Workspace Overrides``
         section so the model treats them as scoped, not global.
         """
-        root = workspace or self.workspace
-        static = self._static_prompt(root, channel, extra_bootstrap_paths)
+        # A dedicated workspace passed via extra_bootstrap_paths (e.g. a
+        # WhatsApp group/DM workspace) should fully own the turn's bootstrap,
+        # identity, and memory files.  A plain ``workspace`` change (e.g. a
+        # WebUI project scope) keeps the global agent memory/identity and only
+        # swaps the project instructions.
+        dedicated_workspace = extra_bootstrap_paths[0] if extra_bootstrap_paths else None
+        root = dedicated_workspace or workspace or self.workspace
+        static = self._static_prompt(
+            root,
+            channel,
+            extra_bootstrap_paths=extra_bootstrap_paths if not dedicated_workspace else None,
+            dedicated=dedicated_workspace is not None,
+        )
         parts = [static]
 
         # Auto-load the research skill for ephemeral research surface chats.
@@ -106,7 +132,7 @@ class ContextBuilder:
             and session_key
             and not (session_metadata or {}).get("_skip_recent_history_once")
         ):
-            recent = self._recent_consolidated_history(session_key, unified_session)
+            recent = self._recent_consolidated_history(session_key, unified_session, workspace=root)
             if recent:
                 parts.append(f"## Recent Consolidated History\n\n{recent}")
 
@@ -117,6 +143,7 @@ class ContextBuilder:
         root: Path,
         channel: str | None,
         extra_bootstrap_paths: Sequence[Path] | None = None,
+        dedicated: bool = False,
     ) -> str:
         """Build (and cache) the static system-prompt prefix.
 
@@ -126,32 +153,36 @@ class ContextBuilder:
         I/O and template rendering. The research skill is excluded here because
         it is selected per-turn from ``session_metadata``.
         """
-        cache_key = (str(root), channel or "", tuple(str(p) for p in (extra_bootstrap_paths or ())))
+        cache_key = (
+            str(root),
+            channel or "",
+            tuple(str(p) for p in (extra_bootstrap_paths or ())),
+            dedicated,
+        )
         cached = self._static_prompt_cache.get(cache_key)
         if cached is not None:
             sig, text = cached
-            current_sig = self._static_signature(root, extra_bootstrap_paths)
+            current_sig = self._static_signature(root, extra_bootstrap_paths, dedicated=dedicated)
             if sig == current_sig:
                 return text
 
         parts = []
 
-        # Group/channel scope rules take precedence over global identity:
-        # they go first so the model treats them as authoritative for this turn.
+        parts.append(self._get_identity(channel=channel, workspace=root))
+
+        bootstrap = self._load_bootstrap_files(root, dedicated=dedicated)
         overrides = self._load_bootstrap_overrides(extra_bootstrap_paths)
         if overrides:
             parts.append(overrides)
-
-        parts.append(self._get_identity(channel=channel, workspace=root))
-
-        bootstrap = self._load_bootstrap_files(root)
         if bootstrap:
             parts.append(bootstrap)
 
         parts.append(render_template("agent/tool_contract.md"))
 
-        memory = self.memory.get_memory_context()
-        if memory and not self._is_template_content(self.memory.read_memory(), "memory/MEMORY.md"):
+        memory_root = root if dedicated else self.workspace
+        store = self.memory_store_for(memory_root)
+        memory = store.get_memory_context()
+        if memory and not self._is_template_content(store.read_memory(), "memory/MEMORY.md"):
             parts.append(f"# Memory\n\n{memory}")
 
         always_skills = self.skills.get_always_skills()
@@ -166,7 +197,7 @@ class ContextBuilder:
 
         text = "\n\n---\n\n".join(parts)
         self._static_prompt_cache[cache_key] = (
-            self._static_signature(root, extra_bootstrap_paths),
+            self._static_signature(root, extra_bootstrap_paths, dedicated=dedicated),
             text,
         )
         # ponytail: one-shot diagnostic so we can confirm in the gateway log
@@ -195,13 +226,16 @@ class ContextBuilder:
         self,
         root: Path,
         extra_bootstrap_paths: Sequence[Path] | None = None,
+        dedicated: bool = False,
     ) -> str:
         """Return a signature of the static prompt's source files' mtimes."""
+        memory_root = root if dedicated else self.workspace
+        store = self.memory_store_for(memory_root)
         paths = [
             root / "AGENTS.md",
-            self.workspace / "SOUL.md",
-            self.workspace / "USER.md",
-            self.memory.memory_file,
+            (root if dedicated else self.workspace) / "SOUL.md",
+            (root if dedicated else self.workspace) / "USER.md",
+            store.memory_file,
         ]
         for extra in extra_bootstrap_paths or ():
             paths.append(extra / "AGENTS.md")
@@ -221,6 +255,7 @@ class ContextBuilder:
         self,
         session_key: str,
         unified_session: bool,
+        workspace: Path | None = None,
     ) -> str:
         """Render unprocessed consolidation summaries from history.jsonl.
 
@@ -229,8 +264,9 @@ class ContextBuilder:
         the agent's working context continuous across compaction without waiting
         for the next Dream cycle.
         """
-        entries = self.memory.read_recent_history_for_prompt(
-            since_cursor=self.memory.get_last_dream_cursor(),
+        store = self.memory_store_for(workspace)
+        entries = store.read_recent_history_for_prompt(
+            since_cursor=store.get_last_dream_cursor(),
             session_key=session_key,
             unified_session=unified_session,
         )
@@ -283,20 +319,29 @@ class ContextBuilder:
 
         return _to_blocks(left) + _to_blocks(right)
 
-    def _load_bootstrap_files(self, workspace: Path | None = None) -> str:
-        """Load project instructions plus the agent's global profile files."""
+    def _load_bootstrap_files(
+        self,
+        workspace: Path | None = None,
+        *,
+        dedicated: bool = False,
+    ) -> str:
+        """Load project instructions plus the agent's profile files."""
         parts = []
         project_root = workspace or self.workspace
+        identity_root = project_root if dedicated else self.workspace
         sources = [
             ("AGENTS.md", project_root),
-            ("SOUL.md", self.workspace),
-            ("USER.md", self.workspace),
+            ("SOUL.md", identity_root),
+            ("USER.md", identity_root),
         ]
 
         for filename, root in sources:
             file_path = root / filename
             if file_path.exists():
-                content = file_path.read_text(encoding="utf-8")
+                try:
+                    content = file_path.read_text(encoding="utf-8")
+                except (OSError, UnicodeDecodeError):
+                    continue
                 if filename == "SOUL.md" and self._is_template_content(
                     content,
                     "legacy/SOUL.md",

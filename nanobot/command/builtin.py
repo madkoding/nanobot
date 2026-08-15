@@ -9,7 +9,8 @@ import sys
 import time
 from contextlib import suppress
 from dataclasses import dataclass
-from typing import Literal
+from pathlib import Path
+from typing import Any, Literal
 
 from nanobot import __version__
 from nanobot.agent.goal_permission import goal_mutation_permission
@@ -417,28 +418,21 @@ async def cmd_dream(ctx: CommandContext) -> OutboundMessage:
     loop = ctx.loop
     msg = ctx.msg
 
-    async def _run_dream():
+    async def _run_dream_for_store(store, label: str):
         from nanobot.agent.memory import DreamRunProgress, MemoryStore
 
         dream_session_key = MemoryStore.dream_session_key
         build_dream_commit_message = MemoryStore.build_dream_commit_message
-        prune_dream_sessions = MemoryStore.prune_dream_sessions
 
-        store = loop.context.memory
         progress = DreamRunProgress()
         content = ""
         resp = None
         diff_body = ""
         t0 = time.monotonic()
         try:
-            result = store.build_dream_prompt()
+            result = store.build_dream_prompt(owner_id=getattr(loop, "_owner_id", None))
             if result is None:
-                await loop.bus.publish_outbound(OutboundMessage(
-                    channel=msg.channel, chat_id=msg.chat_id,
-                    content=_format_dream_no_input_message(),
-                    metadata={"render_as": "text"},
-                ))
-                return
+                return None
             prompt, last_cursor = result
             key = dream_session_key()
             resp = await loop.process_direct(
@@ -459,17 +453,17 @@ async def cmd_dream(ctx: CommandContext) -> OutboundMessage:
             if completed:
                 store.set_last_dream_cursor(last_cursor)
                 if diff_body:
-                    content = f"Dream completed in {elapsed:.1f}s."
+                    content = f"{label}: Dream completed in {elapsed:.1f}s."
                 else:
-                    content = f"Dream completed in {elapsed:.1f}s; no memory changes."
+                    content = f"{label}: Dream completed in {elapsed:.1f}s; no memory changes."
             else:
                 content = (
-                    f"Dream did not complete after {elapsed:.1f}s; "
+                    f"{label}: Dream did not complete after {elapsed:.1f}s; "
                     "memory cursor was not advanced."
                 )
         except Exception as e:
             elapsed = time.monotonic() - t0
-            content = f"Dream failed after {elapsed:.1f}s: {e}"
+            content = f"{label}: Dream failed after {elapsed:.1f}s: {e}"
         finally:
             from nanobot.webui.token_usage import record_response_token_usage
 
@@ -484,15 +478,78 @@ async def cmd_dream(ctx: CommandContext) -> OutboundMessage:
                 if sha:
                     content += f" (commit {sha})"
             store.compact_history()
-            prune_dream_sessions(loop.sessions.sessions_dir)
+        return content
+
+    async def _run_dream():
+        from nanobot.agent.memory import MemoryStore
+
+        arg = (ctx.args or "").strip()
+        workspaces = _cmd_dream_workspaces(loop, arg)
+        if not workspaces:
+            await loop.bus.publish_outbound(OutboundMessage(
+                channel=msg.channel, chat_id=msg.chat_id,
+                content=_format_dream_no_input_message(),
+                metadata={"render_as": "text"},
+            ))
+            return
+
+        results = []
+        for workspace in workspaces:
+            store_getter = getattr(loop.context, "memory_store_for", None)
+            store = store_getter(workspace) if callable(store_getter) else loop.context.memory
+            result = await _run_dream_for_store(store, label=str(workspace))
+            if result is not None:
+                results.append(result)
+
+        if not results:
+            await loop.bus.publish_outbound(OutboundMessage(
+                channel=msg.channel, chat_id=msg.chat_id,
+                content=_format_dream_no_input_message(),
+                metadata={"render_as": "text"},
+            ))
+            return
+
+        MemoryStore.prune_dream_sessions(loop.sessions.sessions_dir)
         await loop.bus.publish_outbound(OutboundMessage(
-            channel=msg.channel, chat_id=msg.chat_id, content=content,
+            channel=msg.channel, chat_id=msg.chat_id,
+            content="\n".join(results),
         ))
 
     asyncio.create_task(_run_dream())
     return OutboundMessage(
         channel=msg.channel, chat_id=msg.chat_id, content="Dreaming...",
     )
+
+
+def _cmd_dream_workspaces(loop: Any, arg: str) -> list[Path]:
+    """Resolve the workspace(s) a manual /dream run should target.
+
+    An empty argument means all configured workspaces (default + WhatsApp
+    group/DM workspaces). A non-empty argument is matched against the final
+    path component of each workspace.
+    """
+    from pathlib import Path
+
+    roots: set[Path] = set()
+    default = getattr(loop, "workspace", None)
+    if default is not None:
+        roots.add(Path(default))
+    registries = getattr(loop, "_group_workspace_registries", None) or {}
+    for registry in registries.values():
+        known = getattr(registry, "known_workspaces", None)
+        if callable(known):
+            roots.update(known())
+    # Fallback for callers/tests that only expose loop.context.memory.workspace.
+    if not roots:
+        memory = getattr(getattr(loop, "context", None), "memory", None)
+        memory_workspace = getattr(memory, "workspace", None)
+        if memory_workspace is not None:
+            roots.add(Path(memory_workspace))
+    if not arg:
+        return sorted(roots)
+    arg_lower = arg.lower()
+    matched = [r for r in roots if arg_lower in str(r).lower()]
+    return sorted(matched)
 
 
 async def cmd_dream_prompt(ctx: CommandContext) -> OutboundMessage:

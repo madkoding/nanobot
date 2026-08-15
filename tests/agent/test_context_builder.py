@@ -142,8 +142,35 @@ class TestLoadBootstrapFiles:
         assert "global project rules" not in result
         assert "global soul" in result
         assert "global user" in result
+        # A plain ``workspace`` change (e.g. WebUI project scope) only swaps the
+        # project instructions; identity/memory stay global.  Dedicated workspaces
+        # via ``extra_bootstrap_paths`` are fully authoritative instead.
         assert "project soul collision" not in result
         assert "project user collision" not in result
+
+    def test_whatsapp_group_workspace_uses_overrides_and_default_memory(self, tmp_path):
+        agent_home = tmp_path / "agent-home"
+        group_ws = tmp_path / "group-ws"
+        agent_home.mkdir()
+        group_ws.mkdir()
+        (agent_home / "AGENTS.md").write_text("global project rules", encoding="utf-8")
+        (agent_home / "SOUL.md").write_text("global soul", encoding="utf-8")
+        (agent_home / "USER.md").write_text("global user", encoding="utf-8")
+        (agent_home / "memory").mkdir(parents=True)
+        (agent_home / "memory" / "MEMORY.md").write_text("global memory", encoding="utf-8")
+        (group_ws / "AGENTS.md").write_text("group rules", encoding="utf-8")
+        (group_ws / "SOUL.md").write_text("group soul", encoding="utf-8")
+        (group_ws / "USER.md").write_text("group user", encoding="utf-8")
+
+        result = ContextBuilder(agent_home).build_system_prompt(
+            workspace=group_ws,
+            include_memory_recent_history=False,
+            extra_bootstrap_paths=[group_ws],
+        )
+
+        assert "group rules" in result
+        assert "group soul" in result
+        assert "group user" in result
 
     def test_selected_project_without_agents_does_not_fall_back(self, tmp_path):
         agent_home = tmp_path / "agent-home"
@@ -441,7 +468,7 @@ class TestExtraBootstrapPaths:
         )
         assert "Workspace Overrides" not in prompt
 
-    def test_agents_md_loaded_into_override_section(self, tmp_path):
+    def test_agents_md_loaded_from_dedicated_workspace(self, tmp_path):
         group_ws = tmp_path / "grupo_dev"
         group_ws.mkdir()
         (group_ws / "AGENTS.md").write_text(
@@ -451,7 +478,7 @@ class TestExtraBootstrapPaths:
         prompt = builder.build_system_prompt(
             workspace=tmp_path, extra_bootstrap_paths=[group_ws]
         )
-        assert "Workspace Overrides" in prompt
+        # Dedicated workspace becomes the authoritative source for the turn.
         assert "Solo programación" in prompt
         assert "grupo_dev" in prompt
 
@@ -478,7 +505,6 @@ class TestExtraBootstrapPaths:
             workspace=tmp_path, extra_bootstrap_paths=[group_ws]
         )
         assert "ok" in prompt
-        assert "Workspace Overrides" in prompt
 
     def test_cache_key_differs_when_paths_differ(self, tmp_path):
         group_ws = tmp_path / "grupo_a"
@@ -509,4 +535,3 @@ class TestExtraBootstrapPaths:
         )
         system_msg = messages[0]["content"]
         assert "propagated" in system_msg
-        assert "Workspace Overrides" in system_msg

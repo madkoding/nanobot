@@ -277,6 +277,7 @@ class MemoryStore:
         *,
         max_chars: int | None = None,
         session_key: str | None = None,
+        sender_id: str | None = None,
     ) -> int:
         """Append *entry* to history.jsonl and return its auto-incrementing cursor.
 
@@ -319,6 +320,8 @@ class MemoryStore:
             record = {"cursor": cursor, "timestamp": ts, "content": content}
             if session_key:
                 record["session_key"] = session_key
+            if sender_id:
+                record["sender_id"] = sender_id
             with open(self.history_file, "a", encoding="utf-8") as f:
                 f.write(json.dumps(record, ensure_ascii=False) + "\n")
                 f.flush()
@@ -584,7 +587,12 @@ class MemoryStore:
             return text
         return self.default_dream_prompt()
 
-    def build_dream_prompt(self, *, max_entries: int = 20) -> tuple[str, int] | None:
+    def build_dream_prompt(
+        self,
+        *,
+        max_entries: int = 20,
+        owner_id: str | None = None,
+    ) -> tuple[str, int] | None:
         """Build the Dream prompt with unprocessed history context.
 
         Returns ``(prompt, last_cursor)`` or ``None`` if nothing to process.
@@ -593,9 +601,16 @@ class MemoryStore:
         memory/MEMORY.md) are embedded so the model edits the real files rather
         than a stale mental model — eliminating a class of failed/out-of-bounds
         edits that previously produced hallucinated audit records.
+
+        When ``owner_id`` is provided, Dream only processes history entries whose
+        ``sender_id`` matches the owner. Entries without a ``sender_id`` (legacy
+        records or internal/system writes) are ignored, so Dream never folds
+        another person's memories into the owner's durable profile.
         """
         last_cursor = self.get_last_dream_cursor()
         entries = self.read_unprocessed_history(since_cursor=last_cursor)
+        if owner_id:
+            entries = [e for e in entries if e.get("sender_id") == owner_id]
         if not entries:
             return None
 
@@ -722,6 +737,7 @@ class MemoryStore:
         *,
         max_chars: int | None = None,
         session_key: str | None = None,
+        sender_id: str | None = None,
     ) -> None:
         """Fallback: dump raw messages to history.jsonl without LLM summarization."""
         limit = max_chars if max_chars is not None else _RAW_ARCHIVE_MAX_CHARS
@@ -733,6 +749,7 @@ class MemoryStore:
             f"[RAW] {len(messages)} messages\n"
             f"{formatted}",
             session_key=session_key,
+            sender_id=sender_id,
         )
         logger.warning(
             "Memory consolidation degraded: raw-archived {} messages", len(messages)
@@ -907,6 +924,8 @@ class Consolidator:
         replay_max_messages: int | None,
         *,
         runtime: LLMRuntime,
+        store: MemoryStore | None = None,
+        sender_id: str | None = None,
     ) -> str | None:
         """Archive messages that would be hidden by the replay message window."""
         end_idx = self._replay_overflow_boundary(session, replay_max_messages)
@@ -925,6 +944,8 @@ class Consolidator:
             chunk,
             runtime=runtime,
             session_key=session.key,
+            store=store,
+            sender_id=sender_id,
         )
         session.last_consolidated = end_idx
         self.sessions.save(session)
@@ -990,6 +1011,8 @@ class Consolidator:
         runtime: LLMRuntime,
         session_key: str | None = None,
         summary_messages: list[dict] | None = None,
+        store: MemoryStore | None = None,
+        sender_id: str | None = None,
     ) -> str | None:
         """Summarize messages via LLM and append to history.jsonl.
 
@@ -998,10 +1021,12 @@ class Consolidator:
         ``summary_messages``, when given, lets callers include retained
         messages in the summary without archiving them.
 
-        Returns the summary text on success, None if nothing to archive.
+        ``store`` overrides the default MemoryStore so consolidation writes to
+        the workspace that owns the session (e.g. a WhatsApp group workspace).
         """
         if not messages:
             return None
+        store = store or self.store
         messages_to_summarize = public_history_messages(
             summary_messages if summary_messages is not None else messages
         )
@@ -1029,17 +1054,18 @@ class Consolidator:
             )
         except Exception:
             logger.warning("Consolidation provider call failed, raw-dumping to history")
-            self.store.raw_archive(messages, session_key=session_key)
+            store.raw_archive(messages, session_key=session_key, sender_id=sender_id)
             return None
         if response.finish_reason == "error":
             logger.warning("Consolidation provider returned an error, raw-dumping to history")
-            self.store.raw_archive(messages, session_key=session_key)
+            store.raw_archive(messages, session_key=session_key, sender_id=sender_id)
             return None
         summary = response.content or "[no summary]"
-        self.store.append_history(
+        store.append_history(
             summary,
             max_chars=_ARCHIVE_SUMMARY_MAX_CHARS,
             session_key=session_key,
+            sender_id=sender_id,
         )
         return summary
 
@@ -1049,14 +1075,21 @@ class Consolidator:
         *,
         runtime: LLMRuntime,
         replay_max_messages: int | None = None,
+        store: MemoryStore | None = None,
+        sender_id: str | None = None,
     ) -> None:
         """Loop: archive old messages until prompt fits within safe budget.
 
         The budget reserves space for completion tokens and a safety buffer
         so the LLM request never exceeds the context window.
+
+        ``store`` overrides the default MemoryStore so consolidation writes to
+        the workspace that owns the session (e.g. a WhatsApp group workspace).
         """
         if runtime.context_window_tokens <= 0:
             return
+
+        store = store or self.store
 
         lock = self.get_lock(session.key)
         async with lock:
@@ -1073,6 +1106,8 @@ class Consolidator:
                 session,
                 replay_max_messages,
                 runtime=runtime,
+                store=store,
+                sender_id=sender_id,
             )
             estimated, source = self.estimate_session_prompt_tokens(
                 session,
@@ -1126,6 +1161,8 @@ class Consolidator:
                     chunk,
                     runtime=runtime,
                     session_key=session.key,
+                    store=store,
+                    sender_id=sender_id,
                 )
                 # Advance the cursor either way: on success the chunk was
                 # summarized; on failure archive() already raw-archived it as
@@ -1158,6 +1195,8 @@ class Consolidator:
         *,
         runtime: LLMRuntime,
         max_suffix: int = 8,
+        store: MemoryStore | None = None,
+        sender_id: str | None = None,
     ) -> str | None:
         """Archive an idle session's prefix without deleting the messages from disk.
 
@@ -1207,6 +1246,8 @@ class Consolidator:
                     runtime=runtime,
                     session_key=session_key,
                     summary_messages=messages_to_summarize,
+                    store=store,
+                    sender_id=sender_id,
                 )
 
             if summary and summary != "(nothing)":

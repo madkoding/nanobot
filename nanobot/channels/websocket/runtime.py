@@ -212,6 +212,7 @@ def _build_websocket_gateway_kwargs(manager: Any) -> dict[str, Any]:
         agent_loop=getattr(manager, "_agent_loop", None),
         subagent_manager=getattr(manager, "_subagent_manager", None),
         runtime_resolver=manager._resolve_subagent_runtime,
+        owner_id=getattr(manager.config, "owner_id", None),
         logger=_logger,
     )
     return {"gateway": gateway}
@@ -331,6 +332,12 @@ class WebSocketChannel(BaseChannel):
 
     def _workspace_controls_available(self, connection: Any) -> bool:
         return self._http_router.workspace_controls_available(connection)
+
+    def _sender_id_for(self, connection: Any, client_id: str) -> str:
+        """Return the configured owner_id for WebUI-authenticated connections."""
+        if connection in self._webui_connections and self.gateway.owner_id:
+            return self.gateway.owner_id
+        return client_id
 
     def _attach(self, connection: Any, chat_id: str) -> None:
         """Idempotently subscribe *connection* to *chat_id*."""
@@ -600,7 +607,7 @@ class WebSocketChannel(BaseChannel):
                 # so pairing is not applicable. Treat as non-DM to avoid
                 # sending pairing codes to an already-authenticated client.
                 await self._handle_message(
-                    sender_id=client_id,
+                    sender_id=self._sender_id_for(connection, client_id),
                     chat_id=default_chat_id,
                     content=content,
                     metadata={"remote": getattr(connection, "remote_address", None)},
@@ -802,7 +809,7 @@ class WebSocketChannel(BaseChannel):
                 if quote is not None:
                     metadata[RUNTIME_CONTEXT_INPUT_META] = [quote]
             await self._handle_message(
-                sender_id=client_id,
+                sender_id=self._sender_id_for(connection, client_id),
                 chat_id=cid,
                 content=content,
                 media=media_paths or None,
