@@ -863,21 +863,10 @@ class ChannelManager:
         msg: OutboundMessage,
         event: StreamDeltaEvent | StreamEndEvent,
     ) -> None:
-        # Stash reply_keyboard/menu_commands carried in metadata so the
-        # channel can apply them to the final consolidated message.
-        from nanobot.channels.telegram.runtime import TelegramChannel
-        metadata = dict(msg.metadata or {})
-        reply_keyboard = metadata.pop("reply_keyboard", None)
-        menu_commands = metadata.pop("menu_commands", None)
-        if isinstance(channel, TelegramChannel) and isinstance(event, StreamEndEvent):
-            if reply_keyboard is not None:
-                channel._pending_stream_reply_keyboard[msg.chat_id] = reply_keyboard
-            if menu_commands is not None:
-                channel._pending_stream_menu_commands[msg.chat_id] = menu_commands
         await channel.send_delta(
             msg.chat_id,
             msg.content,
-            metadata,
+            msg.metadata,
             stream_id=event.stream_id,
             stream_end=isinstance(event, StreamEndEvent),
             resuming=event.resuming if isinstance(event, StreamEndEvent) else False,

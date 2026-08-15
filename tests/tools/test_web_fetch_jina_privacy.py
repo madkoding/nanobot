@@ -178,6 +178,7 @@ async def test_execute_fetches_credential_urls_locally(monkeypatch) -> None:
         status_code = 200
         url = "https://example.com/download"
         text = "<html><head><title>T</title></head><body><p>ok</p></body></html>"
+        content = text.encode()
         headers = {"content-type": "text/html"}
         is_redirect = False
 
@@ -242,6 +243,7 @@ async def test_execute_does_not_send_redirected_credential_url_to_jina(monkeypat
         status_code = 200
         url = signed_url
         text = "<html><head><title>T</title></head><body><p>ok</p></body></html>"
+        content = text.encode()
         headers = {"content-type": "text/html"}
         is_redirect = False
 

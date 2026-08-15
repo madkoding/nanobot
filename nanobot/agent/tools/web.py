@@ -1267,11 +1267,17 @@ class WebFetchTool(Tool):
             if ctype.startswith("image/"):
                 return build_image_content_blocks(r.content, ctype, url, f"(Image fetched from: {url})")
 
-            if "application/json" in ctype:
+            body = r.content
+            if len(body) > _MAX_RESPONSE_BYTES:
+                body = body[:_MAX_RESPONSE_BYTES]
+
+            if ctype.startswith("application/pdf"):
+                text, extractor = self._extract_pdf(body, url), "pdf"
+            elif "application/json" in ctype:
                 text, extractor = json.dumps(r.json(), indent=2, ensure_ascii=False), "json"
-            elif "text/html" in ctype or r.text[:256].lower().startswith(("<!doctype", "<html")):
+            elif "text/html" in ctype or body[:256].lower().startswith((b"<!doctype", b"<html")):
                 try:
-                    text = self._extract_readable_html(r.text, extract_mode)
+                    text = self._extract_readable_html(_decode_body(body, r.headers.get("content-type", "")), extract_mode)
                     extractor = "readability"
                 except Exception as e:
                     logger.warning(
@@ -1279,9 +1285,9 @@ class WebFetchTool(Tool):
                         _redact_url_for_log(url),
                         type(e).__name__,
                     )
-                    text, extractor = _normalize(_strip_tags(r.text)), "html"
+                    text, extractor = _normalize(_strip_tags(_decode_body(body, r.headers.get("content-type", "")))), "html"
             else:
-                text, extractor = r.text, "raw"
+                text, extractor = _decode_body(body, ctype), "raw"
 
             truncated = len(text) > max_chars
             if truncated:
