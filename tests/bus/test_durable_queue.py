@@ -188,6 +188,33 @@ async def test_durable_consume_picks_up_signalless_file(bus: MessageBus, tmp_pat
 
 
 @pytest.mark.asyncio
+async def test_durable_outbound_tolerates_unknown_fields(bus: MessageBus, tmp_path: Path) -> None:
+    """A durable outbound message written by an older nanobot version may carry
+    fields the current OutboundMessage no longer accepts (e.g. `rich`). These
+    must be dropped instead of crashing the outbound dispatcher."""
+    import json as _json
+
+    outbound_dir = tmp_path / "bus" / "outbound" / "inbox"
+    outbound_dir.mkdir(parents=True, exist_ok=True)
+    (outbound_dir / "stale.json").write_text(
+        _json.dumps(
+            {
+                "channel": "telegram",
+                "chat_id": "15710279",
+                "content": "stale durable message",
+                "totally_unknown_field": "x",
+                "another_unknown": None,
+            }
+        )
+    )
+    msg = await asyncio.wait_for(bus.consume_outbound(), timeout=2)
+    assert msg.content == "stale durable message"
+    assert not hasattr(msg, "totally_unknown_field")
+    assert not hasattr(msg, "another_unknown")
+    await bus.ack_outbound(msg)
+
+
+@pytest.mark.asyncio
 async def test_coalesced_delta_keeps_delivery_id() -> None:
     """replace_outbound_event must not drop the durable-queue ack id, or
     coalesced stream deltas leak their processing file forever."""

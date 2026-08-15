@@ -33,6 +33,10 @@
           "open": "모든 메시지",
           "allowlist": "허용 목록"
         }
+      },
+      "richMessages": {
+        "label": "Rich messages",
+        "help": "Send structured messages (headings, tables, todo-lists) via Bot API 10.1 sendRichMessage."
       }
     }
   }

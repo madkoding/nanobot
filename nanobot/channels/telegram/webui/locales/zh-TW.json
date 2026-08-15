@@ -33,6 +33,10 @@
           "open": "所有訊息",
           "allowlist": "允許清單"
         }
+      },
+      "richMessages": {
+        "label": "Rich messages",
+        "help": "Send structured messages (headings, tables, todo-lists) via Bot API 10.1 sendRichMessage."
       }
     }
   }

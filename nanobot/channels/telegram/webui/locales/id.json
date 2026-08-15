@@ -33,6 +33,10 @@
           "open": "Semua pesan",
           "allowlist": "Daftar izin"
         }
+      },
+      "richMessages": {
+        "label": "Rich messages",
+        "help": "Send structured messages (headings, tables, todo-lists) via Bot API 10.1 sendRichMessage."
       }
     }
   }

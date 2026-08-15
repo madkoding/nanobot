@@ -383,6 +383,7 @@
       "auto": "自动",
       "default": "默认",
       "expanded": "展开",
+      "collapsed": "折叠",
       "summary": "摘要",
       "diff": "差异",
       "collapsedDiff": "折叠差异",

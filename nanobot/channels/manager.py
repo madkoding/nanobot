@@ -40,6 +40,7 @@ from nanobot.utils.restart import (
 
 if TYPE_CHECKING:
     from nanobot.channels.whatsapp.group_workspace import ChatWorkspaceRegistry
+    from nanobot.session.manager import SessionManager
 
 from nanobot.session.manager import SessionManager
 
@@ -143,6 +144,12 @@ class ChannelManager:
         self._watchdog_task: asyncio.Task | None = None
         self._started = False
         self._origin_reply_fingerprints: dict[tuple[str, str, str], str] = {}
+        # Streams currently active per (channel, chat_id). A stream is added
+        # on the first delta and removed on stream_end. Used to detect
+        # duplicate sends: if a stream is active for a chat, the runner also
+        # emits a final OutboundMessage with the streamed content, and we
+        # must drop it so the user doesn't see the reply twice.
+        self._active_streams: set[tuple[str, str]] = set()
 
         self._init_channels()
         self._wire_group_workspaces_to_agent_loop()
@@ -814,8 +821,16 @@ class ChannelManager:
             except asyncio.CancelledError:
                 break
             except Exception:
-                logger.exception("Failed to dispatch outbound message to {}:{}", msg.channel, msg.chat_id)
-                await self.bus.nack_outbound(msg)
+                # Do not reference `msg` here: the exception may originate in
+                # consume_outbound() before `msg` is ever assigned (e.g. a
+                # malformed durable message), which would raise a secondary
+                # UnboundLocalError and kill the dispatcher permanently.
+                logger.exception("Failed to dispatch outbound message")
+                if "msg" in locals():
+                    try:
+                        await self.bus.nack_outbound(msg)
+                    except Exception:
+                        logger.exception("Failed to nack outbound message")
 
     @staticmethod
     async def _send_reasoning_delta(
@@ -848,17 +863,27 @@ class ChannelManager:
         msg: OutboundMessage,
         event: StreamDeltaEvent | StreamEndEvent,
     ) -> None:
+        # Stash reply_keyboard/menu_commands carried in metadata so the
+        # channel can apply them to the final consolidated message.
+        from nanobot.channels.telegram.runtime import TelegramChannel
+        metadata = dict(msg.metadata or {})
+        reply_keyboard = metadata.pop("reply_keyboard", None)
+        menu_commands = metadata.pop("menu_commands", None)
+        if isinstance(channel, TelegramChannel) and isinstance(event, StreamEndEvent):
+            if reply_keyboard is not None:
+                channel._pending_stream_reply_keyboard[msg.chat_id] = reply_keyboard
+            if menu_commands is not None:
+                channel._pending_stream_menu_commands[msg.chat_id] = menu_commands
         await channel.send_delta(
             msg.chat_id,
             msg.content,
-            msg.metadata,
+            metadata,
             stream_id=event.stream_id,
             stream_end=isinstance(event, StreamEndEvent),
             resuming=event.resuming if isinstance(event, StreamEndEvent) else False,
         )
 
-    @staticmethod
-    async def _send_once(channel: BaseChannel, msg: OutboundMessage) -> None:
+    async def _send_once(self, channel: BaseChannel, msg: OutboundMessage) -> None:
         """Send one outbound message without retry policy."""
         event = outbound_event_from_message(msg)
         if isinstance(event, ProgressEvent) and event.reasoning_end:
@@ -876,10 +901,23 @@ class ChannelManager:
                 msg.metadata,
             )
         elif isinstance(event, StreamDeltaEvent):
+            self._active_streams.add((msg.channel, msg.chat_id))
             await ChannelManager._send_stream_event(channel, msg, event)
         elif isinstance(event, StreamEndEvent):
             await ChannelManager._send_stream_event(channel, msg, event)
+            self._active_streams.discard((msg.channel, msg.chat_id))
         elif not isinstance(event, StreamedResponseEvent):
+            # If a streaming reply is active for this chat, the runner will
+            # also emit a final OutboundMessage with the streamed content
+            # (without StreamedResponseEvent). Drop it so the user doesn't
+            # get the reply twice. Channels that don't stream (no prior
+            # deltas) continue through the legacy send path.
+            if (msg.channel, msg.chat_id) in self._active_streams:
+                logger.debug(
+                    "Dropping legacy outbound to {}:{} (stream active)",
+                    msg.channel, msg.chat_id,
+                )
+                return
             await channel.send(msg)
 
     def _coalesce_stream_deltas(

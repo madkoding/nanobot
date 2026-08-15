@@ -9,7 +9,14 @@ from loguru import logger
 from nanobot.agent.tools.base import Tool, ToolResult, tool_parameters
 from nanobot.agent.tools.context import current_request_context
 from nanobot.agent.tools.path_utils import resolve_workspace_path
-from nanobot.agent.tools.schema import ArraySchema, StringSchema, tool_parameters_schema
+from nanobot.agent.tools.schema import (
+    ArraySchema,
+    BooleanSchema,
+    IntegerSchema,
+    ObjectSchema,
+    StringSchema,
+    tool_parameters_schema,
+)
 from nanobot.bus.events import OutboundMessage
 from nanobot.config.paths import get_workspace_path
 from nanobot.security.workspace_access import current_tool_workspace
@@ -27,6 +34,66 @@ from nanobot.security.workspace_access import current_tool_workspace
         buttons=ArraySchema(
             ArraySchema(StringSchema("")),
             description="Inline keyboard buttons: list of rows, each row is list of labels.",
+        ),
+        rich=BooleanSchema(
+            description="Force Telegram Rich Message (Bot API 10.1) for this message: headings, tables, todo-lists, details. Default: channel config.",
+        ),
+        reply_keyboard=ArraySchema(
+            ArraySchema(StringSchema("")),
+            description="Reply keyboard replacing the user's keyboard: list of rows, each row is list of labels (Telegram only).",
+        ),
+        menu_commands=ArraySchema(
+            ObjectSchema(
+                properties={
+                    "command": StringSchema("Command name without slash, e.g. 'agenda'."),
+                    "description": StringSchema("Short description shown in the menu."),
+                },
+                required=["command", "description"],
+            ),
+            description="Per-chat dynamic commands for the Telegram menu button (setMyCommands with chat scope).",
+        ),
+        ephemeral=BooleanSchema(
+            description="Send as ephemeral message visible only to the target user in groups (Telegram Bot API 10.2).",
+        ),
+        checklist=ObjectSchema(
+            properties={
+                "title": StringSchema("Task list title."),
+                "tasks": ArraySchema(
+                    StringSchema(""),
+                    description="Task descriptions (1-30).",
+                    min_items=1,
+                    max_items=30,
+                ),
+            },
+            required=["title", "tasks"],
+            description="Telegram task list rich (native checkboxes - [ ] / - [x]) managed by the agent.",
+        ),
+        checklist_update=ObjectSchema(
+            properties={
+                "message_id": IntegerSchema("Message id of the task list to edit in place."),
+                "done": ArraySchema(
+                    IntegerSchema(""),
+                    description="0-based indices of completed tasks.",
+                ),
+            },
+            required=["message_id", "done"],
+            description="Update a previously sent task list in place (mark tasks done + progress summary).",
+        ),
+        poll=ObjectSchema(
+            properties={
+                "question": StringSchema("Poll question."),
+                "options": ArraySchema(
+                    StringSchema(""),
+                    description="Poll options (2-10).",
+                    min_items=2,
+                    max_items=10,
+                ),
+            },
+            required=["question", "options"],
+            description="Send a native Telegram poll (visible results, single answer).",
+        ),
+        effect=StringSchema(
+            description="Message effect (Telegram Bot API 10.2), e.g. 'confeti'. Applied to the message.",
         ),
         required=["content"],
     )
@@ -149,6 +216,14 @@ class MessageTool(Tool):
         message_id: str | None = None,
         media: list[str] | None = None,
         buttons: list[list[str]] | None = None,
+        rich: bool | None = None,
+        reply_keyboard: list[list[str]] | None = None,
+        menu_commands: list[dict] | None = None,
+        ephemeral: bool | None = None,
+        checklist: dict | None = None,
+        checklist_update: dict | None = None,
+        poll: dict | None = None,
+        effect: str | None = None,
         **kwargs: Any,
     ) -> str:
         from nanobot.utils.helpers import strip_think
@@ -161,6 +236,54 @@ class MessageTool(Tool):
                 for row in buttons
             ):
                 return ToolResult.error("Error: buttons must be a list of list of strings")
+        if reply_keyboard is not None:
+            if not isinstance(reply_keyboard, list) or any(
+                not isinstance(row, list) or any(not isinstance(label, str) for label in row)
+                for row in reply_keyboard
+            ):
+                return ToolResult.error("Error: reply_keyboard must be a list of list of strings")
+        if menu_commands is not None:
+            if not isinstance(menu_commands, list) or any(
+                not isinstance(cmd, dict)
+                or not isinstance(cmd.get("command"), str)
+                or not isinstance(cmd.get("description"), str)
+                for cmd in menu_commands
+            ):
+                return ToolResult.error(
+                    "Error: menu_commands must be a list of objects with 'command' and 'description' strings"
+                )
+        if checklist is not None:
+            if (
+                not isinstance(checklist, dict)
+                or not isinstance(checklist.get("title"), str)
+                or not isinstance(checklist.get("tasks"), list)
+                or not (1 <= len(checklist["tasks"]) <= 30)
+                or any(not isinstance(t, str) for t in checklist["tasks"])
+            ):
+                return ToolResult.error(
+                    "Error: checklist must be an object with 'title' (str) and 'tasks' (list of 1-30 strings)"
+                )
+        if checklist_update is not None:
+            if (
+                not isinstance(checklist_update, dict)
+                or not isinstance(checklist_update.get("message_id"), int)
+                or not isinstance(checklist_update.get("done"), list)
+                or any(not isinstance(i, int) for i in checklist_update["done"])
+            ):
+                return ToolResult.error(
+                    "Error: checklist_update must be an object with 'message_id' (int) and 'done' (list of ints)"
+                )
+        if poll is not None:
+            if (
+                not isinstance(poll, dict)
+                or not isinstance(poll.get("question"), str)
+                or not isinstance(poll.get("options"), list)
+                or not (2 <= len(poll["options"]) <= 10)
+                or any(not isinstance(o, str) for o in poll["options"])
+            ):
+                return ToolResult.error(
+                    "Error: poll must be an object with 'question' (str) and 'options' (list of 2-10 strings)"
+                )
         request_ctx = current_request_context()
         default_channel = (
             request_ctx.channel if request_ctx is not None else self._fallback_channel
@@ -230,6 +353,14 @@ class MessageTool(Tool):
             media=media or [],
             buttons=buttons or [],
             metadata=metadata,
+            rich=rich,
+            reply_keyboard=reply_keyboard or [],
+            menu_commands=menu_commands or [],
+            ephemeral=bool(ephemeral),
+            checklist=checklist,
+            checklist_update=checklist_update,
+            poll=poll,
+            effect=effect,
         )
 
         if self._suppress_delivery_var.get():

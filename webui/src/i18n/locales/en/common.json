@@ -436,6 +436,7 @@
       "auto": "Auto",
       "default": "Default",
       "expanded": "Expanded",
+      "collapsed": "Collapsed",
       "summary": "Summary",
       "diff": "Diff",
       "collapsedDiff": "Collapsed diff",

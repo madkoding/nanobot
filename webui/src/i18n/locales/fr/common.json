@@ -234,6 +234,7 @@
       "compact": "Compacte",
       "auto": "Automatique",
       "expanded": "Développé",
+      "collapsed": "Replié",
       "default": "Par défaut",
       "summary": "Résumé",
       "diff": "Diff",

@@ -110,6 +110,7 @@ const LOCALIZED_SETTINGS_COPY_KEYS = [
   "settings.values.comfortable",
   "settings.values.compact",
   "settings.values.expanded",
+  "settings.values.collapsed",
   "settings.values.enabled",
   "settings.values.disabled",
   "settings.values.defaultPermission",

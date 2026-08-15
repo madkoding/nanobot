@@ -33,6 +33,10 @@
           "open": "Mọi tin nhắn",
           "allowlist": "Danh sách cho phép"
         }
+      },
+      "richMessages": {
+        "label": "Rich messages",
+        "help": "Send structured messages (headings, tables, todo-lists) via Bot API 10.1 sendRichMessage."
       }
     }
   }

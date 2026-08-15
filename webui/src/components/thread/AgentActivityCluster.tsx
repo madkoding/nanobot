@@ -41,6 +41,7 @@ import {
   isReasoningOnlyAssistant,
 } from "@/lib/activity-timeline";
 import { useFileEditDisplayMode } from "@/hooks/useFileEditDisplayMode";
+import { useActivityMode } from "@/hooks/useActivityMode";
 import { useLogoFallback } from "@/hooks/useLogoFallback";
 import { logoFallbackUrls } from "@/lib/provider-brand";
 import { canonicalToolTrace, formatToolCallTrace } from "@/lib/tool-traces";
@@ -146,6 +147,7 @@ export function AgentActivityCluster({
 }: AgentActivityClusterProps) {
   const { t } = useTranslation();
   const fileEditDisplayMode = useFileEditDisplayMode();
+  const activityMode = useActivityMode();
   const pageVisible = usePageVisibility();
   const activityMessages = useMemo(() => coalesceActivityMessages(messages), [messages]);
   const fileEdits = useMemo(
@@ -180,10 +182,19 @@ export function AgentActivityCluster({
   const scrollFrameRef = useRef<number | null>(null);
   const wasTurnStreamingRef = useRef(isTurnStreaming);
   const wasTurnStreaming = wasTurnStreamingRef.current;
-  /** Live work stays open; completed work briefly shows the done state, then tucks away. */
+  /**
+   * Live work stays open; completed work briefly shows the done state, then tucks away.
+   * activityMode: "auto" keeps the streaming behavior, "expanded" pins it open and
+   * "collapsed" (default) keeps it closed until the user toggles the header.
+   */
+  const autoExpanded = isTurnStreaming || completionHoldOpen || (wasTurnStreaming && !isTurnStreaming);
   const outerExpanded = userToggledOuter
     ? outerOpenLocal
-    : isTurnStreaming || completionHoldOpen || (wasTurnStreaming && !isTurnStreaming);
+    : activityMode === "expanded"
+      ? true
+      : activityMode === "collapsed"
+        ? false
+        : autoExpanded;
 
   const hasVisibleActivity = reasoningSteps > 0 || toolCalls > 0 || cliCount > 0 || mcpCount > 0 || fileCount > 0;
   const hasOnlyFileActivity = fileCount > 0 && activityMessages.every(messageHasOnlyFileActivity);

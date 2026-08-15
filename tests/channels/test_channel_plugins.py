@@ -2714,6 +2714,7 @@ async def test_send_with_retry_succeeds_first_try():
     mgr.bus = MessageBus()
     mgr.channels = {"failing": _FailingChannel(fake_config, mgr.bus)}
     mgr._dispatch_task = None
+    mgr._active_streams = set()
 
     msg = OutboundMessage(channel="failing", chat_id="123", content="test")
     await mgr._send_with_retry(mgr.channels["failing"], msg)
@@ -2751,6 +2752,7 @@ async def test_send_with_retry_retries_on_failure():
     mgr.bus = MessageBus()
     mgr.channels = {"failing": _FailingChannel(fake_config, mgr.bus)}
     mgr._dispatch_task = None
+    mgr._active_streams = set()
 
     msg = OutboundMessage(channel="failing", chat_id="123", content="test")
 
@@ -2792,6 +2794,7 @@ async def test_send_with_retry_no_retry_when_max_is_zero():
     mgr.bus = MessageBus()
     mgr.channels = {"failing": _FailingChannel(fake_config, mgr.bus)}
     mgr._dispatch_task = None
+    mgr._active_streams = set()
 
     msg = OutboundMessage(channel="failing", chat_id="123", content="test")
 
@@ -2841,6 +2844,7 @@ async def test_send_with_retry_calls_send_delta():
     mgr.bus = MessageBus()
     mgr.channels = {"streaming": _StreamingChannel(fake_config, mgr.bus)}
     mgr._dispatch_task = None
+    mgr._active_streams = set()
 
     msg = outbound_message_for_event(
         channel="streaming",
@@ -2928,6 +2932,7 @@ def test_outbound_duplicate_suppression_is_scoped_to_origin_message() -> None:
     mgr.bus = MessageBus()
     mgr.channels = {}
     mgr._dispatch_task = None
+    mgr._active_streams = set()
     mgr._origin_reply_fingerprints = {}
 
     first = OutboundMessage(
@@ -2962,6 +2967,129 @@ def test_outbound_duplicate_suppression_is_scoped_to_origin_message() -> None:
 
 
 @pytest.mark.asyncio
+async def test_dispatch_drops_legacy_send_when_stream_active() -> None:
+    """When a streaming reply is active for a chat, the final OutboundMessage
+    (without StreamedResponseEvent) must NOT trigger `channel.send()`,
+    otherwise the user gets a duplicate message above the streaming preview.
+    Regression: previously, short single-chunk streams fell through to the
+    legacy path and produced an extra top-level message.
+    """
+    send_calls: list[OutboundMessage] = []
+    delta_calls: list[tuple[str, str, str | None, bool]] = []
+
+    class _StreamedChannel(BaseChannel):
+        name = "streamed"
+        display_name = "Streamed"
+
+        async def start(self) -> None:
+            pass
+
+        async def stop(self) -> None:
+            pass
+
+        async def send(self, msg: OutboundMessage) -> None:
+            send_calls.append(msg)
+
+        async def send_delta(
+            self,
+            chat_id: str,
+            delta: str,
+            metadata: dict | None = None,
+            *,
+            stream_id: str | None = None,
+            stream_end: bool = False,
+            resuming: bool = False,
+        ) -> None:
+            delta_calls.append((chat_id, delta, stream_id, stream_end))
+
+    fake_config = SimpleNamespace(
+        channels=ChannelsConfig(send_max_retries=3),
+        providers=SimpleNamespace(groq=SimpleNamespace(api_key="")),
+    )
+    mgr = ChannelManager.__new__(ChannelManager)
+    mgr.config = fake_config
+    mgr.bus = MessageBus()
+    mgr.channels = {"streamed": _StreamedChannel(fake_config, mgr.bus)}
+    mgr._dispatch_task = None
+    mgr._active_streams = set()
+
+    # First: a stream delta activates the stream
+    delta = OutboundMessage(
+        channel="streamed", chat_id="123",
+        content="hello", event=StreamDeltaEvent(content="hello", stream_id="s1"),
+        metadata={"_wants_stream": True},
+    )
+    await mgr._send_once(mgr.channels["streamed"], delta)
+    assert ("streamed", "123") in mgr._active_streams
+
+    # Then: a final OutboundMessage WITHOUT StreamedResponseEvent
+    # (the runner emits this for streamed content) — must be dropped.
+    final = OutboundMessage(
+        channel="streamed",
+        chat_id="123",
+        content="hello",
+        event=None,
+        metadata={"_wants_stream": True, "message_id": "u1"},
+    )
+    await mgr._send_once(mgr.channels["streamed"], final)
+    assert send_calls == []
+    assert len(delta_calls) == 1
+
+    # Stream end clears the active stream
+    end = OutboundMessage(
+        channel="streamed", chat_id="123",
+        content="", event=StreamEndEvent(stream_id="s1"),
+        metadata={"_wants_stream": True},
+    )
+    await mgr._send_once(mgr.channels["streamed"], end)
+    assert ("streamed", "123") not in mgr._active_streams
+
+
+@pytest.mark.asyncio
+async def test_dispatch_legacy_send_falls_through_without_active_stream() -> None:
+    """When no stream is active for the chat, the legacy path still
+    invokes `channel.send()` — non-streaming channels and post-stream
+    follow-ups (e.g. /status responses, tool confirmations) work normally.
+    Regression: previously the broad `_wants_stream` drop blocked these.
+    """
+    send_calls: list[OutboundMessage] = []
+
+    class _LegacyChannel(BaseChannel):
+        name = "streamed"
+        display_name = "Streamed"
+
+        async def start(self) -> None:
+            pass
+
+        async def stop(self) -> None:
+            pass
+
+        async def send(self, msg: OutboundMessage) -> None:
+            send_calls.append(msg)
+
+    fake_config = SimpleNamespace(
+        channels=ChannelsConfig(send_max_retries=3),
+        providers=SimpleNamespace(groq=SimpleNamespace(api_key="")),
+    )
+    mgr = ChannelManager.__new__(ChannelManager)
+    mgr.config = fake_config
+    mgr.bus = MessageBus()
+    mgr.channels = {"streamed": _LegacyChannel(fake_config, mgr.bus)}
+    mgr._dispatch_task = None
+    mgr._active_streams = set()  # no active stream
+
+    msg = OutboundMessage(
+        channel="streamed",
+        chat_id="123",
+        content="hello",
+        event=None,
+        metadata={"_wants_stream": True, "message_id": "u1"},
+    )
+    await mgr._send_once(mgr.channels["streamed"], msg)
+    assert len(send_calls) == 1
+
+
+@pytest.mark.asyncio
 async def test_send_with_retry_propagates_cancelled_error():
     """_send_with_retry should re-raise CancelledError for graceful shutdown."""
     class _CancellingChannel(BaseChannel):
@@ -2987,6 +3115,7 @@ async def test_send_with_retry_propagates_cancelled_error():
     mgr.bus = MessageBus()
     mgr.channels = {"cancelling": _CancellingChannel(fake_config, mgr.bus)}
     mgr._dispatch_task = None
+    mgr._active_streams = set()
 
     msg = OutboundMessage(channel="cancelling", chat_id="123", content="test")
 
@@ -3024,6 +3153,7 @@ async def test_send_with_retry_propagates_cancelled_error_during_sleep():
     mgr.bus = MessageBus()
     mgr.channels = {"failing": _FailingChannel(fake_config, mgr.bus)}
     mgr._dispatch_task = None
+    mgr._active_streams = set()
 
     msg = OutboundMessage(channel="failing", chat_id="123", content="test")
 
@@ -3493,6 +3623,7 @@ async def test_restart_notice_retries_until_running_channel_accepts_delivery():
     mgr = ChannelManager.__new__(ChannelManager)
     mgr.config = fake_config
     mgr.bus = MessageBus()
+    mgr._active_streams = set()
     channel = _EventuallyDeliverableChannel(fake_config, mgr.bus)
     channel._running = True
     mgr.channels = {"discord": channel}

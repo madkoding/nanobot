@@ -1,5 +1,5 @@
 export type LocalDensity = "comfortable" | "compact";
-export type LocalActivityMode = "auto" | "expanded";
+export type LocalActivityMode = "auto" | "expanded" | "collapsed";
 export type FileEditDisplayMode = "summary" | "diff" | "collapsed_diff";
 export type LocalFont = "system" | "serif" | "mono";
 export type LocalAccent = "default" | "blue" | "green" | "purple" | "orange" | "rose";
@@ -19,7 +19,7 @@ export const LOCAL_PREFS_CHANGED_EVENT = "nanobot-webui.local-preferences-change
 
 export const DEFAULT_LOCAL_PREFS: LocalPreferences = {
   density: "comfortable",
-  activityMode: "auto",
+  activityMode: "collapsed",
   codeWrap: true,
   brandLogos: false,
   fileEditDisplayMode: "summary",
@@ -29,6 +29,12 @@ export const DEFAULT_LOCAL_PREFS: LocalPreferences = {
 
 export function normalizeFileEditDisplayMode(value: unknown): FileEditDisplayMode {
   return value === "diff" || value === "collapsed_diff" ? value : "summary";
+}
+
+export function normalizeActivityMode(value: unknown): LocalActivityMode {
+  return value === "auto" || value === "expanded" || value === "collapsed"
+    ? value
+    : "collapsed";
 }
 
 export function normalizeFont(value: unknown): LocalFont {
@@ -47,7 +53,7 @@ export function readLocalPreferences(): LocalPreferences {
     const parsed = JSON.parse(raw) as Partial<LocalPreferences>;
     return {
       density: parsed.density === "compact" ? "compact" : "comfortable",
-      activityMode: parsed.activityMode === "expanded" ? "expanded" : "auto",
+      activityMode: normalizeActivityMode(parsed.activityMode),
       codeWrap: parsed.codeWrap !== false,
       brandLogos: parsed.brandLogos === true,
       fileEditDisplayMode: normalizeFileEditDisplayMode(parsed.fileEditDisplayMode),

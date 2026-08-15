@@ -382,6 +382,7 @@
       "compact": "Compacto",
       "auto": "Automático",
       "expanded": "Expandido",
+      "collapsed": "Recolhido",
       "default": "Padrão",
       "summary": "Resumo",
       "diff": "Diff",

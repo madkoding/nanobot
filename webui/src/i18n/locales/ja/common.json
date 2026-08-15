@@ -234,6 +234,7 @@
       "compact": "コンパクト",
       "auto": "自動",
       "expanded": "展開",
+      "collapsed": "折りたたみ",
       "default": "デフォルト",
       "summary": "概要",
       "diff": "差分",

@@ -11,6 +11,7 @@ SETUP_SPEC = ChannelSetupSpec(
         "proxy": field("secret"),
         "allowFrom": field("list"),
         "groupPolicy": field("enum", choices=GROUP_POLICIES, default="mention"),
+        "richMessages": field("bool", default=False),
     },
     required=(required("token"),),
     official_url="https://t.me/BotFather",

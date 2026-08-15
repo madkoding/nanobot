@@ -234,6 +234,7 @@
       "compact": "Ringkas",
       "auto": "Otomatis",
       "expanded": "Diperluas",
+      "collapsed": "Diruntuhkan",
       "default": "Default",
       "summary": "Ringkasan",
       "diff": "Diff",

@@ -141,6 +141,10 @@ function installReducedMotion() {
 describe("AgentActivityCluster", () => {
   it("jumps to the latest activity when opened", () => {
     const raf = installAnimationFrameQueue();
+    localStorage.setItem(
+      "nanobot-webui.settings-preferences",
+      JSON.stringify({ activityMode: "auto" }),
+    );
     try {
       render(
         <AgentActivityCluster
@@ -164,11 +168,16 @@ describe("AgentActivityCluster", () => {
       expect(scrollport.scrollTop).toBe(880);
     } finally {
       raf.restore();
+      localStorage.removeItem("nanobot-webui.settings-preferences");
     }
   });
 
   it("follows new reasoning and tool activity while the user is at the bottom", () => {
     const raf = installAnimationFrameQueue();
+    localStorage.setItem(
+      "nanobot-webui.settings-preferences",
+      JSON.stringify({ activityMode: "auto" }),
+    );
     try {
       const { rerender } = render(
         <AgentActivityCluster
@@ -215,11 +224,16 @@ describe("AgentActivityCluster", () => {
       expect(scrollport.scrollTop).toBe(1380);
     } finally {
       raf.restore();
+      localStorage.removeItem("nanobot-webui.settings-preferences");
     }
   });
 
   it("does not pull the user down after they scroll up inside the activity pane", () => {
     const raf = installAnimationFrameQueue();
+    localStorage.setItem(
+      "nanobot-webui.settings-preferences",
+      JSON.stringify({ activityMode: "auto" }),
+    );
     try {
       const { rerender } = render(
         <AgentActivityCluster
@@ -262,6 +276,7 @@ describe("AgentActivityCluster", () => {
       expect(scrollport.scrollTop).toBe(100);
     } finally {
       raf.restore();
+      localStorage.removeItem("nanobot-webui.settings-preferences");
     }
   });
 
@@ -305,6 +320,10 @@ describe("AgentActivityCluster", () => {
 
   it("briefly shows completed activity, then auto-collapses before the answer", () => {
     vi.useFakeTimers();
+    localStorage.setItem(
+      "nanobot-webui.settings-preferences",
+      JSON.stringify({ activityMode: "auto" }),
+    );
     const liveReasoning: UIMessage = {
       id: "r-collapse",
       role: "assistant",
@@ -347,6 +366,58 @@ describe("AgentActivityCluster", () => {
       );
     } finally {
       vi.useRealTimers();
+      localStorage.removeItem("nanobot-webui.settings-preferences");
+    }
+  });
+
+  it("stays collapsed by default while streaming and expands on header click", () => {
+    localStorage.removeItem("nanobot-webui.settings-preferences");
+    const { rerender } = render(
+      <AgentActivityCluster
+        messages={activityMessages()}
+        isTurnStreaming
+        hasBodyBelow
+      />,
+    );
+
+    expect(screen.queryByTestId("agent-activity-scroll")).not.toBeInTheDocument();
+    const toggle = screen.getByRole("button", { name: /working/i });
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+
+    fireEvent.click(toggle);
+    expect(screen.getByTestId("agent-activity-scroll")).toBeInTheDocument();
+    expect(toggle).toHaveAttribute("aria-expanded", "true");
+
+    rerender(
+      <AgentActivityCluster
+        messages={activityMessages()}
+        isTurnStreaming
+        hasBodyBelow
+      />,
+    );
+    expect(screen.getByTestId("agent-activity-scroll")).toBeInTheDocument();
+  });
+
+  it("pins the activity open when activityMode is expanded", () => {
+    localStorage.setItem(
+      "nanobot-webui.settings-preferences",
+      JSON.stringify({ activityMode: "expanded" }),
+    );
+    try {
+      render(
+        <AgentActivityCluster
+          messages={activityMessages()}
+          isTurnStreaming={false}
+          hasBodyBelow
+        />,
+      );
+      expect(screen.getByTestId("agent-activity-scroll")).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: /worked/i })).toHaveAttribute(
+        "aria-expanded",
+        "true",
+      );
+    } finally {
+      localStorage.removeItem("nanobot-webui.settings-preferences");
     }
   });
 

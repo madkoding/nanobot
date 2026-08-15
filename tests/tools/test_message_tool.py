@@ -429,6 +429,108 @@ async def test_message_tool_allows_ws_explicit_when_matches_context(tmp_path) ->
 
 
 @pytest.mark.asyncio
+async def test_message_tool_rejects_malformed_checklist() -> None:
+    """``checklist`` debe ser {title: str, tasks: [str]} con 1-30 tareas."""
+    tool = MessageTool()
+    result = await tool.execute(
+        content="",
+        channel="telegram",
+        chat_id="1",
+        checklist={"title": "Plan", "tasks": []},
+    )
+    assert result == "Error: checklist must be an object with 'title' (str) and 'tasks' (list of 1-30 strings)"
+
+    result = await tool.execute(
+        content="",
+        channel="telegram",
+        chat_id="1",
+        checklist={"title": "Plan", "tasks": ["a"] * 31},
+    )
+    assert result == "Error: checklist must be an object with 'title' (str) and 'tasks' (list of 1-30 strings)"
+
+    result = await tool.execute(
+        content="",
+        channel="telegram",
+        chat_id="1",
+        checklist={"title": "Plan", "tasks": "not-a-list"},
+    )
+    assert result == "Error: checklist must be an object with 'title' (str) and 'tasks' (list of 1-30 strings)"
+
+
+@pytest.mark.asyncio
+async def test_message_tool_rejects_malformed_poll() -> None:
+    """``poll`` debe ser {question: str, options: [str]} con 2-10 opciones."""
+    tool = MessageTool()
+    result = await tool.execute(
+        content="",
+        channel="telegram",
+        chat_id="1",
+        poll={"question": "¿Apruebas?", "options": ["Solo una"]},
+    )
+    assert result == "Error: poll must be an object with 'question' (str) and 'options' (list of 2-10 strings)"
+
+    result = await tool.execute(
+        content="",
+        channel="telegram",
+        chat_id="1",
+        poll={"question": "¿Apruebas?", "options": ["a"] * 11},
+    )
+    assert result == "Error: poll must be an object with 'question' (str) and 'options' (list of 2-10 strings)"
+
+    result = await tool.execute(
+        content="",
+        channel="telegram",
+        chat_id="1",
+        poll={"question": "¿Apruebas?", "options": "no"},
+    )
+    assert result == "Error: poll must be an object with 'question' (str) and 'options' (list of 2-10 strings)"
+
+
+@pytest.mark.asyncio
+async def test_message_tool_rejects_malformed_checklist_update() -> None:
+    """``checklist_update`` debe ser {message_id: int, done: [int]}."""
+    tool = MessageTool()
+    result = await tool.execute(
+        content="",
+        channel="telegram",
+        chat_id="1",
+        checklist_update={"message_id": "not-an-int", "done": [0]},
+    )
+    assert result == "Error: checklist_update must be an object with 'message_id' (int) and 'done' (list of ints)"
+
+    result = await tool.execute(
+        content="",
+        channel="telegram",
+        chat_id="1",
+        checklist_update={"message_id": 1, "done": ["a"]},
+    )
+    assert result == "Error: checklist_update must be an object with 'message_id' (int) and 'done' (list of ints)"
+
+
+@pytest.mark.asyncio
+async def test_message_tool_passes_checklist_poll_and_effect_through() -> None:
+    """Los campos nuevos viajan en el OutboundMessage."""
+    sent: list[OutboundMessage] = []
+
+    async def _send(msg: OutboundMessage) -> None:
+        sent.append(msg)
+
+    tool = MessageTool(send_callback=_send)
+    result = await tool.execute(
+        content="",
+        channel="telegram",
+        chat_id="1",
+        checklist={"title": "Plan", "tasks": ["Spec", "Plan"]},
+        poll={"question": "¿Apruebas?", "options": ["APROBAR", "RECHAZAR"]},
+        effect="confeti",
+    )
+    assert result.startswith("Message sent")
+    assert sent[0].checklist == {"title": "Plan", "tasks": ["Spec", "Plan"]}
+    assert sent[0].poll == {"question": "¿Apruebas?", "options": ["APROBAR", "RECHAZAR"]}
+    assert sent[0].effect == "confeti"
+
+
+@pytest.mark.asyncio
 async def test_message_tool_cli_context_may_target_other_ws_chat(tmp_path) -> None:
     """Cron / CLI handlers keep non-websocket defaults; explicit websocket + uuid remains valid."""
     sent: list[OutboundMessage] = []

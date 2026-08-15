@@ -234,6 +234,7 @@
       "compact": "컴팩트",
       "auto": "자동",
       "expanded": "펼침",
+      "collapsed": "접힘",
       "default": "기본값",
       "summary": "요약",
       "diff": "Diff",
