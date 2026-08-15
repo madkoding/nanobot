@@ -403,6 +403,41 @@ def test_exec_guard_allows_dev_null_redirect(tmp_path) -> None:
     assert error is None
 
 
+def test_exec_guard_blocks_rm_rf_for_non_owner(tmp_path) -> None:
+    from nanobot.agent.tools.context import RequestContext, bind_request_context
+
+    tool = ExecTool(restrict_to_workspace=True, owner_id="owner-1")
+    ws = tmp_path / "workspace"
+    ws.mkdir()
+    token = bind_request_context(
+        RequestContext(channel="cli", chat_id="direct", sender_id="stranger-1")
+    )
+    try:
+        error = tool._guard_command(f"rm -rf {ws / 'foo'}", str(ws))
+        assert error is not None
+        assert "deny pattern filter" in error
+    finally:
+        from nanobot.agent.tools.context import reset_request_context
+        reset_request_context(token)
+
+
+def test_exec_guard_allows_rm_rf_for_owner(tmp_path) -> None:
+    from nanobot.agent.tools.context import RequestContext, bind_request_context
+
+    tool = ExecTool(restrict_to_workspace=True, owner_id="owner-1")
+    ws = tmp_path / "workspace"
+    ws.mkdir()
+    token = bind_request_context(
+        RequestContext(channel="cli", chat_id="direct", sender_id="owner-1")
+    )
+    try:
+        error = tool._guard_command(f"rm -rf {ws / 'foo'}", str(ws))
+        assert error is None
+    finally:
+        from nanobot.agent.tools.context import reset_request_context
+        reset_request_context(token)
+
+
 def test_exec_guard_allows_dev_urandom(tmp_path) -> None:
     tool = ExecTool(restrict_to_workspace=True)
     error = tool._guard_command("cat /dev/urandom | head -c 16 > random.bin", str(tmp_path))

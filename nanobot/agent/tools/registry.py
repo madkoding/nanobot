@@ -36,6 +36,19 @@ class ToolRegistry:
         self._tools.pop(name, None)
         self._cached_definitions = None
 
+    def filtered_view(self, allowed_names: set[str]) -> "ToolRegistry":
+        """Return a lightweight registry view containing only allowed tool names.
+
+        The view reuses the same Tool instances, so behavior and identity are
+        preserved. It is intended for per-turn sender-based gating (e.g.
+        non-owner senders get a read-only toolset).
+        """
+        view = ToolRegistry()
+        for name, tool in self._tools.items():
+            if name in allowed_names:
+                view._tools[name] = tool
+        return view
+
     def get(self, name: str) -> Tool | None:
         """Get a tool by name."""
         return self._tools.get(name)

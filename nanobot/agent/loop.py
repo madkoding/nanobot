@@ -636,6 +636,7 @@ class AgentLoop:
             timezone=self.context.timezone or "UTC",
             workspace_sandbox=self.workspace_scopes.sandbox_status,
             runtime_events=self.runtime_events,
+            owner_id=self._owner_id,
         )
         loader = ToolLoader()
         registered = loader.load(ctx, self.tools)
@@ -947,6 +948,18 @@ class AgentLoop:
         budget = runtime.context_window_tokens - max(1, reserved_output) - 1024
         return budget if budget > 0 else max(128, runtime.context_window_tokens // 2)
 
+    # Tools a non-owner sender may invoke. Everything else is owner-only.
+    _NON_OWNER_ALLOWED_TOOLS: frozenset[str] = frozenset({
+        "read_file",
+        "list_dir",
+        "find_files",
+        "grep",
+        "web_search",
+        "web_fetch",
+        "message",
+        "tts",
+    })
+
     async def _run_agent_loop(
         self,
         initial_messages: list[dict],
@@ -971,6 +984,7 @@ class AgentLoop:
         turn_scopes: list[AbstractContextManager[Any]] | None = None,
         tools: ToolRegistry | None = None,
         request_context: RequestContext | None = None,
+        sender_id: str | None = None,
     ) -> tuple[str | None, list[str], list[dict], str, bool]:
         """Run the agent iteration loop.
 
@@ -1084,6 +1098,12 @@ class AgentLoop:
             session_metadata=session.metadata if session is not None else None,
         )
         effective_tools = tools or self.tools
+        if (
+            self._owner_id
+            and sender_id
+            and sender_id != self._owner_id
+        ):
+            effective_tools = effective_tools.filtered_view(self._NON_OWNER_ALLOWED_TOOLS)
         request_ctx = request_context or RequestContext(
             channel=channel,
             chat_id=chat_id,
@@ -2003,6 +2023,7 @@ class AgentLoop:
             turn_scopes=ctx.turn_scopes,
             tools=ctx.tools,
             request_context=ctx.request_context,
+            sender_id=ctx.msg.sender_id,
         )
         final_content, tools_used, all_msgs, stop_reason, had_injections = result
         ctx.final_content = final_content

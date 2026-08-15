@@ -18,7 +18,7 @@ from loguru import logger
 from pydantic import Field
 
 from nanobot.agent.tools.base import Tool, ToolResult, tool_parameters
-from nanobot.agent.tools.context import current_request_session_key
+from nanobot.agent.tools.context import current_request_context, current_request_session_key
 from nanobot.agent.tools.exec_session import (
     DEFAULT_EXEC_SESSION_MANAGER,
     DEFAULT_MAX_OUTPUT_CHARS,
@@ -165,6 +165,7 @@ class ExecTool(Tool):
             allow_patterns=cfg.allow_patterns,
             deny_patterns=cfg.deny_patterns,
             session_manager=getattr(ctx, "exec_session_manager", None),
+            owner_id=getattr(ctx, "owner_id", None),
         )
 
     def __init__(
@@ -181,10 +182,12 @@ class ExecTool(Tool):
         path_append: str = "",
         allowed_env_keys: list[str] | None = None,
         session_manager: Any | None = None,
+        owner_id: str | None = None,
     ):
         self.timeout = timeout
         self.working_dir = working_dir
         self.sandbox = sandbox
+        self.owner_id = owner_id
         self.deny_patterns = (deny_patterns or []) + [
             r"\brm\s+-[rf]{1,2}\b",          # rm -r, rm -rf, rm -fr
             r"\bdel\s+/[fq]\b",              # del /f, del /q
@@ -731,8 +734,17 @@ class ExecTool(Tool):
             for segment in segments
         )
         if not explicitly_allowed:
+            request_ctx = current_request_context()
+            is_owner = (
+                self.owner_id
+                and request_ctx is not None
+                and request_ctx.sender_id == self.owner_id
+            )
             for pattern in self.deny_patterns:
                 if re.search(pattern, lower):
+                    if is_owner and pattern == r"\brm\s+-[rf]{1,2}\b":
+                        # Owner is exempt from the rm -r/f deny pattern.
+                        continue
                     return ToolResult.error("Error: Command blocked by deny pattern filter")
 
             if self.allow_patterns:
