@@ -1,4 +1,4 @@
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import ANY, AsyncMock, MagicMock
 
 import pytest
 
@@ -224,6 +224,8 @@ async def test_preflight_consolidation_receives_pending_summary(tmp_path) -> Non
         session,
         runtime=runtime,
         replay_max_messages=replay_max_messages_for_context(runtime.context_window_tokens),
+        store=ANY,
+        sender_id="user",
     )
     assert len(loop.consolidator.maybe_consolidate_by_tokens.call_args_list) == 1
     assert all(
@@ -241,7 +243,7 @@ async def test_preflight_consolidation_before_llm_call(tmp_path, monkeypatch) ->
 
     archived_session_keys: list[str | None] = []
 
-    async def track_consolidate(messages, *, runtime, session_key=None):
+    async def track_consolidate(messages, *, runtime, session_key=None, store=None, sender_id=None):
         order.append("consolidate")
         archived_session_keys.append(session_key)
         return True
