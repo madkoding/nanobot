@@ -437,6 +437,7 @@ class SessionManager:
         self._overflow_cache: WeakValueDictionary[str, Session] = WeakValueDictionary()
         self._max_cached_sessions = SESSION_CACHE_MAX_SIZE
         self._file_cap_archiver: Callable[..., None] | None = None
+        self._delete_observer: Callable[[str], None] | None = None
 
     def _remember(self, session: Session) -> None:
         """Keep recent sessions strongly cached without duplicating live objects."""
@@ -461,6 +462,10 @@ class SessionManager:
     def set_file_cap_archiver(self, archiver: Callable[..., None]) -> None:
         """Archive unconsolidated overflow whenever a session is persisted."""
         self._file_cap_archiver = archiver
+
+    def set_delete_observer(self, observer: Callable[[str], None]) -> None:
+        """Observe explicit session deletion for process-local state cleanup."""
+        self._delete_observer = observer
 
     @staticmethod
     def safe_key(key: str) -> str:
@@ -770,9 +775,18 @@ class SessionManager:
 
         Returns True if the JSONL file was found and unlinked.
         """
-        path = self._get_session_path(key)
         self.invalidate(key)
-        if not path.exists():
+        path = self._get_session_path(key)
+        deleted = path.exists()
+        if deleted:
+            try:
+                path.unlink()
+            except OSError as e:
+                logger.warning("Failed to delete session file {}: {}", path, e)
+                deleted = False
+        if self._delete_observer is not None:
+            self._delete_observer(key)
+        return deleted
             return False
         try:
             path.unlink()
