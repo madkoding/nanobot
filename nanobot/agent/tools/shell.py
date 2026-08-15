@@ -37,10 +37,15 @@ from nanobot.agent.tools.schema import (
 )
 from nanobot.config.paths import get_media_dir
 from nanobot.config_base import Base
-from nanobot.security.workspace_access import current_scope_allows_loopback, current_tool_workspace
+from nanobot.security.workspace_access import (
+    current_scope_allows_loopback,
+    current_tool_workspace,
+    current_workspace_scope,
+)
 from nanobot.security.workspace_policy import is_path_within
 
 _IS_WINDOWS = sys.platform == "win32"
+_IS_LINUX = sys.platform.startswith("linux")
 
 
 def _reap_pid(pid: int) -> None:
@@ -388,10 +393,23 @@ class ExecTool(Tool):
         shell: str | None = None,
         login: bool | None = None,
     ) -> _PreparedCommand | str:
+        scope = current_workspace_scope()
+        effective_sandbox = self.sandbox
+        if effective_sandbox and _IS_WINDOWS:
+            logger.warning(
+                "Sandbox '{}' is not supported on Windows; running unsandboxed",
+                effective_sandbox,
+            )
+            effective_sandbox = ""
+        elif effective_sandbox and not _IS_LINUX:
+            # bwrap is Linux-only; silently skip on macOS and other Unixes.
+            effective_sandbox = ""
+        if effective_sandbox and scope is not None and not scope.restrict_to_workspace:
+            effective_sandbox = ""
         access = current_tool_workspace(
             self.working_dir,
             restrict_to_workspace=self.restrict_to_workspace,
-            sandbox_restricts_workspace=bool(self.sandbox),
+            sandbox_restricts_workspace=bool(effective_sandbox),
         )
         workspace_root = str(access.project_path) if access.project_path is not None else self.working_dir
         cwd = working_dir or workspace_root or os.getcwd()
@@ -426,16 +444,10 @@ class ExecTool(Tool):
         if guard_error:
             return guard_error
 
-        if self.sandbox:
-            if _IS_WINDOWS:
-                logger.warning(
-                    "Sandbox '{}' is not supported on Windows; running unsandboxed",
-                    self.sandbox,
-                )
-            else:
-                workspace = workspace_root or cwd
-                command = wrap_command(self.sandbox, command, workspace, cwd)
-                cwd = str(Path(workspace).resolve())
+        if effective_sandbox:
+            workspace = workspace_root or cwd
+            command = wrap_command(effective_sandbox, command, workspace, cwd)
+            cwd = str(Path(workspace).resolve())
 
         effective_timeout = self._resolve_timeout(timeout)
         env = self._build_env()
