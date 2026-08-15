@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.1](https://github.com/madkoding/nanobot/compare/v0.5.0...v0.5.1) (2026-08-15)
+
+
+### Bug Fixes
+
+* **telegram,channels:** reasoning delta guard, watchdog liveness on outbound, dead code cleanup ([#32](https://github.com/madkoding/nanobot/issues/32)) ([cb121eb](https://github.com/madkoding/nanobot/commit/cb121ebb73cf07962e052fa7405b6528cdce71b6))
+
 ## [0.5.0](https://github.com/madkoding/nanobot/compare/v0.4.0...v0.5.0) (2026-08-15)
 
 
