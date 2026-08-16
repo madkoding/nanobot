@@ -1,5 +1,24 @@
 # Changelog
 
+## [0.6.1](https://github.com/madkoding/nanobot/compare/v0.6.0...v0.6.1) (2026-08-16)
+
+
+### Features
+
+* **telegram:** expose streaming toggle in WebUI channel setup ([0d4ca90](https://github.com/madkoding/nanobot/commit/0d4ca9040fd1b4e93ad1b8b43ea55d4edce48ba6))
+* **telegram:** expose streaming toggle in WebUI channel setup ([174f6bb](https://github.com/madkoding/nanobot/commit/174f6bbccc46923ddf480c77f33f0deadf2d671f))
+
+
+### Bug Fixes
+
+* **runner:** catch cross-turn content repetition ([e126f7f](https://github.com/madkoding/nanobot/commit/e126f7f725011153b75105566c80c69030e1c328))
+* **runner:** seed content-repeat detector from history to catch cross-turn repetition ([2ec37c1](https://github.com/madkoding/nanobot/commit/2ec37c1ffead7f79ccd202605dfa951923be52a3))
+
+
+### Documentation
+
+* **webui:** add domain index README and flag tool/webui inversion ([15898d5](https://github.com/madkoding/nanobot/commit/15898d57c472a9c39f87bfb7872c3c5d7a0f535d))
+
 ## [0.6.0](https://github.com/madkoding/nanobot/compare/v0.5.1...v0.6.0) (2026-08-15)
 
 
