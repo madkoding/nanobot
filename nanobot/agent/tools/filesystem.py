@@ -1045,6 +1045,12 @@ class ListDirTool(_FsTool):
         ".git", "node_modules", "__pycache__", ".venv", "venv",
         "dist", "build", ".tox", ".mypy_cache", ".pytest_cache",
         ".ruff_cache", ".coverage", "htmlcov",
+        # ponytail: extra heavy dirs to skip on spinning disks
+        "vendor", "target", ".cache", ".npm", ".next",
+        ".pnpm-store", ".parcel-cache", ".gradle", ".idea", ".vscode",
+        "__snapshots__", "coverage",
+        # nanobot runtime dirs
+        ".nanobot", ".clawhub", ".imgvenv",
     }
 
     @property

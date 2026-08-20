@@ -15,6 +15,8 @@ from typing import TYPE_CHECKING, Any, Callable, Iterator
 
 from loguru import logger
 
+# ponytail: stdlib-only BM25 retrieval; no heavy embeddings/vector index.
+from nanobot.agent.memory_bm25 import build_history_index
 from nanobot.runtime_context import public_history_messages
 from nanobot.session.manager import Session, SessionManager
 from nanobot.utils.atomic_write import atomic_write_text
@@ -320,7 +322,9 @@ class MemoryStore:
             if session_key:
                 record["session_key"] = session_key
             with open(self.history_file, "a", encoding="utf-8") as f:
-                f.write(json.dumps(record, ensure_ascii=False) + "\n")
+                # ponytail: default=str defends against datetime objects leaking into
+                # history records and crashing the gateway on replay/serialization.
+                f.write(json.dumps(record, ensure_ascii=False, default=str) + "\n")
                 f.flush()
                 os.fsync(f.fileno())
             with open(self._cursor_file, "w", encoding="utf-8") as f:
@@ -423,21 +427,30 @@ class MemoryStore:
         *,
         session_key: str | None,
         unified_session: bool = False,
+        max_entries: int = 100,
     ) -> list[dict[str, Any]]:
-        """Return unprocessed history entries safe to inject into a turn prompt."""
+        """Return unprocessed history entries safe to inject into a turn prompt.
+
+        ponytail: cap the number of entries returned so we don't read/parse an
+        ever-growing history.jsonl on every turn, especially on spinning disks.
+        The cap keeps prompt context bounded and I/O bounded.
+        """
         entries = self.read_unprocessed_history(since_cursor=since_cursor)
         entries = [e for e in entries if not (e.get("content") or "").startswith("[RAW]")]
-        if session_key is None:
-            return entries
-        if not unified_session:
-            return [e for e in entries if e.get("session_key") == session_key]
-
-        return [
-            entry
-            for entry in entries
-            if (entry_session := entry.get("session_key")) == session_key
-            or not self._is_internal_history_session(entry_session)
-        ]
+        if session_key is not None:
+            if not unified_session:
+                entries = [e for e in entries if e.get("session_key") == session_key]
+            else:
+                entries = [
+                    entry
+                    for entry in entries
+                    if (entry_session := entry.get("session_key")) == session_key
+                    or not self._is_internal_history_session(entry_session)
+                ]
+        # Keep the most recent entries so the prompt reflects current context.
+        if max_entries > 0 and len(entries) > max_entries:
+            entries = entries[-max_entries:]
+        return entries
 
     def compact_history(self) -> None:
         """Drop oldest entries if the file exceeds *max_history_entries*.
@@ -492,6 +505,13 @@ class MemoryStore:
 
         return entries
 
+    def search_memory(self, query: str, *, limit: int = 10) -> list[dict[str, Any]]:
+        """BM25 search over history.jsonl. Returns matching entries ranked by score."""
+        index = build_history_index(self.history_file)
+        if index is None:
+            return []
+        return [payload for payload, _score in index.search(query, top_k=limit)]
+
     def _read_last_entry(self) -> dict[str, Any] | None:
         """Read the last entry from the JSONL file efficiently."""
         try:
@@ -534,7 +554,9 @@ class MemoryStore:
 
     def _write_entries(self, entries: list[dict[str, Any]]) -> None:
         """Overwrite history.jsonl with the given entries (atomic write)."""
-        content = "".join(json.dumps(entry, ensure_ascii=False) + "\n" for entry in entries)
+        content = "".join(
+            json.dumps(entry, ensure_ascii=False, default=str) + "\n" for entry in entries
+        )
         atomic_write_text(self.history_file, content)
 
     # -- dream cursor --------------------------------------------------------

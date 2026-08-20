@@ -700,6 +700,7 @@ class WhatsAppChannel(BaseChannel):
             )
         self._state_dirty_count = 0
         self._state_last_save_at = 0.0
+        self._idle_activity_task: asyncio.Task | None = None
         client = self._new_client()
         self._client = client
         self._register_handlers(client, handle_messages=True)
@@ -742,9 +743,9 @@ class WhatsAppChannel(BaseChannel):
                     self._on_connected_for_lifecycle = None
                 # Login completed within the cap — block on idle() so the
                 # channel keeps the websocket alive and processes events.
-                await client.idle()
+                await self._idle_with_keepalive(client)
             else:
-                await client.idle()
+                await self._idle_with_keepalive(client)
         except asyncio.CancelledError:
             raise
         finally:
@@ -758,6 +759,22 @@ class WhatsAppChannel(BaseChannel):
             # so the next start() picks up where we left off.
             self._save_message_state()
 
+
+    async def _idle_with_keepalive(self, client: Any) -> None:
+        """Block on client.idle() while touching activity so the manager watchdog
+        does not force-restart a healthy but quiet WhatsApp session."""
+        async def _keepalive() -> None:
+            while True:
+                await asyncio.sleep(120)
+                self._touch_activity()
+
+        task = asyncio.create_task(_keepalive())
+        try:
+            await client.idle()
+        finally:
+            task.cancel()
+            with suppress(asyncio.CancelledError):
+                await task
 
     async def stop(self) -> None:
         self._running = False

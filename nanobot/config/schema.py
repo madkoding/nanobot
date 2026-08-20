@@ -403,6 +403,14 @@ class Config(BaseSettings):
         validation_alias=AliasChoices("modelPresets", "model_presets"),
         serialization_alias="modelPresets",
     )
+    # Top-level owner identifier(s). Kept here because the gateway and several
+    # channels (whatsapp, telegram, etc.) need a single source of truth for who
+    # is allowed to run privileged commands.
+    owner_id: list[str] | None = Field(
+        default=None,
+        validation_alias=AliasChoices("ownerId", "owner_id"),
+        serialization_alias="ownerId",
+    )
 
     def __init__(self, **values: Any) -> None:
         if not type(self).__pydantic_complete__:

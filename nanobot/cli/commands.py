@@ -2727,10 +2727,68 @@ def channels_login(
     if not success:
         raise typer.Exit(1)
 
+# ============================================================================
+# Memory Commands
+# ============================================================================
+
+
+memory_app = typer.Typer(help="Inspect and search long-term memory")
+app.add_typer(memory_app, name="memory")
+
+
+@memory_app.command("search")
+def memory_search(
+    query: str = typer.Argument(..., help="Search query for history.jsonl"),
+    workspace: str | None = typer.Option(None, "--workspace", "-w", help="Workspace path"),
+    limit: int = typer.Option(10, "--limit", "-n", help="Maximum entries to return", min=1, max=50),
+):
+    """Search the agent's memory with BM25."""
+    from pathlib import Path
+
+    from nanobot.agent.memory import MemoryStore
+    from nanobot.config.paths import get_workspace_path
+
+    ws = Path(workspace).expanduser().resolve() if workspace else get_workspace_path()
+    store = MemoryStore(ws)
+    entries = store.search_memory(query, limit=limit)
+    if not entries:
+        console.print(f"[dim]No memory entries found for query '{query}'.[/dim]")
+        raise typer.Exit(0)
+    console.print(f"[bold]BM25 results for '{query}' ({len(entries)} entries):[/bold]\n")
+    for entry in entries:
+        cursor = entry.get("cursor", "?")
+        ts = entry.get("timestamp", "")
+        content = entry.get("content", "").strip()
+        console.print(f"[cyan]#{cursor}[/cyan] [{ts}] {content[:400]}")
+        if len(content) > 400:
+            console.print("[dim]...[/dim]")
+        console.print()
+
+
+@memory_app.command("stats")
+def memory_stats(
+    workspace: str | None = typer.Option(None, "--workspace", "-w", help="Workspace path"),
+):
+    """Show memory file statistics."""
+    from pathlib import Path
+
+    from nanobot.agent.memory import MemoryStore
+    from nanobot.config.paths import get_workspace_path
+
+    ws = Path(workspace).expanduser().resolve() if workspace else get_workspace_path()
+    store = MemoryStore(ws)
+    entries = store._read_entries()
+    console.print(f"[bold]Memory stats[/bold] for {ws}")
+    console.print(f"history.jsonl entries: {len(entries)}")
+    console.print(f"MEMORY.md size: {store.memory_file.stat().st_size if store.memory_file.exists() else 0} bytes")
+    console.print(f"SOUL.md exists: {store.soul_file.exists()}")
+    console.print(f"USER.md exists: {store.user_file.exists()}")
+
 
 # ============================================================================
 # Plugin Commands
 # ============================================================================
+
 
 plugins_app = typer.Typer(help="Manage optional nanobot features")
 app.add_typer(plugins_app, name="plugins")

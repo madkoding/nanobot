@@ -62,6 +62,10 @@ def create_gateway_app(
                 ),
                 level="DEBUG" if verbose else "INFO",
                 enqueue=True,
+                # ponytail: rotate the gateway log before it grows to a multi-GB file.
+                rotation="20 MB",
+                retention=5,
+                compression="gz",
                 filter=lambda record: record["extra"].setdefault("channel", "-") or True,
             )
         if not verbose:

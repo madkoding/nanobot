@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import fnmatch
 import os
 import re
@@ -14,6 +15,10 @@ from nanobot.agent.tools.filesystem import ListDirTool, _FsTool
 
 _DEFAULT_HEAD_LIMIT = 250
 _DEFAULT_FILE_HEAD_LIMIT = 200
+# ponytail: hard cap on how many files we stat/read in one search call. This keeps
+# the agent responsive on spinning disks and huge workspaces.
+_MAX_WALKED_FILES = 20_000
+_WALK_TIMEOUT_S = 10.0
 T = TypeVar("T")
 _TYPE_GLOB_MAP = {
     "py": ("*.py", "*.pyi"),
@@ -113,10 +118,19 @@ class _SearchTool(_FsTool):
             yield root
             return
 
+        # ponytail: generator with a hard file cap and timeout guard. The timeout is
+        # best-effort because os.walk is synchronous; callers must break after a deadline.
+        deadline = asyncio.get_event_loop().time() + _WALK_TIMEOUT_S
+        walked = 0
         for dirpath, dirnames, filenames in os.walk(root):
             dirnames[:] = sorted(d for d in dirnames if d not in self._IGNORE_DIRS)
             current = Path(dirpath)
             for filename in sorted(filenames):
+                if walked >= _MAX_WALKED_FILES:
+                    return
+                if asyncio.get_event_loop().time() > deadline:
+                    return
+                walked += 1
                 yield current / filename
 
 
@@ -190,12 +204,22 @@ class FindFilesTool(_SearchTool):
             return
         if include_dirs:
             yield root
+
+        deadline = asyncio.get_event_loop().time() + _WALK_TIMEOUT_S
+        walked = 0
         for dirpath, dirnames, filenames in os.walk(root):
             dirnames[:] = sorted(d for d in dirnames if d not in self._IGNORE_DIRS)
             current = Path(dirpath)
             if include_dirs and current != root:
-                yield current
+                if walked < _MAX_WALKED_FILES and asyncio.get_event_loop().time() <= deadline:
+                    walked += 1
+                    yield current
             for filename in sorted(filenames):
+                if walked >= _MAX_WALKED_FILES:
+                    return
+                if asyncio.get_event_loop().time() > deadline:
+                    return
+                walked += 1
                 yield current / filename
 
     async def execute(
@@ -220,11 +244,11 @@ class FindFilesTool(_SearchTool):
             if sort not in {"path", "modified"}:
                 return ToolResult.error("Error: sort must be 'path' or 'modified'")
 
-            limit = (
-                _DEFAULT_FILE_HEAD_LIMIT
-                if head_limit is None
-                else None if head_limit == 0 else head_limit
-            )
+            # ponytail: head_limit=0 used to mean "no limit" and could return every file
+            # in the workspace; clamp it to the default to avoid huge tool results.
+            if head_limit == 0:
+                head_limit = _DEFAULT_FILE_HEAD_LIMIT
+            limit = _DEFAULT_FILE_HEAD_LIMIT if head_limit is None else head_limit
             root = target if target.is_dir() else target.parent
             matches: list[tuple[str, float]] = []
 
@@ -429,8 +453,10 @@ class GrepTool(_SearchTool):
             except re.error as e:
                 return ToolResult.error(f"Error: invalid regex pattern: {e}")
 
+            # ponytail: clamp head_limit=0 to the default so a single grep on a huge
+            # workspace does not try to return thousands of results.
             if head_limit is not None:
-                limit = None if head_limit == 0 else head_limit
+                limit = _DEFAULT_HEAD_LIMIT if head_limit == 0 else head_limit
             elif output_mode == "content" and max_matches is not None:
                 limit = max_matches
             elif output_mode != "content" and max_results is not None:
