@@ -33,6 +33,14 @@
           "open": "Tous les messages",
           "allowlist": "Liste d’autorisation"
         }
+      },
+      "richMessages": {
+        "label": "Rich messages",
+        "help": "Send structured messages (headings, tables, todo-lists) via Bot API 10.1 sendRichMessage."
+      },
+      "streaming": {
+        "label": "Réponses en streaming",
+        "help": "Diffuse les réponses progressivement pendant leur génération, en modifiant le message en direct."
       }
     }
   }

@@ -918,10 +918,11 @@ export interface NanobotFeatureInfo {
 export interface ChannelSetupContractField {
   key: string;
   field: string;
-  kind: "string" | "secret" | "int" | "bool" | "list" | "enum" | string;
+  kind: "string" | "secret" | "int" | "bool" | "list" | "enum" | "kv" | string;
   choices: string[];
   required: boolean;
   default_value?: string;
+  help?: string;
 }
 
 export interface ChannelSetupContract {

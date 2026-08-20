@@ -167,6 +167,13 @@ Messages flow through an async `MessageBus` (`nanobot/bus/queue.py`) that decoup
 - Security boundaries: [`.agent/security.md`](.agent/security.md)
 - Common gotchas: [`.agent/gotchas.md`](.agent/gotchas.md)
 
+## Telegram Rich Messages (formatting rules)
+
+When sending rich messages (Bot API 10.1+) over Telegram:
+
+- **Tables always at block level** — never inside blockquotes (`>`). Rich markdown does not render pipe tables as tables inside a blockquote; they degrade to plain text with raw pipes. Keep tables at the top level of the message.
+- **Clear a stuck reply keyboard**: send `reply_keyboard=[]` (explicit empty list) with the next message to dismiss a previously shown reply keyboard (sends `ReplyKeyboardRemove`). `reply_keyboard=None` (default) sends no markup.
+
 ## Contribution Flow
 
 See [`CONTRIBUTING.md`](./CONTRIBUTING.md) for contribution flow and PR guidelines.

@@ -88,7 +88,14 @@ class _ExecSession:
             return
         first = True
         while True:
-            chunk = await stream.read(4096)
+            try:
+                chunk = await stream.read(4096)
+            except (ConnectionResetError, asyncio.CancelledError):
+                # On Windows the stream reader can surface CancelledError
+                # (asyncio/streams.py) when the child process exits mid-read.
+                # That is a normal close path for the reader task, not a real
+                # failure: stop reading and let the session conclude normally.
+                return
             if not chunk:
                 break
             text = chunk.decode("utf-8", errors="replace")
@@ -151,7 +158,7 @@ class _ExecSession:
                     timeout=2.0,
                 )
             # Safety-net reap after normal exit.
-            from nanobot.agent.tools.shell import _reap_pid
+            from nanobot.utils.process import _reap_pid
             _reap_pid(self.process.pid)
         elif yield_time_ms > 0:
             await self._wait_for_buffered_output()

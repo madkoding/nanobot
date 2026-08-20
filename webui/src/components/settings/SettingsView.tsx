@@ -2935,6 +2935,7 @@ function AppearanceSettings({
               options={[
                 { value: "auto", label: tx("settings.values.auto", "Auto") },
                 { value: "expanded", label: tx("settings.values.expanded", "Expanded") },
+                { value: "collapsed", label: tx("settings.values.collapsed", "Collapsed") },
               ]}
               onChange={(activityMode) =>
                 onChangeLocalPrefs((prev) => ({ ...prev, activityMode: activityMode as LocalActivityMode }))

@@ -1033,6 +1033,33 @@ class WebUISettingsRouter:
                 raise WebUISettingsError(f"'{raw_key}' must be one of: {options}")
             return value
 
+        if kind == "kv":
+            if raw_value is None or raw_value == "":
+                return {}
+            if isinstance(raw_value, dict):
+                return {str(k).strip(): str(v).strip() for k, v in raw_value.items()}
+            if not isinstance(raw_value, str):
+                raise WebUISettingsError(f"'{raw_key}' must be a key=value map")
+            stripped = raw_value.strip()
+            if stripped.startswith("{"):
+                try:
+                    parsed = json.loads(stripped)
+                except json.JSONDecodeError as exc:
+                    raise WebUISettingsError(f"'{raw_key}' must be valid JSON") from exc
+                if not isinstance(parsed, dict):
+                    raise WebUISettingsError(f"'{raw_key}' must be a JSON object")
+                return {str(k).strip(): str(v).strip() for k, v in parsed.items()}
+            result: dict[str, str] = {}
+            for line in stripped.splitlines():
+                line = line.strip()
+                if not line or line.startswith("#"):
+                    continue
+                if "=" not in line:
+                    raise WebUISettingsError(f"'{raw_key}' lines must be key=value")
+                key, _, value = line.partition("=")
+                result[key.strip()] = value.strip()
+            return result
+
         raise WebUISettingsError(f"'{raw_key}' has an unsupported field type")
 
     @staticmethod

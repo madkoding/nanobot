@@ -234,6 +234,7 @@
       "compact": "Ringkas",
       "auto": "Otomatis",
       "expanded": "Diperluas",
+      "collapsed": "Diruntuhkan",
       "default": "Default",
       "summary": "Ringkasan",
       "diff": "Diff",
@@ -641,7 +642,13 @@
         "needs_setup": "Perlu penyiapan",
         "invalid": "Tidak valid",
         "unsupported": "Penyiapan manual"
-      }
+      },
+      "keyValueKey": "Key",
+      "keyValueValue": "Value",
+      "keyValueKeyAria": "Key",
+      "keyValueValueAria": "Value",
+      "keyValueAdd": "Add",
+      "keyValueRemove": "Remove entry"
     },
     "nanobotFeatures": {
       "enabled": "Aktif",

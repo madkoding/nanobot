@@ -1,17 +1,16 @@
 """Matrix (Element) channel — inbound sync + outbound message/media delivery."""
 
 import asyncio
-import html
 import json
 import mimetypes
-import re
 import sys
 import time
+from collections.abc import Awaitable, Callable
 from contextlib import suppress
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal, TypeAlias
-from urllib.parse import quote, unquote, urlparse
+from urllib.parse import quote, urlparse
 
 from pydantic import Field
 
@@ -19,8 +18,6 @@ from nanobot.security.workspace_policy import is_path_within
 
 try:
     import aiohttp
-    import nh3
-    from mistune import HTMLRenderer, create_markdown
     from nio import (
         AsyncClient,
         AsyncClientConfig,
@@ -54,7 +51,7 @@ except ImportError as e:
 from nanobot.bus.events import OutboundMessage
 from nanobot.bus.outbound_events import ProgressEvent
 from nanobot.bus.queue import MessageBus
-from nanobot.channels.base import BaseChannel
+from nanobot.channels.base import BaseChannel, TypingIndicator
 from nanobot.config.paths import get_data_dir, get_media_dir
 from nanobot.config.schema import Base
 from nanobot.utils.helpers import safe_filename
@@ -63,7 +60,14 @@ from nanobot.utils.logging_bridge import redirect_lib_logging
 TYPING_NOTICE_TIMEOUT_MS = 30_000
 # Must stay below TYPING_NOTICE_TIMEOUT_MS so the indicator doesn't expire mid-processing.
 TYPING_KEEPALIVE_INTERVAL_MS = 20_000
-MATRIX_HTML_FORMAT = "org.matrix.custom.html"
+# Markdown rendering helpers live in matrix/render.py; re-export so existing
+# import sites keep working unchanged.
+from nanobot.channels.matrix.render import (  # noqa: E402
+    MATRIX_HTML_FORMAT,  # noqa: F401 (re-export for tests)
+    _build_matrix_text_content,
+    _render_markdown_html,  # noqa: F401 (re-export for tests)
+)
+
 _ATTACH_MARKER = "[attachment: {}]"
 _ATTACH_TOO_LARGE = "[attachment: {} - too large]"
 _ATTACH_FAILED = "[attachment: {} - download failed]"
@@ -77,93 +81,6 @@ MatrixMediaEvent: TypeAlias = RoomMessageMedia | RoomEncryptedMedia
 
 class _MediaTooLargeError(Exception):
     """Raised when an inbound Matrix media download exceeds the configured cap."""
-
-MATRIX_MARKDOWN = create_markdown(
-    renderer=HTMLRenderer(escape=True, allow_harmful_protocols=("mxc://",)),
-    plugins=["table", "strikethrough", "url", "superscript", "subscript"],
-)
-
-MATRIX_ALLOWED_HTML_TAGS = {
-    "p", "a", "strong", "em", "del", "code", "pre", "blockquote",
-    "ul", "ol", "li", "h1", "h2", "h3", "h4", "h5", "h6",
-    "hr", "br", "table", "thead", "tbody", "tr", "th", "td",
-    "caption", "sup", "sub", "img",
-}
-MATRIX_ALLOWED_HTML_ATTRIBUTES: dict[str, set[str]] = {
-    "a": {"href"}, "code": {"class"}, "ol": {"start"},
-    "img": {"src", "alt", "title", "width", "height"},
-}
-MATRIX_ALLOWED_URL_SCHEMES = {"https", "http", "matrix", "mailto", "mxc"}
-_MXC_IMAGE_PLACEHOLDER_PREFIX = "https://nanobot.invalid/matrix-mxc/"
-_MXC_MARKDOWN_IMAGE_RE = re.compile(
-    r"(?P<prefix>!\[[^\]]*\]\()"
-    r"(?P<value>mxc://[^\s)]+)"
-    r"(?P<suffix>(?:\s+[^)]*)?\))"
-)
-_MXC_IMAGE_SRC_RE = re.compile(
-    r"(?P<prefix>\bsrc=)(?P<quote>[\"'])(?P<value>mxc://[^\"']+)(?P=quote)",
-    re.IGNORECASE,
-)
-_MXC_PLACEHOLDER_SRC_RE = re.compile(
-    rf'src="{re.escape(_MXC_IMAGE_PLACEHOLDER_PREFIX)}([^"]+)"'
-)
-
-
-def _filter_matrix_html_attribute(tag: str, attr: str, value: str) -> str | None:
-    """Filter attribute values to a safe Matrix-compatible subset."""
-    if tag == "a" and attr == "href":
-        return value if value.lower().startswith(("https://", "http://", "matrix:", "mailto:")) else None
-    if tag == "img" and attr == "src":
-        lowered = value.lower()
-        if lowered.startswith("mxc://") or lowered.startswith(_MXC_IMAGE_PLACEHOLDER_PREFIX):
-            return value
-        return None
-    if tag == "code" and attr == "class":
-        classes = [c for c in value.split() if c.startswith("language-") and not c.startswith("language-_")]
-        return " ".join(classes) if classes else None
-    return value
-
-
-MATRIX_HTML_CLEANER = nh3.Cleaner(
-    tags=MATRIX_ALLOWED_HTML_TAGS,
-    attributes=MATRIX_ALLOWED_HTML_ATTRIBUTES,
-    attribute_filter=_filter_matrix_html_attribute,
-    url_schemes=MATRIX_ALLOWED_URL_SCHEMES,
-    strip_comments=True,
-    link_rel="noopener noreferrer",
-)
-
-
-def _mask_mxc_markdown_image_sources(text: str) -> str:
-    def repl(match: re.Match[str]) -> str:
-        value = quote(match.group("value"), safe="")
-        return (
-            f"{match.group('prefix')}"
-            f"{_MXC_IMAGE_PLACEHOLDER_PREFIX}{value}"
-            f"{match.group('suffix')}"
-        )
-
-    return _MXC_MARKDOWN_IMAGE_RE.sub(repl, text)
-
-
-def _mask_mxc_image_sources(rendered_html: str) -> str:
-    def repl(match: re.Match[str]) -> str:
-        value = quote(match.group("value"), safe="")
-        return (
-            f'{match.group("prefix")}{match.group("quote")}'
-            f"{_MXC_IMAGE_PLACEHOLDER_PREFIX}{value}"
-            f'{match.group("quote")}'
-        )
-
-    return _MXC_IMAGE_SRC_RE.sub(repl, rendered_html)
-
-
-def _unmask_mxc_image_sources(cleaned_html: str) -> str:
-    def repl(match: re.Match[str]) -> str:
-        value = html.escape(unquote(match.group(1)), quote=True)
-        return f'src="{value}"'
-
-    return _MXC_PLACEHOLDER_SRC_RE.sub(repl, cleaned_html)
 
 
 @dataclass
@@ -182,68 +99,6 @@ class _StreamBuf:
     text: str = ""
     event_id: str | None = None
     last_edit: float = 0.0
-
-def _render_markdown_html(text: str) -> str | None:
-    """Render markdown to sanitized HTML; returns None for plain text."""
-    try:
-        masked_text = _mask_mxc_markdown_image_sources(text)
-        rendered = _mask_mxc_image_sources(MATRIX_MARKDOWN(masked_text))
-        formatted = _unmask_mxc_image_sources(MATRIX_HTML_CLEANER.clean(rendered).strip())
-    except Exception:
-        return None
-    if not formatted:
-        return None
-    # Skip formatted_body for plain <p>text</p> to keep payload minimal.
-    if formatted.startswith("<p>") and formatted.endswith("</p>"):
-        inner = formatted[3:-4]
-        if "<" not in inner and ">" not in inner:
-            return None
-    return formatted
-
-
-def _build_matrix_text_content(
-    text: str,
-    event_id: str | None = None,
-    thread_relates_to: dict[str, object] | None = None,
-) -> dict[str, object]:
-    """
-    Constructs and returns a dictionary representing the matrix text content with optional
-    HTML formatting and reference to an existing event for replacement. This function is
-    primarily used to create content payloads compatible with the Matrix messaging protocol.
-
-    :param text: The plain text content to include in the message.
-    :type text: str
-    :param event_id: Optional ID of the event to replace. If provided, the function will
-        include information indicating that the message is a replacement of the specified
-        event.
-    :type event_id: str | None
-    :param thread_relates_to: Optional Matrix thread relation metadata. For edits this is
-        stored in ``m.new_content`` so the replacement remains in the same thread.
-    :type thread_relates_to: dict[str, object] | None
-    :return: A dictionary containing the matrix text content, potentially enriched with
-        HTML formatting and replacement metadata if applicable.
-    :rtype: dict[str, object]
-    """
-    content: dict[str, object] = {"msgtype": "m.text", "body": text, "m.mentions": {}}
-    if html := _render_markdown_html(text):
-        content["format"] = MATRIX_HTML_FORMAT
-        content["formatted_body"] = html
-    if event_id:
-        content["m.new_content"] = {
-            "body": text,
-            "msgtype": "m.text",
-        }
-        content["m.relates_to"] = {
-            "rel_type": "m.replace",
-            "event_id": event_id,
-        }
-        if thread_relates_to:
-            content["m.new_content"]["m.relates_to"] = thread_relates_to
-    elif thread_relates_to:
-        content["m.relates_to"] = thread_relates_to
-
-    return content
-
 
 def _matrix_stream_key(chat_id: str, stream_id: str | None) -> str:
     return chat_id if stream_id is None else f"{chat_id}\0{stream_id}"
@@ -295,7 +150,11 @@ class MatrixChannel(BaseChannel):
         super().__init__(config, bus)
         self.client: AsyncClient | None = None
         self._sync_task: asyncio.Task | None = None
-        self._typing_tasks: dict[str, asyncio.Task] = {}
+        # Matrix typing refresh must stay below TYPING_NOTICE_TIMEOUT_MS.
+        self._typing = TypingIndicator(interval=TYPING_KEEPALIVE_INTERVAL_MS / 1000)
+        # ponytail: tests inspect _typing_tasks directly; mirror the helper's
+        # task dict so existing assertions keep working without rewriting tests.
+        self._typing_tasks = self._typing._tasks
         self._restrict_to_workspace = bool(restrict_to_workspace)
         self._workspace = (
             Path(workspace).expanduser().resolve(strict=False) if workspace is not None else None
@@ -761,24 +620,19 @@ class MatrixChannel(BaseChannel):
 
     async def _start_typing_keepalive(self, room_id: str) -> None:
         """Start periodic typing refresh (spec-recommended keepalive)."""
-        await self._stop_typing_keepalive(room_id, clear_typing=False)
         await self._set_typing(room_id, True)
-        if not self._running:
-            return
+        self._typing.start(room_id, self._typing_action(room_id))
 
-        async def loop() -> None:
-            with suppress(asyncio.CancelledError):
-                while self._running:
-                    await asyncio.sleep(TYPING_KEEPALIVE_INTERVAL_MS / 1000)
-                    await self._set_typing(room_id, True)
+    def _typing_action(self, room_id: str) -> Callable[[], Awaitable[object]]:
+        async def _action() -> object:
+            if not self.client:
+                raise RuntimeError("matrix client not ready")
+            return await self._set_typing(room_id, True)
 
-        self._typing_tasks[room_id] = asyncio.create_task(loop())
+        return _action
 
     async def _stop_typing_keepalive(self, room_id: str, *, clear_typing: bool) -> None:
-        if task := self._typing_tasks.pop(room_id, None):
-            task.cancel()
-            with suppress(asyncio.CancelledError):
-                await task
+        self._typing.stop(room_id)
         if clear_typing:
             await self._set_typing(room_id, False)
 

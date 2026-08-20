@@ -61,7 +61,6 @@ from rich.table import Table  # noqa: E402
 from rich.text import Text  # noqa: E402
 
 from nanobot import __logo__, __version__  # noqa: E402
-from nanobot import optional_features as feature_support  # noqa: E402
 from nanobot.agent.hooks import create_file_edit_activity_hook  # noqa: E402
 from nanobot.agent.loop import AgentLoop  # noqa: E402
 from nanobot.agent.subagent import SubagentManager  # noqa: E402
@@ -77,6 +76,7 @@ from nanobot.cli.gateway import create_gateway_app  # noqa: E402
 from nanobot.cli.stream import StreamRenderer, ThinkingSpinner  # noqa: E402
 from nanobot.config.paths import get_workspace_path, is_default_workspace  # noqa: E402
 from nanobot.config.schema import AgentDefaults, Config  # noqa: E402
+from nanobot.runtime import features as feature_support  # noqa: E402
 from nanobot.security.network import is_loopback_host  # noqa: E402
 from nanobot.utils.evaluator import evaluate_response, resolve_evaluator_prompt  # noqa: E402
 from nanobot.utils.helpers import (  # noqa: E402
@@ -200,6 +200,24 @@ def _commit_dream_changes(memory: Any) -> str | None:
         diff_body,
     )
     return memory.git.auto_commit(message)
+
+
+def _dream_workspaces(agent: Any) -> list[Path]:
+    """Return all workspaces that Dream should consolidate independently.
+
+    Includes the default workspace plus every workspace registered for a
+    WhatsApp group/DM.
+    """
+    roots: set[Path] = set()
+    default = getattr(agent, "workspace", None)
+    if default is not None:
+        roots.add(Path(default))
+    registries = getattr(agent, "_group_workspace_registries", None) or {}
+    for registry in registries.values():
+        known = getattr(registry, "known_workspaces", None)
+        if callable(known):
+            roots.update(known())
+    return sorted(roots)
 
 
 class SafeFileHistory(FileHistory):
@@ -1924,64 +1942,73 @@ def _run_gateway(
             dream_session_key = MemoryStore.dream_session_key
             prune_dream_sessions = MemoryStore.prune_dream_sessions
 
-            store = agent.context.memory
-            progress = DreamRunProgress()
-            resp = None
-            diff_body = ""
-            try:
-                result = store.build_dream_prompt()
-                if result is None:
-                    logger.info("Dream: nothing to process")
-                    return None
-                prompt, last_cursor = result
-                key = dream_session_key()
-                resp = await agent.process_direct(
-                    prompt,
-                    session_key=key,
-                    ephemeral=True,
-                    tools=store.build_dream_tools(),
-                    on_progress=progress,
-                )
-                # The real file delta grounds the audit record; clean completion
-                # decides whether this history batch has finished processing.
-                diff_body = store.dream_content_diff()
-                completed = MemoryStore.dream_run_completed(
-                    resp,
-                    had_tool_errors=progress.had_tool_errors,
-                )
-                if completed:
-                    store.set_last_dream_cursor(last_cursor)
-                    if diff_body:
-                        logger.info(
-                            "Dream cron job completed, cursor advanced to {}",
-                            last_cursor,
-                        )
-                    else:
-                        logger.info(
-                            "Dream cron job completed with no memory changes; "
-                            "cursor advanced to {}",
-                            last_cursor,
-                        )
-                else:
-                    logger.warning(
-                        "Dream cron job did not complete; cursor remains at {}",
-                        store.get_last_dream_cursor(),
+            workspaces = _dream_workspaces(agent)
+            any_processed = False
+            for workspace in workspaces:
+                store = agent.context.memory_store_for(workspace)
+                progress = DreamRunProgress()
+                resp = None
+                diff_body = ""
+                try:
+                    result = store.build_dream_prompt(owner_id=getattr(agent, "_owner_id", None))
+                    if result is None:
+                        logger.debug("Dream: nothing to process for {}", workspace)
+                        continue
+                    prompt, last_cursor = result
+                    any_processed = True
+                    key = dream_session_key()
+                    resp = await agent.process_direct(
+                        prompt,
+                        session_key=key,
+                        ephemeral=True,
+                        tools=store.build_dream_tools(),
+                        on_progress=progress,
                     )
-            except Exception:
-                logger.exception("Dream cron job failed")
-            finally:
-                from nanobot.webui.token_usage import record_response_token_usage
+                    # The real file delta grounds the audit record; clean completion
+                    # decides whether this history batch has finished processing.
+                    diff_body = store.dream_content_diff()
+                    completed = MemoryStore.dream_run_completed(
+                        resp,
+                        had_tool_errors=progress.had_tool_errors,
+                    )
+                    if completed:
+                        store.set_last_dream_cursor(last_cursor)
+                        if diff_body:
+                            logger.info(
+                                "Dream workspace={} completed, cursor advanced to {}",
+                                workspace,
+                                last_cursor,
+                            )
+                        else:
+                            logger.info(
+                                "Dream workspace={} completed with no memory changes; "
+                                "cursor advanced to {}",
+                                workspace,
+                                last_cursor,
+                            )
+                    else:
+                        logger.warning(
+                            "Dream workspace={} did not complete; cursor remains at {}",
+                            workspace,
+                            store.get_last_dream_cursor(),
+                        )
+                except Exception:
+                    logger.exception("Dream cron job failed for workspace={}", workspace)
+                finally:
+                    from nanobot.webui.token_usage import record_response_token_usage
 
-                record_response_token_usage(
-                    resp,
-                    source="dream",
-                    timezone_name=config.agents.defaults.timezone,
-                )
-                sha = _commit_dream_changes(store)
-                if sha:
-                    logger.info("Dream commit: {}", sha)
-                store.compact_history()
-                prune_dream_sessions(agent.sessions.sessions_dir)
+                    record_response_token_usage(
+                        resp,
+                        source="dream",
+                        timezone_name=config.agents.defaults.timezone,
+                    )
+                    sha = _commit_dream_changes(store)
+                    if sha:
+                        logger.info("Dream commit workspace={}: {}", workspace, sha)
+                    store.compact_history()
+            if not any_processed:
+                logger.info("Dream: nothing to process")
+            prune_dream_sessions(agent.sessions.sessions_dir)
             return None
 
         # Heartbeat is a system job that checks HEARTBEAT.md for active tasks.
@@ -2661,6 +2688,89 @@ def agent(
 
 
 # ============================================================================
+# Index Command
+# ============================================================================
+
+
+index_app = typer.Typer(help="Manage the workspace file index")
+app.add_typer(index_app, name="index")
+
+memory_app = typer.Typer(help="Manage the agent memory index")
+app.add_typer(memory_app, name="memory")
+
+
+@index_app.command("rebuild")
+def index_rebuild(
+    workspace: str | None = typer.Option(None, "--workspace", "-w", help="Workspace directory"),
+    config: str | None = typer.Option(None, "--config", "-c", help="Path to config file"),
+):
+    """Rebuild the SQLite inverted index for fast grep/find_files."""
+    from nanobot.agent.indexer import WorkspaceIndexer
+
+    cfg = _load_runtime_config(config, workspace)
+    ws_path = cfg.workspace_path
+    console.print(f"Indexing workspace: {ws_path}")
+    indexer = WorkspaceIndexer(ws_path)
+    indexed, removed = indexer.index_workspace()
+    stats = indexer.stats()
+    console.print(
+        f"[green]Done:[/green] indexed {indexed} files, removed {removed} stale entries. "
+        f"Index now covers {stats['files']} files with {stats['tokens']} distinct tokens."
+    )
+
+
+@memory_app.command("rebuild")
+def memory_rebuild(
+    workspace: str | None = typer.Option(None, "--workspace", "-w", help="Workspace directory"),
+    config: str | None = typer.Option(None, "--config", "-c", help="Path to config file"),
+):
+    """Rebuild the BM25 memory index from history.jsonl and MEMORY.md."""
+    from nanobot.agent.memory_store import MemoryStore
+
+    cfg = _load_runtime_config(config, workspace)
+    ws_path = cfg.workspace_path
+    console.print(f"Rebuilding memory index for: {ws_path}")
+    store = MemoryStore(ws_path)
+    # Reset BM25 DB.
+    bm25_db = ws_path / "memory" / "memory_bm25.db"
+    for name in (bm25_db.name, bm25_db.name + "-wal", bm25_db.name + "-shm"):
+        try:
+            (bm25_db.parent / name).unlink()
+        except FileNotFoundError:
+            pass
+    store._bm25 = None
+    bm25 = store.bm25
+
+    indexed = 0
+    entries = store.read_unprocessed_history(since_cursor=0)
+    for entry in entries:
+        content = entry.get("content", "")
+        if not isinstance(content, str) or not content.strip():
+            continue
+        try:
+            bm25.add_chunk(
+                content,
+                source="history",
+                session_key=entry.get("session_key"),
+            )
+            indexed += 1
+        except Exception:
+            pass
+
+    memory_text = store.read_memory()
+    if memory_text.strip():
+        chunk_size = cfg.agents.defaults.bm25_history_cap
+        ids = bm25.add_text(memory_text, source="memory", chunk_size=chunk_size)
+        indexed += len(ids)
+
+    stats = bm25.stats()
+    console.print(
+        f"[green]Done:[/green] indexed {indexed} chunks. "
+        f"Store now has {stats['chunks']} chunks with {stats['tokens']} distinct tokens."
+    )
+
+
+# ============================================================================
 # Channel Commands
 # ============================================================================
 
@@ -2853,308 +2963,14 @@ def status(
                 console.print(f"{spec.label}: {'[green]✓[/green]' if has_key else '[dim]not set[/dim]'}")
 
 
-# ============================================================================
-# OAuth Login
-# ============================================================================
+# OAuth provider login/logout commands live in cli/oauth.py.
+from nanobot.cli.oauth import (  # noqa: E402
+    _LOGIN_HANDLERS,  # noqa: F401 (re-export for tests)
+    _OAUTH_PROVIDER_DEFAULT_MODELS,  # noqa: F401 (re-export for tests)
+    provider_app,
+)
 
-provider_app = typer.Typer(help="Manage providers")
 app.add_typer(provider_app, name="provider")
-
-
-_LOGIN_HANDLERS: dict[str, Callable[[], None]] = {}
-_LOGOUT_HANDLERS: dict[str, Callable[[], None]] = {}
-
-_PROVIDER_DISPLAY: dict[str, str] = {
-    "openai_codex": "OpenAI Codex",
-    "xai_grok": "xAI Grok",
-    "github_copilot": "GitHub Copilot",
-}
-
-_OAUTH_PROVIDER_DEFAULT_MODELS: dict[str, str] = {
-    "openai_codex": "openai-codex/gpt-5.6-sol",
-    "xai_grok": "xai-grok/grok-4.5",
-    "github_copilot": "github-copilot/gpt-5.4-mini",
-}
-
-
-def _register_login(name: str):
-    """Register an OAuth login handler."""
-    def decorator(fn):
-        _LOGIN_HANDLERS[name] = fn
-        return fn
-
-    return decorator
-
-
-def _register_logout(name: str):
-    """Register an OAuth logout handler."""
-    def decorator(fn):
-        _LOGOUT_HANDLERS[name] = fn
-        return fn
-    return decorator
-
-
-def _resolve_oauth_provider(provider: str):
-    """Resolve and validate an OAuth provider configuration."""
-    from nanobot.providers.registry import PROVIDERS
-
-    key = provider.replace("-", "_")
-    spec = next((s for s in PROVIDERS if s.name == key and s.is_oauth), None)
-    if not spec:
-        names = ", ".join(s.name.replace("_", "-") for s in PROVIDERS if s.is_oauth)
-        console.print(f"[red]Unknown OAuth provider: {provider}[/red]  Supported: {names}")
-        raise typer.Exit(1)
-    return spec
-
-
-def _set_oauth_provider_as_main(
-    provider_name: str,
-    *,
-    model: str | None = None,
-    config_path: str | None = None,
-) -> None:
-    """Persist an OAuth provider as the active agent provider."""
-    from nanobot.config.loader import get_config_path, load_config, save_config, set_config_path
-
-    resolved_config_path = Path(config_path).expanduser().resolve() if config_path else None
-    if resolved_config_path is not None and get_config_path() != resolved_config_path:
-        set_config_path(resolved_config_path)
-        console.print(f"[dim]Using config: {resolved_config_path}[/dim]")
-
-    config = load_config(resolved_config_path)
-    selected_model = (model or "").strip() or _OAUTH_PROVIDER_DEFAULT_MODELS[provider_name]
-    config.agents.defaults.model_preset = None
-    config.agents.defaults.provider = provider_name
-    config.agents.defaults.model = selected_model
-    if provider_name == "xai_grok" and selected_model == "xai-grok/grok-4.5":
-        config.agents.defaults.context_window_tokens = 500_000
-    save_config(config, resolved_config_path)
-
-    saved_path = resolved_config_path or get_config_path()
-    console.print(
-        f"[green]✓ Set {provider_name.replace('_', '-')} as the main provider[/green]  "
-        f"[dim]{selected_model}[/dim]"
-    )
-    console.print(f"[dim]Saved: {saved_path}[/dim]")
-
-
-@provider_app.command("login")
-def provider_login(
-    provider: str = typer.Argument(
-        ...,
-        help="OAuth provider (e.g. 'openai-codex', 'xai-grok', 'github-copilot')",
-    ),
-    set_main: bool = typer.Option(
-        False,
-        "--set-main",
-        "--main",
-        help="Set this OAuth provider as the active agent provider after login",
-    ),
-    model: str | None = typer.Option(
-        None,
-        "--model",
-        "-m",
-        help="Model to use when setting this provider as the active provider",
-    ),
-    config: str | None = typer.Option(None, "--config", "-c", help="Path to config file"),
-):
-    """Authenticate with an OAuth provider."""
-    spec = _resolve_oauth_provider(provider)
-
-    handler = _LOGIN_HANDLERS.get(spec.name)
-    if not handler:
-        console.print(f"[red]Login not implemented for {spec.label}[/red]")
-        raise typer.Exit(1)
-
-    if config:
-        from nanobot.config.loader import set_config_path
-
-        resolved_config_path = Path(config).expanduser().resolve()
-        set_config_path(resolved_config_path)
-        console.print(f"[dim]Using config: {resolved_config_path}[/dim]")
-
-    console.print(f"{__logo__} OAuth Login - {spec.label}\n")
-    handler()
-    if set_main or model:
-        _set_oauth_provider_as_main(spec.name, model=model, config_path=config)
-
-
-@provider_app.command("logout")
-def provider_logout(
-    provider: str = typer.Argument(
-        ...,
-        help="OAuth provider (e.g. 'openai-codex', 'xai-grok', 'github-copilot')",
-    ),
-    config: str | None = typer.Option(None, "--config", "-c", help="Path to config file"),
-):
-    """Log out from an OAuth provider."""
-    spec = _resolve_oauth_provider(provider)
-
-    handler = _LOGOUT_HANDLERS.get(spec.name)
-    if not handler:
-        console.print(f"[red]Logout not implemented for {spec.label}[/red]")
-        raise typer.Exit(1)
-
-    if config:
-        from nanobot.config.loader import set_config_path
-
-        resolved_config_path = Path(config).expanduser().resolve()
-        set_config_path(resolved_config_path)
-        console.print(f"[dim]Using config: {resolved_config_path}[/dim]")
-
-    console.print(f"{__logo__} OAuth Logout - {spec.label}\n")
-    handler()
-
-
-@_register_login("openai_codex")
-def _login_openai_codex() -> None:
-    try:
-        from oauth_cli_kit import get_token, login_oauth_interactive
-
-        from nanobot.config.loader import load_config, resolve_config_env_vars
-
-        proxy = None
-        try:
-            proxy = resolve_config_env_vars(load_config()).providers.openai_codex.proxy or None
-        except ValueError as e:
-            console.print(f"[red]{e}[/red]")
-            raise typer.Exit(1) from e
-        token = None
-        with suppress(Exception):
-            token = get_token(proxy=proxy)
-        if not (token and token.access):
-            console.print("[cyan]Starting interactive OAuth login...[/cyan]\n")
-            token = login_oauth_interactive(
-                print_fn=lambda s: console.print(s),
-                prompt_fn=lambda s: typer.prompt(s),
-                proxy=proxy,
-            )
-        if not (token and token.access):
-            console.print("[red]✗ Authentication failed[/red]")
-            raise typer.Exit(1)
-        console.print(f"[green]✓ Authenticated with OpenAI Codex[/green]  [dim]{token.account_id}[/dim]")
-    except ImportError:
-        console.print("[red]oauth_cli_kit not installed. Run: pip install oauth-cli-kit[/red]")
-        raise typer.Exit(1)
-
-
-@_register_logout("openai_codex")
-def _logout_openai_codex() -> None:
-    """Clear local OAuth credentials for OpenAI Codex."""
-    try:
-        from oauth_cli_kit.providers import OPENAI_CODEX_PROVIDER
-        from oauth_cli_kit.storage import FileTokenStorage
-    except ImportError:
-        console.print("[red]oauth_cli_kit not installed. Run: pip install oauth-cli-kit[/red]")
-        raise typer.Exit(1)
-
-    storage = FileTokenStorage(token_filename=OPENAI_CODEX_PROVIDER.token_filename)
-    _delete_oauth_files(storage.get_token_path(), _PROVIDER_DISPLAY["openai_codex"])
-
-
-@_register_login("xai_grok")
-def _login_xai_grok() -> None:
-    """Authenticate with xAI using the Grok subscription OAuth contract."""
-    from nanobot.config.loader import load_config, resolve_config_env_vars
-    from nanobot.providers.xai_oauth import get_xai_oauth_token, login_xai_oauth
-
-    try:
-        proxy = resolve_config_env_vars(load_config()).providers.xai_grok.proxy or None
-    except ValueError as exc:
-        console.print(f"[red]{exc}[/red]")
-        raise typer.Exit(1) from exc
-
-    token = None
-    with suppress(Exception):
-        token = get_xai_oauth_token(proxy=proxy)
-    if not (token and token.access):
-        console.print(
-            "[cyan]Starting xAI browser sign-in for your X Premium / Grok subscription...[/cyan]\n"
-        )
-        try:
-            token = login_xai_oauth(
-                print_fn=lambda message: console.print(message),
-                prompt_fn=lambda prompt: typer.prompt(prompt),
-                proxy=proxy,
-            )
-        except Exception as exc:
-            console.print(f"[red]Authentication error: {exc}[/red]")
-            raise typer.Exit(1) from exc
-    account = token.account_id or "xAI account"
-    console.print(f"[green]✓ Authenticated with xAI[/green]  [dim]{account}[/dim]")
-    console.print(
-        "[dim]Hosted X Search is enabled automatically when the selected model supports it.[/dim]"
-    )
-
-
-@_register_logout("xai_grok")
-def _logout_xai_grok() -> None:
-    """Clear local xAI OAuth credentials for this nanobot instance."""
-    from nanobot.providers.xai_oauth import get_xai_oauth_storage_path, logout_xai_oauth
-
-    token_path = get_xai_oauth_storage_path()
-    provider_label = _PROVIDER_DISPLAY["xai_grok"]
-    if logout_xai_oauth():
-        console.print(f"[green]✓ Logged out from {provider_label}[/green]")
-        console.print(f"[dim]Removed: {token_path}[/dim]")
-    else:
-        console.print(f"[yellow]! No local OAuth credentials found for {provider_label}[/yellow]")
-
-
-@_register_logout("github_copilot")
-def _logout_github_copilot() -> None:
-    """Clear local OAuth credentials for GitHub Copilot."""
-    try:
-        from nanobot.providers.github_copilot_provider import get_storage
-    except ImportError:
-        console.print("[red]oauth_cli_kit not installed. Run: pip install oauth-cli-kit[/red]")
-        raise typer.Exit(1)
-
-    storage = get_storage()
-    _delete_oauth_files(storage.get_token_path(), _PROVIDER_DISPLAY["github_copilot"])
-
-
-def _delete_oauth_files(token_path: Path, provider_label: str) -> None:
-    """Delete OAuth token and lock files, reporting the result."""
-    removed_paths: list[Path] = []
-    skipped: list[tuple[Path, OSError]] = []
-    for path in (token_path, token_path.with_suffix(".lock")):
-        try:
-            path.unlink()
-        except FileNotFoundError:
-            continue
-        except OSError as exc:
-            skipped.append((path, exc))
-            continue
-        removed_paths.append(path)
-
-    if not removed_paths and not skipped:
-        console.print(f"[yellow]! No local OAuth credentials found for {provider_label}[/yellow]")
-        return
-
-    if removed_paths:
-        console.print(f"[green]✓ Logged out from {provider_label}[/green]")
-        for path in removed_paths:
-            console.print(f"[dim]Removed: {path}[/dim]")
-    for path, exc in skipped:
-        console.print(f"[yellow]! Could not remove {path}: {exc}[/yellow]")
-
-
-@_register_login("github_copilot")
-def _login_github_copilot() -> None:
-    try:
-        from nanobot.providers.github_copilot_provider import login_github_copilot
-
-        console.print("[cyan]Starting GitHub Copilot device flow...[/cyan]\n")
-        token = login_github_copilot(
-            print_fn=lambda s: console.print(s),
-            prompt_fn=lambda s: typer.prompt(s),
-        )
-        account = token.account_id or "GitHub"
-        console.print(f"[green]✓ Authenticated with GitHub Copilot[/green]  [dim]{account}[/dim]")
-    except Exception as e:
-        console.print(f"[red]Authentication error: {e}[/red]")
-        raise typer.Exit(1)
 
 
 if __name__ == "__main__":

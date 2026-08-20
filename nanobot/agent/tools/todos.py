@@ -12,6 +12,9 @@ from nanobot.agent.tools.schema import (
     tool_parameters_schema,
 )
 from nanobot.security.workspace_access import default_workspace_scope
+
+# TODO(architecture): webui/todos_api is business state; this agent tool depends
+# on it, inverting the dependency (agent should own it, WebUI should consume it).
 from nanobot.webui.todos_api import (
     create_item,
     create_todo_list,

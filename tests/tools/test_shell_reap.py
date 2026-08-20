@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import shlex
 import sys
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -14,14 +15,14 @@ from nanobot.agent.tools.shell import ExecTool, _reap_pid
 
 def test_reap_pid_noops_without_waitpid():
     """On platforms (or test stubs) without waitpid, reaping is a no-op."""
-    with patch("nanobot.agent.tools.shell.os") as mock_os:
+    with patch("nanobot.utils.process.os") as mock_os:
         mock_os.waitpid = None
         mock_os.WNOHANG = None
         _reap_pid(12345)
 
 
 def test_reap_pid_calls_waitpid_wnohang():
-    with patch("nanobot.agent.tools.shell.os") as mock_os:
+    with patch("nanobot.utils.process.os") as mock_os:
         mock_os.waitpid = MagicMock(return_value=(12345, 0))
         mock_os.WNOHANG = 1
         _reap_pid(12345)
@@ -29,7 +30,7 @@ def test_reap_pid_calls_waitpid_wnohang():
 
 
 def test_reap_pid_swallows_already_reaped_errors():
-    with patch("nanobot.agent.tools.shell.os") as mock_os:
+    with patch("nanobot.utils.process.os") as mock_os:
         mock_os.WNOHANG = 1
         mock_os.waitpid = MagicMock(side_effect=ChildProcessError("no child"))
         _reap_pid(99)
@@ -112,20 +113,37 @@ async def test_execute_timeout_kills_and_reaps():
     mock_proc.pid = 1002
     mock_proc.returncode = None
     mock_proc.communicate.side_effect = asyncio.TimeoutError()
-    mock_proc.kill = MagicMock()
-    mock_proc.wait = AsyncMock(return_value=-9)
 
     with (
-        patch.object(ExecTool, "_spawn", return_value=mock_proc),
+        patch.object(ExecTool, "_spawn", return_value=mock_proc) as spawn,
         patch.object(ExecTool, "_guard_command", return_value=None),
-        patch("nanobot.agent.tools.shell._reap_pid") as reap,
+        patch.object(ExecTool, "_kill_process_tree", new_callable=AsyncMock) as kill_tree,
     ):
         tool = ExecTool(timeout=1)
         result = await tool.execute(command="sleep 99", timeout=1)
 
     assert "timed out" in result.lower()
-    mock_proc.kill.assert_called_once()
-    reap.assert_called_with(1002)
+    kill_tree.assert_awaited_once_with(mock_proc)
+    assert spawn.await_args.kwargs["process_tree"] is True
+
+
+@pytest.mark.asyncio
+async def test_execute_cancellation_kills_process_tree():
+    mock_proc = AsyncMock()
+    mock_proc.pid = 1005
+    mock_proc.returncode = None
+    mock_proc.communicate.side_effect = asyncio.CancelledError()
+
+    with (
+        patch.object(ExecTool, "_spawn", return_value=mock_proc) as spawn,
+        patch.object(ExecTool, "_guard_command", return_value=None),
+        patch.object(ExecTool, "_kill_process_tree", new_callable=AsyncMock) as kill_tree,
+    ):
+        with pytest.raises(asyncio.CancelledError):
+            await ExecTool().execute(command="sleep 99")
+
+    kill_tree.assert_awaited_once_with(mock_proc)
+    assert spawn.await_args.kwargs["process_tree"] is True
 
 
 @pytest.mark.asyncio
@@ -161,21 +179,35 @@ async def test_execute_exception_during_communicate_kills_live_process():
     mock_proc.pid = 1004
     mock_proc.returncode = None
     mock_proc.communicate.side_effect = OSError("pipe broken")
-    mock_proc.kill = MagicMock()
-    mock_proc.wait = AsyncMock(return_value=-1)
 
     with (
         patch.object(ExecTool, "_spawn", return_value=mock_proc),
         patch.object(ExecTool, "_guard_command", return_value=None),
-        patch("nanobot.agent.tools.shell._reap_pid") as reap,
+        patch.object(ExecTool, "_kill_process_tree", new_callable=AsyncMock) as kill_tree,
     ):
         tool = ExecTool()
         result = await tool.execute(command="broken")
 
     assert "Error executing command" in result
     assert "pipe broken" in result
-    mock_proc.kill.assert_called_once()
-    reap.assert_called_with(1004)
+    kill_tree.assert_awaited_once_with(mock_proc)
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="requires Unix process groups")
+@pytest.mark.asyncio
+async def test_execute_timeout_kills_background_process_tree(tmp_path):
+    """A one-shot timeout must stop background descendants before they write."""
+    marker = tmp_path / "child-survived"
+    command = f"(sleep 2; touch {shlex.quote(str(marker))}) >/dev/null 2>&1 & sleep 30"
+
+    result = await ExecTool(working_dir=str(tmp_path), timeout=1).execute(
+        command=command,
+        timeout=1,
+    )
+
+    assert "timed out" in result.lower()
+    await asyncio.sleep(2.5)
+    assert not marker.exists()
 
 
 def _mock_session_process(*, pid: int, returncode: int | None):
@@ -279,7 +311,7 @@ async def test_exec_session_poll_reaps_after_exit():
         owner_session_key=None,
     )
     try:
-        with patch("nanobot.agent.tools.shell._reap_pid") as reap:
+        with patch("nanobot.utils.process._reap_pid") as reap:
             poll = await session.poll(yield_time_ms=0, max_output_chars=1000)
         assert poll.done is True
         assert poll.exit_code == 0

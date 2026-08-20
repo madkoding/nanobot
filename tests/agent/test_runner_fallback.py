@@ -213,6 +213,49 @@ def test_provider_snapshot_uses_smallest_fallback_context_window() -> None:
     assert snapshot.context_window_tokens == 64000
 
 
+def test_named_preset_snapshot_keeps_its_own_context_window() -> None:
+    """Regression: resolving an explicitly named preset (e.g. /model <preset>)
+    must use the preset's own context window, not the global minimum across
+    fallbackModels. The fallback chain only constrains the default runtime,
+    which is the one that may actually fail over."""
+    from nanobot.config.schema import Config
+    from nanobot.providers.factory import build_provider_snapshot
+
+    config = Config.model_validate({
+        "agents": {
+            "defaults": {
+                "modelPreset": "fast",
+                "fallbackModels": ["deep"],
+            }
+        },
+        "modelPresets": {
+            "fast": {
+                "model": "openai/gpt-4.1",
+                "provider": "openai",
+                "contextWindowTokens": 128000,
+            },
+            "deep": {
+                "model": "deepseek/deepseek-chat",
+                "provider": "deepseek",
+                "contextWindowTokens": 64000,
+            },
+        },
+        "providers": {
+            "openai": {"apiKey": "primary-key"},
+            "deepseek": {"apiKey": "fallback-key"},
+        },
+    })
+
+    with patch("nanobot.providers.openai_compat_provider.AsyncOpenAI"):
+        # Default selection still shrinks to the smallest fallback window.
+        default = build_provider_snapshot(config)
+        # Explicit preset keeps its own (larger) window.
+        named = build_provider_snapshot(config, preset_name="fast")
+
+    assert default.context_window_tokens == 64000
+    assert named.context_window_tokens == 128000
+
+
 def test_inline_fallback_reasoning_effort_does_not_inherit_primary() -> None:
     from nanobot.config.schema import Config
     from nanobot.providers.factory import provider_signature

@@ -40,7 +40,7 @@ async def test_state_restore_extracts_documents_by_default(
         calls.append((content, media))
         return f"{content}\n\n[File: report.txt]\nQuarterly revenue is $5M", []
 
-    monkeypatch.setattr("nanobot.agent.loop.extract_documents", fake_extract_documents)
+    monkeypatch.setattr("nanobot.agent.loop_turn_state.extract_documents", fake_extract_documents)
 
     msg = InboundMessage(
         channel="cli",
@@ -78,7 +78,7 @@ async def test_state_restore_references_documents_when_extraction_disabled(
     def fail_extract_documents(content: str, media: list[str]) -> tuple[str, list[str]]:
         raise AssertionError("document extraction should be disabled")
 
-    monkeypatch.setattr("nanobot.agent.loop.extract_documents", fail_extract_documents)
+    monkeypatch.setattr("nanobot.agent.loop_turn_state.extract_documents", fail_extract_documents)
 
     msg = InboundMessage(
         channel="cli",
@@ -126,7 +126,7 @@ async def test_pending_followup_references_documents_when_extraction_disabled(
     def fail_extract_documents(content: str, media: list[str]) -> tuple[str, list[str]]:
         raise AssertionError("document extraction should be disabled")
 
-    monkeypatch.setattr("nanobot.agent.loop.extract_documents", fail_extract_documents)
+    monkeypatch.setattr("nanobot.agent.loop_turn_state.extract_documents", fail_extract_documents)
 
     pending_queue: asyncio.Queue[InboundMessage] = asyncio.Queue()
     await pending_queue.put(

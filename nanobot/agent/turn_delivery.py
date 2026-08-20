@@ -276,16 +276,36 @@ class TurnDelivery:
         return f"{self._stream_base_id}:{self._stream_segment}"
 
     async def _publish_stream(self, delta: str) -> None:
+        # Propagate reply_keyboard/menu_commands set during the stream so
+        # the consolidated sendRichMessage / send_message can apply them.
+        metadata = dict(self.delivery_message.metadata)
+        reply_keyboard = getattr(self.delivery_message, "reply_keyboard", None)
+        menu_commands = getattr(self.delivery_message, "menu_commands", None)
+        if reply_keyboard and "reply_keyboard" not in metadata:
+            metadata["reply_keyboard"] = reply_keyboard
+        if menu_commands and "menu_commands" not in metadata:
+            metadata["menu_commands"] = menu_commands
         await self.bus.publish_outbound(
             outbound_message_for_event(
                 channel=self.delivery_message.channel,
                 chat_id=self.delivery_message.chat_id,
                 event=StreamDeltaEvent(content=delta, stream_id=self._stream_id()),
-                metadata=self.delivery_message.metadata,
+                metadata=metadata,
             )
         )
 
     async def _publish_stream_end(self, *, resuming: bool = False) -> None:
+        # Carry any pending reply_keyboard/menu_commands set during the
+        # stream (e.g. via the `message` tool with reply_keyboard=...) so
+        # the final ChannelManager._send_once can apply the keyboard to the
+        # consolidated sendRichMessage / send_message.
+        metadata = dict(self.delivery_message.metadata)
+        reply_keyboard = getattr(self.delivery_message, "reply_keyboard", None)
+        menu_commands = getattr(self.delivery_message, "menu_commands", None)
+        if reply_keyboard and "reply_keyboard" not in metadata:
+            metadata["reply_keyboard"] = reply_keyboard
+        if menu_commands and "menu_commands" not in metadata:
+            metadata["menu_commands"] = menu_commands
         await self.bus.publish_outbound(
             outbound_message_for_event(
                 channel=self.delivery_message.channel,
@@ -294,7 +314,7 @@ class TurnDelivery:
                     stream_id=self._stream_id(),
                     resuming=resuming,
                 ),
-                metadata=self.delivery_message.metadata,
+                metadata=metadata,
             )
         )
         self._stream_segment += 1

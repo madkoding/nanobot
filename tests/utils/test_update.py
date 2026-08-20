@@ -9,6 +9,7 @@ from unittest.mock import patch
 from nanobot.utils.update import (
     InstallInfo,
     RemoteInfo,
+    _find_repo_path,
     detect_install,
     get_remote_info,
     get_remote_main_sha,
@@ -56,6 +57,40 @@ def test_detect_install_pypi(tmp_path):
         info = detect_install()
     assert info.kind == "pypi"
     assert info.repo_path is None
+
+
+def test_find_repo_path_prefers_direct_url_when_valid(tmp_path):
+    direct_url_path = tmp_path / "from-direct-url"
+    direct_url_path.mkdir()
+    (direct_url_path / "pyproject.toml").write_text('[project]\nversion = "0.1.0"\n', encoding="utf-8")
+    with (
+        patch("nanobot.utils.update._find_repo_path_from_direct_url", return_value=direct_url_path),
+        patch("nanobot.utils.update._find_repo_path_from_package", return_value=tmp_path),
+    ):
+        found = _find_repo_path()
+    assert found == direct_url_path
+
+
+def test_find_repo_path_validates_direct_url_has_pyproject(tmp_path):
+    stale_path = tmp_path / "stale"
+    stale_path.mkdir()
+    # No pyproject.toml → stale path is rejected, fallback to package path.
+    with (
+        patch("nanobot.utils.update._find_repo_path_from_direct_url", return_value=stale_path),
+        patch("nanobot.utils.update._find_repo_path_from_package", return_value=tmp_path),
+    ):
+        found = _find_repo_path()
+    assert found == tmp_path
+
+
+def test_find_repo_path_falls_back_to_package_location(tmp_path):
+    (tmp_path / "pyproject.toml").write_text('[project]\nversion = "0.1.0"\n', encoding="utf-8")
+    with (
+        patch("nanobot.utils.update._find_repo_path_from_direct_url", return_value=None),
+        patch("nanobot.utils.update._find_repo_path_from_package", return_value=tmp_path),
+    ):
+        found = _find_repo_path()
+    assert found == tmp_path
 
 
 def test_get_remote_main_sha():

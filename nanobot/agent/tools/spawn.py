@@ -97,6 +97,7 @@ class SpawnTool(Tool):
             label=label,
             origin_channel=origin_channel,
             origin_chat_id=origin_chat_id,
+            origin_sender_id=request_ctx.sender_id,
             session_key=session_key,
             origin_message_id=request_ctx.message_id,
             temperature=temperature,

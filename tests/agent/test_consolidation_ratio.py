@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 from pydantic import ValidationError
 
-import nanobot.agent.memory as memory_module
+import nanobot.agent.memory_consolidator as memory_module
 from nanobot.agent.loop import AgentLoop
 from nanobot.bus.queue import MessageBus
 from nanobot.config.schema import AgentDefaults
@@ -84,7 +84,6 @@ async def test_consolidation_ratio_controls_target(
 
     loop.consolidator.estimate_session_prompt_tokens = mock_estimate  # type: ignore[method-assign]
     monkeypatch.setattr(memory_module, "estimate_message_tokens", lambda _m: 100)
-
     await loop.consolidator.maybe_consolidate_by_tokens(
         session,
         runtime=runtime,

@@ -183,6 +183,7 @@ _SETUP_PLUGIN_SPEC = ChannelSetupSpec(
             kind="enum",
             choices=frozenset({"us", "eu"}),
         ),
+        "metadata": ChannelFieldSpec(kind="kv"),
     },
     required=(SetupRequirement((("token",),)),),
     official_url="https://plugin.example/setup",
@@ -234,11 +235,11 @@ def _stub_optional_feature_cli(
         )
     assert not channels or {plugin.name for plugin in plugins} == set(channels)
     _stub_channel_registry(monkeypatch, *plugins)
-    monkeypatch.setattr("nanobot.optional_features.optional_dependency_groups", lambda: extras)
-    monkeypatch.setattr("nanobot.optional_features.extra_installed", lambda _name, _deps: installed)
+    monkeypatch.setattr("nanobot.runtime.features.optional_dependency_groups", lambda: extras)
+    monkeypatch.setattr("nanobot.runtime.features.extra_installed", lambda _name, _deps: installed)
     if commands is not None:
         monkeypatch.setattr(
-            "nanobot.optional_features.run_install_command",
+            "nanobot.runtime.features.run_install_command",
             lambda argv: commands.append(argv) or subprocess.CompletedProcess(argv, 0, "", ""),
         )
 
@@ -394,7 +395,7 @@ def test_feature_payload_uses_unified_instance_activation(monkeypatch):
         }
     })
     _stub_channel_registry(monkeypatch, _channel_plugin(_FakeMultiChannel))
-    monkeypatch.setattr("nanobot.optional_features.optional_dependency_groups", lambda: {})
+    monkeypatch.setattr("nanobot.runtime.features.optional_dependency_groups", lambda: {})
 
     payload = optional_features_payload(config=config)
 
@@ -434,7 +435,7 @@ def test_multi_plugin_action_defaults_to_default_instance(
         monkeypatch,
         _channel_plugin(_ManagedMultiPlugin, management=_fake_multi_management()),
     )
-    monkeypatch.setattr("nanobot.optional_features.optional_dependency_groups", lambda: {})
+    monkeypatch.setattr("nanobot.runtime.features.optional_dependency_groups", lambda: {})
 
     disabled = nanobot_features_action("disable", {"name": ["managedmulti"]})
     saved = json.loads(config_path.read_text(encoding="utf-8"))["channels"]["managedmulti"]
@@ -488,7 +489,7 @@ async def test_single_channel_enable_applies_defaults_before_hot_reload(
     )
     monkeypatch.setattr(loader, "_current_config_path", config_path)
     _stub_channel_registry(monkeypatch, _channel_plugin(_SingleDefaultsPlugin))
-    monkeypatch.setattr("nanobot.optional_features.optional_dependency_groups", lambda: {})
+    monkeypatch.setattr("nanobot.runtime.features.optional_dependency_groups", lambda: {})
     manager = ChannelManager(
         Config.model_validate({"channels": {"singleplugin": {"enabled": False}}}),
         MessageBus(),
@@ -562,7 +563,7 @@ def test_plugin_setup_contract_drives_feature_payload(monkeypatch: pytest.Monkey
         monkeypatch,
         _channel_plugin(_SetupPlugin, setup=_SETUP_PLUGIN_SPEC),
     )
-    monkeypatch.setattr("nanobot.optional_features.optional_dependency_groups", lambda: {})
+    monkeypatch.setattr("nanobot.runtime.features.optional_dependency_groups", lambda: {})
 
     payload = optional_features_payload(config=config)
 
@@ -582,6 +583,13 @@ def test_plugin_setup_contract_drives_feature_payload(monkeypatch: pytest.Monkey
                 "field": "region",
                 "kind": "enum",
                 "choices": ["eu", "us"],
+                "required": False,
+            },
+            {
+                "key": "channels.setupplugin.metadata",
+                "field": "metadata",
+                "kind": "kv",
+                "choices": [],
                 "required": False,
             },
         ],
@@ -622,7 +630,7 @@ def test_plugin_contract_error_is_isolated_in_feature_payload(monkeypatch):
         ),
         _channel_plugin(_SetupPlugin, setup=_SETUP_PLUGIN_SPEC),
     )
-    monkeypatch.setattr("nanobot.optional_features.optional_dependency_groups", lambda: {})
+    monkeypatch.setattr("nanobot.runtime.features.optional_dependency_groups", lambda: {})
 
     payload = optional_features_payload(config=config)
 
@@ -668,6 +676,7 @@ def test_plugin_setup_contract_drives_save_and_validation(
         {
             "channels.setupplugin.token": "plugin-secret",
             "channels.setupplugin.region": "eu",
+            "channels.setupplugin.metadata": "env=prod\nowner=ci",
         },
     )
     validation = validate_channel_config("setupplugin")
@@ -675,8 +684,10 @@ def test_plugin_setup_contract_drives_save_and_validation(
     assert saved == [
         "channels.setupplugin.token",
         "channels.setupplugin.region",
+        "channels.setupplugin.metadata",
     ]
     assert load_config(config_path).channels.setupplugin["token"] == "plugin-secret"
+    assert load_config(config_path).channels.setupplugin["metadata"] == {"env": "prod", "owner": "ci"}
     assert validation["status"] == "connected"
     assert validation["checks"][0]["id"] == "plugin"
 
@@ -930,8 +941,8 @@ def test_manager_installs_manifest_dependencies_before_loading_enabled_channel(m
         installed = True
         return InstallResult(True, name, ["pip"])
 
-    monkeypatch.setattr("nanobot.optional_features.extra_installed", extra_installed)
-    monkeypatch.setattr("nanobot.optional_features.install_extra", install_extra)
+    monkeypatch.setattr("nanobot.runtime.features.extra_installed", extra_installed)
+    monkeypatch.setattr("nanobot.runtime.features.install_extra", install_extra)
     config = Config.model_validate({
         "channels": {
             "websocket": {"enabled": False},
@@ -954,11 +965,11 @@ def test_manager_reports_dependency_install_failure_as_runtime_failure(monkeypat
     )
     _stub_channel_registry(monkeypatch, plugin)
     monkeypatch.setattr(
-        "nanobot.optional_features.extra_installed",
+        "nanobot.runtime.features.extra_installed",
         lambda _name, _dependencies: False,
     )
     monkeypatch.setattr(
-        "nanobot.optional_features.install_extra",
+        "nanobot.runtime.features.install_extra",
         lambda name, _dependencies, *, runner: InstallResult(False, name, ["pip"]),
     )
     config = Config.model_validate({
@@ -995,6 +1006,10 @@ def test_manager_loads_websocket_from_default_config():
         @classmethod
         def default_config(cls):
             return {"enabled": True, "host": "127.0.0.1"}
+
+        @classmethod
+        def build_kwargs(cls, manager):
+            return {"gateway": "fake-gateway"}
 
     plugin = _channel_plugin(_FakeWebSocket, default_enabled=True)
     with patch("nanobot.channels.registry.discover_plugins", return_value={"websocket": plugin}):
@@ -1297,7 +1312,7 @@ def test_plugins_list_shows_available_features(monkeypatch):
     monkeypatch.setattr("nanobot.config.loader.load_config", lambda config_path=None: config)
     _stub_channel_packages(monkeypatch, "weixin")
     monkeypatch.setattr(
-        "nanobot.optional_features.optional_dependency_groups",
+        "nanobot.runtime.features.optional_dependency_groups",
         lambda: {"weixin": ["qrcode[pil]>=8.0"], "bedrock": ["boto3>=1.43.0"]},
     )
 
@@ -1333,7 +1348,7 @@ def test_plugins_list_reads_multi_instance_state_without_runtime(monkeypatch):
     })
     monkeypatch.setattr("nanobot.config.loader.load_config", lambda config_path=None: config)
     _stub_channel_registry(monkeypatch, plugin)
-    monkeypatch.setattr("nanobot.optional_features.optional_dependency_groups", lambda: {})
+    monkeypatch.setattr("nanobot.runtime.features.optional_dependency_groups", lambda: {})
 
     result = CliRunner().invoke(app, ["plugins", "list"])
 
@@ -1542,7 +1557,7 @@ def test_plugins_disable_channel_writes_config(monkeypatch, tmp_path):
     )
     runner = CliRunner()
     _stub_channel_packages(monkeypatch, "matrix")
-    monkeypatch.setattr("nanobot.optional_features.optional_dependency_groups", lambda: {})
+    monkeypatch.setattr("nanobot.runtime.features.optional_dependency_groups", lambda: {})
 
     result = runner.invoke(app, ["plugins", "disable", "matrix", "--config", str(config_path)])
 
@@ -1562,7 +1577,7 @@ def test_plugins_disable_rejects_non_channel_and_allows_websocket(monkeypatch, t
     runner = CliRunner()
     _stub_channel_packages(monkeypatch, "matrix", "websocket")
     monkeypatch.setattr(
-        "nanobot.optional_features.optional_dependency_groups",
+        "nanobot.runtime.features.optional_dependency_groups",
         lambda: {"bedrock": ["boto3>=1.43.0"]},
     )
 
@@ -1591,10 +1606,10 @@ def test_enable_optional_feature_blocks_install_when_disallowed(monkeypatch, tmp
     monkeypatch.setattr("nanobot.config.loader._current_config_path", config_path)
     _stub_channel_registry(monkeypatch)
     monkeypatch.setattr(
-        "nanobot.optional_features.optional_dependency_groups",
+        "nanobot.runtime.features.optional_dependency_groups",
         lambda: {"bedrock": ["boto3>=1.43.0"]},
     )
-    monkeypatch.setattr("nanobot.optional_features.extra_installed", lambda _name, _deps: False)
+    monkeypatch.setattr("nanobot.runtime.features.extra_installed", lambda _name, _deps: False)
 
     with pytest.raises(OptionalFeatureError) as exc:
         enable_optional_feature("bedrock", config_path=config_path, allow_install=False)
@@ -1615,10 +1630,10 @@ def test_enable_optional_feature_skips_install_when_dependency_present(
     monkeypatch.setattr("nanobot.config.loader._current_config_path", config_path)
     _stub_channel_registry(monkeypatch)
     monkeypatch.setattr(
-        "nanobot.optional_features.optional_dependency_groups",
+        "nanobot.runtime.features.optional_dependency_groups",
         lambda: {"bedrock": ["boto3>=1.43.0"]},
     )
-    monkeypatch.setattr("nanobot.optional_features.extra_installed", lambda _name, _deps: True)
+    monkeypatch.setattr("nanobot.runtime.features.extra_installed", lambda _name, _deps: True)
 
     def _install_extra(
         name: str,
@@ -1629,7 +1644,7 @@ def test_enable_optional_feature_skips_install_when_dependency_present(
         install_calls.append(name)
         return InstallResult(True, f"{name} support", ["python", "-m", "pip", "install", name])
 
-    monkeypatch.setattr("nanobot.optional_features.install_extra", _install_extra)
+    monkeypatch.setattr("nanobot.runtime.features.install_extra", _install_extra)
 
     payload = enable_optional_feature("bedrock", config_path=config_path, allow_install=False)
 
@@ -1646,10 +1661,10 @@ def test_enable_optional_feature_lazy_reader_does_not_require_restart(monkeypatc
     monkeypatch.setattr("nanobot.config.loader._current_config_path", config_path)
     _stub_channel_registry(monkeypatch)
     monkeypatch.setattr(
-        "nanobot.optional_features.optional_dependency_groups",
+        "nanobot.runtime.features.optional_dependency_groups",
         lambda: {"documents": ["pypdf>=6.15.0,<7.0.0"]},
     )
-    monkeypatch.setattr("nanobot.optional_features.extra_installed", lambda _name, _deps: True)
+    monkeypatch.setattr("nanobot.runtime.features.extra_installed", lambda _name, _deps: True)
 
     payload = enable_optional_feature("documents", config_path=config_path)
 
@@ -1668,12 +1683,12 @@ def test_enable_optional_feature_reports_install_failure(monkeypatch, tmp_path):
     monkeypatch.setattr("nanobot.config.loader._current_config_path", config_path)
     _stub_channel_registry(monkeypatch)
     monkeypatch.setattr(
-        "nanobot.optional_features.optional_dependency_groups",
+        "nanobot.runtime.features.optional_dependency_groups",
         lambda: {"bedrock": ["boto3>=1.43.0"]},
     )
-    monkeypatch.setattr("nanobot.optional_features.extra_installed", lambda _name, _deps: False)
+    monkeypatch.setattr("nanobot.runtime.features.extra_installed", lambda _name, _deps: False)
     monkeypatch.setattr(
-        "nanobot.optional_features.install_extra",
+        "nanobot.runtime.features.install_extra",
         lambda _name, _deps, *, runner: InstallResult(
             False,
             "bedrock support",
@@ -1702,7 +1717,7 @@ def test_disable_optional_feature_rejects_unknown_features_and_non_channels(
     monkeypatch.setattr("nanobot.config.loader._current_config_path", config_path)
     _stub_channel_packages(monkeypatch, "matrix", "websocket")
     monkeypatch.setattr(
-        "nanobot.optional_features.optional_dependency_groups",
+        "nanobot.runtime.features.optional_dependency_groups",
         lambda: {"bedrock": ["boto3>=1.43.0"]},
     )
 
@@ -1729,7 +1744,7 @@ def test_disable_optional_feature_writes_channel_disabled(monkeypatch, tmp_path)
         encoding="utf-8",
     )
     _stub_channel_packages(monkeypatch, "matrix", "websocket")
-    monkeypatch.setattr("nanobot.optional_features.optional_dependency_groups", lambda: {})
+    monkeypatch.setattr("nanobot.runtime.features.optional_dependency_groups", lambda: {})
 
     payload = disable_optional_feature("matrix", config_path=config_path)
 
@@ -1771,7 +1786,7 @@ def test_disable_multi_instance_channel_without_importing_runtime(monkeypatch, t
     )
     monkeypatch.setattr("nanobot.config.loader._current_config_path", config_path)
     _stub_channel_registry(monkeypatch, plugin)
-    monkeypatch.setattr("nanobot.optional_features.optional_dependency_groups", lambda: {})
+    monkeypatch.setattr("nanobot.runtime.features.optional_dependency_groups", lambda: {})
 
     payload = disable_optional_feature(
         "managedmulti",
@@ -1823,10 +1838,10 @@ def test_optional_features_payload_counts_enabled_channel_with_missing_dependenc
     config = Config.model_validate({"channels": {"matrix": {"enabled": True}}})
     _stub_channel_packages(monkeypatch, "matrix")
     monkeypatch.setattr(
-        "nanobot.optional_features.optional_dependency_groups",
+        "nanobot.runtime.features.optional_dependency_groups",
         lambda: {"matrix": ["matrix-nio>=0.25.2"]},
     )
-    monkeypatch.setattr("nanobot.optional_features.extra_installed", lambda _name, _deps: False)
+    monkeypatch.setattr("nanobot.runtime.features.extra_installed", lambda _name, _deps: False)
 
     payload = optional_features_payload(config=config)
 
@@ -1895,7 +1910,7 @@ def test_package_manifest_metadata_drives_optional_feature_payload(monkeypatch):
 
     _stub_channel_registry(monkeypatch, plugin)
     monkeypatch.setattr(
-        "nanobot.optional_features.optional_dependency_groups",
+        "nanobot.runtime.features.optional_dependency_groups",
         lambda: {},
     )
 
@@ -1903,7 +1918,7 @@ def test_package_manifest_metadata_drives_optional_feature_payload(monkeypatch):
         checked_extras.append((extra, deps))
         return True
 
-    monkeypatch.setattr("nanobot.optional_features.extra_installed", record_extra)
+    monkeypatch.setattr("nanobot.runtime.features.extra_installed", record_extra)
 
     payload = optional_features_payload(config=config)
 
@@ -1928,7 +1943,7 @@ def test_optional_features_payload_reflects_saved_channel_config(monkeypatch):
         }
     })
     _stub_channel_packages(monkeypatch, "discord")
-    monkeypatch.setattr("nanobot.optional_features.optional_dependency_groups", lambda: {})
+    monkeypatch.setattr("nanobot.runtime.features.optional_dependency_groups", lambda: {})
 
     payload = optional_features_payload(config=config)
 
@@ -1953,7 +1968,7 @@ def test_optional_features_payload_marks_enabled_channel_missing_credentials(mon
 
     config = Config.model_validate({"channels": {"discord": {"enabled": True}}})
     _stub_channel_packages(monkeypatch, "discord")
-    monkeypatch.setattr("nanobot.optional_features.optional_dependency_groups", lambda: {})
+    monkeypatch.setattr("nanobot.runtime.features.optional_dependency_groups", lambda: {})
 
     payload = optional_features_payload(config=config)
 
@@ -1982,7 +1997,7 @@ def test_optional_features_payload_detects_saved_weixin_login_state(tmp_path, mo
         }
     })
     _stub_channel_packages(monkeypatch, "weixin")
-    monkeypatch.setattr("nanobot.optional_features.optional_dependency_groups", lambda: {})
+    monkeypatch.setattr("nanobot.runtime.features.optional_dependency_groups", lambda: {})
 
     payload = optional_features_payload(config=config)
 
@@ -2005,7 +2020,7 @@ def test_optional_features_payload_detects_legacy_default_weixin_state(tmp_path,
         encoding="utf-8",
     )
     _stub_channel_packages(monkeypatch, "weixin")
-    monkeypatch.setattr("nanobot.optional_features.optional_dependency_groups", lambda: {})
+    monkeypatch.setattr("nanobot.runtime.features.optional_dependency_groups", lambda: {})
 
     payload = optional_features_payload(config=Config())
 
@@ -2033,7 +2048,7 @@ def test_optional_features_payload_requires_matrix_device_id_for_token_login(
         }
     })
     _stub_channel_packages(monkeypatch, "matrix")
-    monkeypatch.setattr("nanobot.optional_features.optional_dependency_groups", lambda: {})
+    monkeypatch.setattr("nanobot.runtime.features.optional_dependency_groups", lambda: {})
 
     payload = optional_features_payload(config=config)
 
@@ -2059,7 +2074,7 @@ def test_optional_features_payload_marks_disabled_feishu_as_configured(monkeypat
         monkeypatch,
         replace(plugin, runtime="missing.feishu.runtime:FeishuChannel"),
     )
-    monkeypatch.setattr("nanobot.optional_features.optional_dependency_groups", lambda: {})
+    monkeypatch.setattr("nanobot.runtime.features.optional_dependency_groups", lambda: {})
 
     payload = optional_features_payload(config=config)
 
@@ -2106,7 +2121,7 @@ def test_optional_features_payload_lists_feishu_instances(monkeypatch):
         monkeypatch,
         replace(plugin, runtime="missing.feishu.runtime:FeishuChannel"),
     )
-    monkeypatch.setattr("nanobot.optional_features.optional_dependency_groups", lambda: {})
+    monkeypatch.setattr("nanobot.runtime.features.optional_dependency_groups", lambda: {})
 
     payload = optional_features_payload(config=config)
 
@@ -2185,7 +2200,7 @@ def test_optional_features_payload_does_not_refresh_saved_feishu_identity(monkey
     )
     monkeypatch.setattr(loader, "_current_config_path", config_path)
     _stub_channel_packages(monkeypatch, "feishu")
-    monkeypatch.setattr("nanobot.optional_features.optional_dependency_groups", lambda: {})
+    monkeypatch.setattr("nanobot.runtime.features.optional_dependency_groups", lambda: {})
     monkeypatch.setattr(
         feishu_module,
         "fetch_feishu_app_identity",
@@ -2228,7 +2243,7 @@ def test_enable_optional_feature_refreshes_feishu_identity(
     )
     monkeypatch.setattr(loader, "_current_config_path", config_path)
     _stub_channel_packages(monkeypatch, "feishu")
-    monkeypatch.setattr("nanobot.optional_features.optional_dependency_groups", lambda: {})
+    monkeypatch.setattr("nanobot.runtime.features.optional_dependency_groups", lambda: {})
     monkeypatch.setattr(feishu_module, "FEISHU_AVAILABLE", True)
     monkeypatch.setattr(
         feishu_module,
@@ -2274,7 +2289,7 @@ def test_optional_features_payload_preserves_legacy_flat_feishu_config(monkeypat
     )
     monkeypatch.setattr(loader, "_current_config_path", config_path)
     _stub_channel_packages(monkeypatch, "feishu")
-    monkeypatch.setattr("nanobot.optional_features.optional_dependency_groups", lambda: {})
+    monkeypatch.setattr("nanobot.runtime.features.optional_dependency_groups", lambda: {})
     monkeypatch.setattr(
         feishu_module,
         "fetch_feishu_app_identity",
@@ -2314,7 +2329,7 @@ def test_enable_bootstraps_pip_with_ensurepip(monkeypatch):
 
 
 def test_install_extra_logs_command_and_output(monkeypatch):
-    from nanobot import optional_features
+    from nanobot.runtime import features as optional_features
 
     records: list[str] = []
 
@@ -2336,7 +2351,7 @@ def test_install_extra_logs_command_and_output(monkeypatch):
 
 
 def test_run_install_command_returns_failure_on_timeout(monkeypatch):
-    from nanobot import optional_features
+    from nanobot.runtime import features as optional_features
 
     def _run(*args, **kwargs):
         raise subprocess.TimeoutExpired(["pip"], 300, output="partial", stderr=b"still running")
@@ -2455,7 +2470,7 @@ def test_optional_dependency_metadata_for_enable():
 
 
 def test_optional_dependency_groups_falls_back_to_package_metadata(monkeypatch):
-    from nanobot import optional_features
+    from nanobot.runtime import features as optional_features
 
     class _Metadata:
         def get_all(self, key: str):
@@ -2528,7 +2543,7 @@ def test_install_args_for_extra_resolves_metadata_markers_for_current_platform()
 
 
 def test_requirement_installed_validates_requested_extras(monkeypatch):
-    from nanobot import optional_features
+    from nanobot.runtime import features as optional_features
 
     class _Metadata:
         def __init__(self, extras: list[str] | None = None) -> None:
@@ -2699,6 +2714,7 @@ async def test_send_with_retry_succeeds_first_try():
     mgr.bus = MessageBus()
     mgr.channels = {"failing": _FailingChannel(fake_config, mgr.bus)}
     mgr._dispatch_task = None
+    mgr._active_streams = set()
 
     msg = OutboundMessage(channel="failing", chat_id="123", content="test")
     await mgr._send_with_retry(mgr.channels["failing"], msg)
@@ -2736,6 +2752,7 @@ async def test_send_with_retry_retries_on_failure():
     mgr.bus = MessageBus()
     mgr.channels = {"failing": _FailingChannel(fake_config, mgr.bus)}
     mgr._dispatch_task = None
+    mgr._active_streams = set()
 
     msg = OutboundMessage(channel="failing", chat_id="123", content="test")
 
@@ -2777,6 +2794,7 @@ async def test_send_with_retry_no_retry_when_max_is_zero():
     mgr.bus = MessageBus()
     mgr.channels = {"failing": _FailingChannel(fake_config, mgr.bus)}
     mgr._dispatch_task = None
+    mgr._active_streams = set()
 
     msg = OutboundMessage(channel="failing", chat_id="123", content="test")
 
@@ -2826,6 +2844,7 @@ async def test_send_with_retry_calls_send_delta():
     mgr.bus = MessageBus()
     mgr.channels = {"streaming": _StreamingChannel(fake_config, mgr.bus)}
     mgr._dispatch_task = None
+    mgr._active_streams = set()
 
     msg = outbound_message_for_event(
         channel="streaming",
@@ -2913,6 +2932,7 @@ def test_outbound_duplicate_suppression_is_scoped_to_origin_message() -> None:
     mgr.bus = MessageBus()
     mgr.channels = {}
     mgr._dispatch_task = None
+    mgr._active_streams = set()
     mgr._origin_reply_fingerprints = {}
 
     first = OutboundMessage(
@@ -2947,6 +2967,129 @@ def test_outbound_duplicate_suppression_is_scoped_to_origin_message() -> None:
 
 
 @pytest.mark.asyncio
+async def test_dispatch_drops_legacy_send_when_stream_active() -> None:
+    """When a streaming reply is active for a chat, the final OutboundMessage
+    (without StreamedResponseEvent) must NOT trigger `channel.send()`,
+    otherwise the user gets a duplicate message above the streaming preview.
+    Regression: previously, short single-chunk streams fell through to the
+    legacy path and produced an extra top-level message.
+    """
+    send_calls: list[OutboundMessage] = []
+    delta_calls: list[tuple[str, str, str | None, bool]] = []
+
+    class _StreamedChannel(BaseChannel):
+        name = "streamed"
+        display_name = "Streamed"
+
+        async def start(self) -> None:
+            pass
+
+        async def stop(self) -> None:
+            pass
+
+        async def send(self, msg: OutboundMessage) -> None:
+            send_calls.append(msg)
+
+        async def send_delta(
+            self,
+            chat_id: str,
+            delta: str,
+            metadata: dict | None = None,
+            *,
+            stream_id: str | None = None,
+            stream_end: bool = False,
+            resuming: bool = False,
+        ) -> None:
+            delta_calls.append((chat_id, delta, stream_id, stream_end))
+
+    fake_config = SimpleNamespace(
+        channels=ChannelsConfig(send_max_retries=3),
+        providers=SimpleNamespace(groq=SimpleNamespace(api_key="")),
+    )
+    mgr = ChannelManager.__new__(ChannelManager)
+    mgr.config = fake_config
+    mgr.bus = MessageBus()
+    mgr.channels = {"streamed": _StreamedChannel(fake_config, mgr.bus)}
+    mgr._dispatch_task = None
+    mgr._active_streams = set()
+
+    # First: a stream delta activates the stream
+    delta = OutboundMessage(
+        channel="streamed", chat_id="123",
+        content="hello", event=StreamDeltaEvent(content="hello", stream_id="s1"),
+        metadata={"_wants_stream": True},
+    )
+    await mgr._send_once(mgr.channels["streamed"], delta)
+    assert ("streamed", "123") in mgr._active_streams
+
+    # Then: a final OutboundMessage WITHOUT StreamedResponseEvent
+    # (the runner emits this for streamed content) — must be dropped.
+    final = OutboundMessage(
+        channel="streamed",
+        chat_id="123",
+        content="hello",
+        event=None,
+        metadata={"_wants_stream": True, "message_id": "u1"},
+    )
+    await mgr._send_once(mgr.channels["streamed"], final)
+    assert send_calls == []
+    assert len(delta_calls) == 1
+
+    # Stream end clears the active stream
+    end = OutboundMessage(
+        channel="streamed", chat_id="123",
+        content="", event=StreamEndEvent(stream_id="s1"),
+        metadata={"_wants_stream": True},
+    )
+    await mgr._send_once(mgr.channels["streamed"], end)
+    assert ("streamed", "123") not in mgr._active_streams
+
+
+@pytest.mark.asyncio
+async def test_dispatch_legacy_send_falls_through_without_active_stream() -> None:
+    """When no stream is active for the chat, the legacy path still
+    invokes `channel.send()` — non-streaming channels and post-stream
+    follow-ups (e.g. /status responses, tool confirmations) work normally.
+    Regression: previously the broad `_wants_stream` drop blocked these.
+    """
+    send_calls: list[OutboundMessage] = []
+
+    class _LegacyChannel(BaseChannel):
+        name = "streamed"
+        display_name = "Streamed"
+
+        async def start(self) -> None:
+            pass
+
+        async def stop(self) -> None:
+            pass
+
+        async def send(self, msg: OutboundMessage) -> None:
+            send_calls.append(msg)
+
+    fake_config = SimpleNamespace(
+        channels=ChannelsConfig(send_max_retries=3),
+        providers=SimpleNamespace(groq=SimpleNamespace(api_key="")),
+    )
+    mgr = ChannelManager.__new__(ChannelManager)
+    mgr.config = fake_config
+    mgr.bus = MessageBus()
+    mgr.channels = {"streamed": _LegacyChannel(fake_config, mgr.bus)}
+    mgr._dispatch_task = None
+    mgr._active_streams = set()  # no active stream
+
+    msg = OutboundMessage(
+        channel="streamed",
+        chat_id="123",
+        content="hello",
+        event=None,
+        metadata={"_wants_stream": True, "message_id": "u1"},
+    )
+    await mgr._send_once(mgr.channels["streamed"], msg)
+    assert len(send_calls) == 1
+
+
+@pytest.mark.asyncio
 async def test_send_with_retry_propagates_cancelled_error():
     """_send_with_retry should re-raise CancelledError for graceful shutdown."""
     class _CancellingChannel(BaseChannel):
@@ -2972,6 +3115,7 @@ async def test_send_with_retry_propagates_cancelled_error():
     mgr.bus = MessageBus()
     mgr.channels = {"cancelling": _CancellingChannel(fake_config, mgr.bus)}
     mgr._dispatch_task = None
+    mgr._active_streams = set()
 
     msg = OutboundMessage(channel="cancelling", chat_id="123", content="test")
 
@@ -3009,6 +3153,7 @@ async def test_send_with_retry_propagates_cancelled_error_during_sleep():
     mgr.bus = MessageBus()
     mgr.channels = {"failing": _FailingChannel(fake_config, mgr.bus)}
     mgr._dispatch_task = None
+    mgr._active_streams = set()
 
     msg = OutboundMessage(channel="failing", chat_id="123", content="test")
 
@@ -3478,6 +3623,7 @@ async def test_restart_notice_retries_until_running_channel_accepts_delivery():
     mgr = ChannelManager.__new__(ChannelManager)
     mgr.config = fake_config
     mgr.bus = MessageBus()
+    mgr._active_streams = set()
     channel = _EventuallyDeliverableChannel(fake_config, mgr.bus)
     channel._running = True
     mgr.channels = {"discord": channel}

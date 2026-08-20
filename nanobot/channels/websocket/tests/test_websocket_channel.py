@@ -101,6 +101,7 @@ def _basic_handler(bus: Any, **kw: Any) -> GatewayServices:
         runtime_model_name=None,
         runtime_surface=kw.get("runtime_surface", "browser"),
         runtime_capabilities_overrides=kw.get("runtime_capabilities_overrides"),
+        owner_id=kw.get("owner_id"),
     )
 
 
@@ -535,6 +536,22 @@ def test_only_bootstrap_tokens_mark_webui_connections(bus: MagicMock) -> None:
 
     assert webui_connection in channel._webui_connections
     assert client_connection not in channel._webui_connections
+
+
+def test_webui_authenticated_connection_uses_owner_id_as_sender(bus: MagicMock) -> None:
+    channel = _ch(bus)
+    channel.gateway = _basic_handler(bus, owner_id="15551234567")
+    webui_connection = MagicMock()
+    other_connection = MagicMock()
+
+    channel._webui_connections.add(webui_connection)
+
+    assert channel._sender_id_for(webui_connection, "anon-123") == "15551234567"
+    assert channel._sender_id_for(other_connection, "anon-456") == "anon-456"
+
+    # Without owner_id configured, WebUI connection falls back to client_id
+    channel.gateway = _basic_handler(bus, owner_id=None)
+    assert channel._sender_id_for(webui_connection, "anon-123") == "anon-123"
 
 
 @pytest.mark.asyncio

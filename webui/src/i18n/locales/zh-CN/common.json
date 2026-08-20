@@ -383,6 +383,7 @@
       "auto": "自动",
       "default": "默认",
       "expanded": "展开",
+      "collapsed": "折叠",
       "summary": "摘要",
       "diff": "差异",
       "collapsedDiff": "折叠差异",
@@ -641,7 +642,13 @@
         "needs_setup": "需要配置",
         "invalid": "无效",
         "unsupported": "手动配置"
-      }
+      },
+      "keyValueKey": "Key",
+      "keyValueValue": "Value",
+      "keyValueKeyAria": "Key",
+      "keyValueValueAria": "Value",
+      "keyValueAdd": "Add",
+      "keyValueRemove": "Remove entry"
     },
     "nanobotFeatures": {
       "enabled": "已启用",

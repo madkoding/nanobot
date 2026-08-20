@@ -10,6 +10,9 @@ from nanobot.agent.tools.schema import (
     tool_parameters_schema,
 )
 from nanobot.security.workspace_access import default_workspace_scope
+
+# TODO(architecture): webui/agenda_api is business state; this agent tool depends
+# on it, inverting the dependency (agent should own it, WebUI should consume it).
 from nanobot.webui.agenda_api import (
     create_appointment,
     delete_appointment,

@@ -14,6 +14,11 @@ import pytest
 
 from nanobot.agent.tools.exec_session import ExecSessionManager, WriteStdinTool
 from nanobot.agent.tools.shell import ExecTool
+from nanobot.security.workspace_access import (
+    bind_workspace_scope,
+    build_workspace_scope,
+    reset_workspace_scope,
+)
 
 _WINDOWS_ENV_KEYS = {
     "APPDATA", "LOCALAPPDATA", "ProgramData",
@@ -299,7 +304,9 @@ class TestPathAppendPlatform:
         captured_cmd = None
         captured_env = {}
 
-        async def capture_spawn(cmd, cwd, env, shell_program=None, login=True):
+        async def capture_spawn(
+            cmd, cwd, env, shell_program=None, login=True, *, process_tree=False,
+        ):
             nonlocal captured_cmd
             captured_cmd = cmd
             captured_env.update(env)
@@ -328,7 +335,9 @@ class TestPathAppendPlatform:
         captured_cmd = None
         captured_env = {}
 
-        async def capture_spawn(cmd, cwd, env, shell_program=None, login=True, *, stdin=None):
+        async def capture_spawn(
+            cmd, cwd, env, shell_program=None, login=True, *, stdin=None, process_tree=False,
+        ):
             nonlocal captured_cmd
             captured_cmd = cmd
             captured_env.update(env)
@@ -356,7 +365,9 @@ class TestPathAppendPlatform:
         captured_cmd = None
         captured_env = {}
 
-        async def capture_spawn(cmd, cwd, env, shell_program=None, login=True, *, stdin=None):
+        async def capture_spawn(
+            cmd, cwd, env, shell_program=None, login=True, *, stdin=None, process_tree=False,
+        ):
             nonlocal captured_cmd
             captured_cmd = cmd
             captured_env.update(env)
@@ -386,7 +397,9 @@ class TestPathAppendPlatform:
 
         captured_env = {}
 
-        async def capture_spawn(cmd, cwd, env, shell_program=None, login=True):
+        async def capture_spawn(
+            cmd, cwd, env, shell_program=None, login=True, *, process_tree=False,
+        ):
             captured_env.update(env)
             return mock_proc
 
@@ -409,7 +422,9 @@ class TestPathAppendPlatform:
 
         captured_env = {}
 
-        async def capture_spawn(cmd, cwd, env, shell_program=None, login=True, *, stdin=None):
+        async def capture_spawn(
+            cmd, cwd, env, shell_program=None, login=True, *, stdin=None, process_tree=False,
+        ):
             captured_env.update(env)
             return mock_proc
 
@@ -462,6 +477,7 @@ class TestSandboxPlatform:
 
         with (
             patch("nanobot.agent.tools.shell._IS_WINDOWS", False),
+            patch("nanobot.agent.tools.shell._IS_LINUX", True),
             patch("nanobot.agent.tools.shell.wrap_command", return_value="bwrap -- sh -c ls") as mock_wrap,
             patch.object(ExecTool, "_spawn", return_value=mock_proc) as mock_spawn,
             patch.object(ExecTool, "_guard_command", return_value=None),
@@ -472,6 +488,78 @@ class TestSandboxPlatform:
         mock_wrap.assert_called_once()
         spawned_cmd = mock_spawn.call_args[0][0]
         assert "bwrap" in spawned_cmd
+
+
+class TestSandboxDynamic:
+    """Sandbox wrapping should follow the active workspace scope on Linux."""
+
+    @pytest.mark.asyncio
+    async def test_bwrap_skipped_on_macos(self):
+        """bwrap is Linux-only; on macOS it should be silently skipped."""
+        mock_proc = AsyncMock()
+        mock_proc.communicate.return_value = (b"ok", b"")
+        mock_proc.returncode = 0
+
+        with (
+            patch("nanobot.agent.tools.shell._IS_WINDOWS", False),
+            patch("nanobot.agent.tools.shell._IS_LINUX", False),
+            patch.object(ExecTool, "_spawn", return_value=mock_proc) as mock_spawn,
+            patch.object(ExecTool, "_guard_command", return_value=None),
+        ):
+            tool = ExecTool(sandbox="bwrap", working_dir="/workspace")
+            result = await tool.execute(command="ls")
+
+        assert "ok" in result
+        spawned_cmd = mock_spawn.call_args[0][0]
+        assert "bwrap" not in spawned_cmd
+
+    @pytest.mark.asyncio
+    async def test_bwrap_skipped_when_scope_full_access(self):
+        """On Linux, a full-access workspace scope should skip bwrap."""
+        mock_proc = AsyncMock()
+        mock_proc.communicate.return_value = (b"ok", b"")
+        mock_proc.returncode = 0
+        scope = build_workspace_scope("/workspace", "full")
+        token = bind_workspace_scope(scope)
+        try:
+            with (
+                patch("nanobot.agent.tools.shell._IS_WINDOWS", False),
+                patch("nanobot.agent.tools.shell._IS_LINUX", True),
+                patch("nanobot.agent.tools.shell.wrap_command") as mock_wrap,
+                patch.object(ExecTool, "_spawn", return_value=mock_proc),
+                patch.object(ExecTool, "_guard_command", return_value=None),
+            ):
+                tool = ExecTool(sandbox="bwrap", working_dir="/workspace")
+                await tool.execute(command="ls")
+
+            mock_wrap.assert_not_called()
+        finally:
+            reset_workspace_scope(token)
+
+    @pytest.mark.asyncio
+    async def test_bwrap_applied_when_scope_restricted(self):
+        """On Linux, a restricted workspace scope should use bwrap."""
+        mock_proc = AsyncMock()
+        mock_proc.communicate.return_value = (b"sandboxed", b"")
+        mock_proc.returncode = 0
+        scope = build_workspace_scope("/workspace", "restricted")
+        token = bind_workspace_scope(scope)
+        try:
+            with (
+                patch("nanobot.agent.tools.shell._IS_WINDOWS", False),
+                patch("nanobot.agent.tools.shell._IS_LINUX", True),
+                patch("nanobot.agent.tools.shell.wrap_command", return_value="bwrap -- sh -c ls") as mock_wrap,
+                patch.object(ExecTool, "_spawn", return_value=mock_proc) as mock_spawn,
+                patch.object(ExecTool, "_guard_command", return_value=None),
+            ):
+                tool = ExecTool(sandbox="bwrap", working_dir="/workspace")
+                await tool.execute(command="ls")
+
+            mock_wrap.assert_called_once()
+            spawned_cmd = mock_spawn.call_args[0][0]
+            assert "bwrap" in spawned_cmd
+        finally:
+            reset_workspace_scope(token)
 
 
 # ---------------------------------------------------------------------------
@@ -524,7 +612,9 @@ class TestExecuteEndToEnd:
         mock_proc.returncode = 0
         captured_login = []
 
-        async def capture_spawn(cmd, cwd, env, shell_program=None, login=None, *, stdin=None):
+        async def capture_spawn(
+            cmd, cwd, env, shell_program=None, login=None, *, stdin=None, process_tree=False,
+        ):
             captured_login.append(login)
             return mock_proc
 

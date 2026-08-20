@@ -12,3 +12,9 @@ repos:
         language: system
         files: ^(pyproject\.toml|webui/package\.json)$
         pass_filenames: false
+      - id: version-change-only-on-develop
+        name: enforce version bumps originate on develop
+        entry: python scripts/check_version_branch.py
+        language: system
+        files: ^(pyproject\.toml|webui/package\.json)$
+        pass_filenames: false

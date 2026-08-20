@@ -505,7 +505,7 @@ def test_plugins_list_uses_explicit_config(monkeypatch, tmp_path: Path):
         ),
     )
     monkeypatch.setattr(
-        "nanobot.optional_features.optional_dependency_groups",
+        "nanobot.runtime.features.optional_dependency_groups",
         lambda: {},
     )
 

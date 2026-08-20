@@ -5,20 +5,23 @@ from __future__ import annotations
 import asyncio
 import importlib.util
 import time
+from collections import deque
+from collections.abc import Awaitable, Callable
 from contextlib import suppress
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
 
-from pydantic import Field
+from pydantic import Field, field_validator
 
 from nanobot.bus.events import OutboundMessage
 from nanobot.bus.outbound_events import ProgressEvent
 from nanobot.bus.queue import MessageBus
-from nanobot.channels.base import BaseChannel
+from nanobot.channels.base import BaseChannel, TypingIndicator
 from nanobot.command.builtin import build_help_text
 from nanobot.config.paths import get_media_dir
 from nanobot.config.schema import Base
+from nanobot.runtime_context import RUNTIME_CONTEXT_INPUT_META
 from nanobot.utils.helpers import safe_filename, split_message
 
 DISCORD_AVAILABLE = importlib.util.find_spec("discord") is not None
@@ -61,9 +64,18 @@ class DiscordConfig(Base):
     working_emoji: str = "🔧"
     working_emoji_delay: float = 2.0
     streaming: bool = True
+    context_buffer_size: int = 20  # Number of recent channel messages to keep for context
+    context_only_when_mentioned: bool = True  # Only include recent context when the bot is addressed
     proxy: str | None = None
     proxy_username: str | None = None
     proxy_password: str | None = None
+
+    @field_validator("context_buffer_size")
+    @classmethod
+    def _validate_context_buffer_size(cls, v: int) -> int:
+        if v <= 0:
+            raise ValueError("context_buffer_size must be > 0")
+        return v
 
 
 if DISCORD_AVAILABLE:
@@ -354,6 +366,16 @@ class DiscordChannel(BaseChannel):
     display_name = "Discord"
     _STREAM_EDIT_INTERVAL = 0.8
 
+    def owner_chat_id(self) -> str | None:
+        # ponytail: route error notifications to the operator's Discord DM
+        # (user id == DM chat id) instead of spamming the originating group.
+        owner_ids = self._owner_id if isinstance(self._owner_id, (list, tuple, set)) else [self._owner_id]
+        for ident in owner_ids:
+            text = str(ident).strip()
+            if text.isdigit() and len(text) >= 17:
+                return text
+        return None
+
     @classmethod
     def default_config(cls) -> dict[str, Any]:
         return DiscordConfig().model_dump(by_alias=True)
@@ -383,18 +405,29 @@ class DiscordChannel(BaseChannel):
             return cls._channel_key(parent)
         return None
 
-    def __init__(self, config: Any, bus: MessageBus):
+    def __init__(
+        self,
+        config: Any,
+        bus: MessageBus,
+        *,
+        owner_id: str | list[str] | None = None,
+    ):
         if isinstance(config, dict):
             config = DiscordConfig.model_validate(config)
-        super().__init__(config, bus)
+        super().__init__(config, bus, owner_id=owner_id)
         self.config: DiscordConfig = config
         self._client: DiscordBotClient | None = None
-        self._typing_tasks: dict[str, asyncio.Task[None]] = {}
+        self._typing = TypingIndicator(interval=TYPING_INTERVAL_S)
+        # ponytail: tests still inspect _typing_tasks; mirror helper tasks.
+        self._typing_tasks = self._typing._tasks
         self._bot_user_id: str | None = None
         self._pending_reactions: dict[str, Any] = {}  # chat_id -> message object
         self._working_emoji_tasks: dict[str, asyncio.Task[None]] = {}
         self._stream_bufs: dict[str, _StreamBuf] = {}
         self._known_channels: dict[str, Any] = {}
+        # Rolling buffer of recent messages per Discord channel for context.
+        # Key is the channel id string, value is a deque of (author_id, display_name, content, timestamp).
+        self._channel_context_buffers: dict[str, deque[tuple[str, str, str, float]]] = {}
 
     def _remember_channel(self, channel: Any) -> None:
         self._known_channels[self._channel_key(channel)] = channel
@@ -499,8 +532,12 @@ class DiscordChannel(BaseChannel):
         if stream_end:
             buf = self._stream_bufs.get(chat_id)
             if not buf or buf.message is None or not buf.text:
+                self._stream_bufs.pop(chat_id, None)
                 return
             if stream_id is not None and buf.stream_id is not None and buf.stream_id != stream_id:
+                # End belongs to a different stream than the active buffer.
+                # Drop the stale buffer so it is not left orphaned in the chat.
+                self._stream_bufs.pop(chat_id, None)
                 return
             await self._finalize_stream(chat_id, buf)
             return
@@ -509,6 +546,11 @@ class DiscordChannel(BaseChannel):
         if buf is None or (
             stream_id is not None and buf.stream_id is not None and buf.stream_id != stream_id
         ):
+            # If we are mid-stream and the stream_id changes (e.g. resuming),
+            # finalize whatever we have so far instead of abandoning it.
+            if buf is not None and buf.message is not None and buf.text.strip():
+                with suppress(Exception):
+                    await self._finalize_stream(chat_id, buf)
             buf = _StreamBuf(stream_id=stream_id)
             self._stream_bufs[chat_id] = buf
         elif buf.stream_id is None:
@@ -576,6 +618,32 @@ class DiscordChannel(BaseChannel):
             metadata["thread_id"] = channel_id
             session_key = f"{self.name}:{parent_channel_id}:thread:{channel_id}"
 
+        # Capture recent channel context before we add the current message to
+        # the buffer, so the prompt only shows messages that happened before
+        # this turn.
+        is_dm = message.guild is None
+        context_key = parent_channel_id if parent_channel_id is not None else channel_id
+        if not is_dm and self.config.context_buffer_size > 0:
+            recent_context = self._get_channel_context(context_key)
+            if recent_context and (
+                not self.config.context_only_when_mentioned
+                or self._is_addressed(message, content)
+            ):
+                metadata[RUNTIME_CONTEXT_INPUT_META] = [
+                    {
+                        "source": "discord_recent_context",
+                        "content": recent_context,
+                    }
+                ]
+
+        # Add current message to rolling buffer after extracting context.
+        self._add_channel_context(
+            context_key,
+            sender_id,
+            self._display_name(message.author),
+            content,
+        )
+
         await self._start_typing(message.channel)
 
         # Add read receipt reaction immediately, working emoji after delay
@@ -601,7 +669,7 @@ class DiscordChannel(BaseChannel):
                 media=media_paths,
                 metadata=metadata,
                 session_key=session_key,
-                is_dm=message.guild is None,
+                is_dm=is_dm,
             )
         except Exception:
             await self._clear_reactions(channel_id)
@@ -663,19 +731,34 @@ class DiscordChannel(BaseChannel):
         content: str,
     ) -> bool:
         """Check if inbound Discord message should be processed."""
-        # Reject unauthorized guild messages before any side effects, but let DMs
-        # reach BaseChannel._handle_message so it can issue a pairing code.
-        if message.guild is not None and not self.is_allowed(sender_id):
-            return False
-        # Channel-based filtering: only respond in allowed channels
+        # Channel-based filtering: only respond in allowed channels.
         allow_channels = self.config.allow_channels
         if allow_channels:
             channel_ids = self._channel_allow_keys(message.channel)
             if channel_ids.isdisjoint(allow_channels):
                 return False
+        # Guild messages: only respond when the bot is addressed or group policy
+        # is open.  We still buffer all visible guild messages for context so the
+        # agent can follow conversations it is not directly allowlisted for; the
+        # agent loop uses the global owner_id to distinguish the operator from
+        # other participants.
         if message.guild is not None and not self._should_respond_in_group(message, content):
             return False
         return True
+
+    def _is_addressed(self, message: discord.Message, content: str) -> bool:
+        """Return True when this bot is explicitly addressed in a channel."""
+        if message.guild is None:
+            return True
+        bot_user_id = self._bot_user_id
+        if bot_user_id is None and self._client and self._client.user:
+            bot_user_id = str(self._client.user.id)
+        if bot_user_id is None:
+            return False
+        if self._references_bot_message(message, bot_user_id):
+            return True
+        return self._bot_mentioned(message, content, bot_user_id)
+
 
     async def _download_attachments(
         self,
@@ -717,6 +800,57 @@ class DiscordChannel(BaseChannel):
         message_type = getattr(message, "type", discord.MessageType.default)
         return message_type not in {discord.MessageType.default, discord.MessageType.reply}
 
+    def _get_channel_context(self, channel_id: str) -> str:
+        """Format the recent buffered messages for one channel as prompt context."""
+        buffer = self._channel_context_buffers.get(channel_id)
+        if not buffer or len(buffer) == 0:
+            return ""
+        lines: list[str] = []
+        for author_id, display_name, content, _timestamp in buffer:
+            label = display_name or author_id
+            snippet = content[:200]
+            if author_id == self._bot_user_id:
+                lines.append(f"[{label} (bot)]: {snippet}")
+            else:
+                lines.append(f"[{label}]: {snippet}")
+        return "\n".join(
+            [
+                f"Recent messages in this Discord channel (last {len(buffer)}):",
+                *lines,
+            ]
+        )
+
+    def _add_channel_context(
+        self,
+        channel_id: str,
+        author_id: str,
+        display_name: str,
+        content: str,
+        *,
+        timestamp: float | None = None,
+    ) -> None:
+        """Add one message to the rolling per-channel context buffer."""
+        if self.config.context_buffer_size <= 0:
+            return
+        if channel_id not in self._channel_context_buffers:
+            self._channel_context_buffers[channel_id] = deque(maxlen=self.config.context_buffer_size)
+        self._channel_context_buffers[channel_id].append(
+            (author_id, display_name, content, timestamp or time.monotonic())
+        )
+
+    @staticmethod
+    def _display_name(author: Any) -> str:
+        """Return a human-readable name for a Discord author object."""
+        if hasattr(author, "global_name") and author.global_name:
+            return str(author.global_name)
+        if hasattr(author, "nick") and author.nick:
+            return str(author.nick)
+        if hasattr(author, "display_name"):
+            return str(author.display_name)
+        if hasattr(author, "name"):
+            return str(author.name)
+        return getattr(author, "id", "unknown")
+
     @staticmethod
     def _build_inbound_metadata(message: discord.Message) -> dict[str, str | None]:
         """Build metadata for inbound Discord messages."""
@@ -746,19 +880,42 @@ class DiscordChannel(BaseChannel):
                 )
                 return False
 
-            if any(str(user.id) == bot_user_id for user in message.mentions):
-                return True
-            if bot_user_id in {str(user_id) for user_id in getattr(message, "raw_mentions", [])}:
-                return True
-            if f"<@{bot_user_id}>" in content or f"<@!{bot_user_id}>" in content:
+            if self._bot_mentioned(message, content, bot_user_id):
                 return True
             if self._references_bot_message(message, bot_user_id):
                 return True
 
-            self.logger.debug("message in {} ignored (bot not mentioned)", message.channel.id)
+            self.logger.debug(
+                "message in {} ignored (bot not mentioned by {})", message.channel.id, bot_user_id
+            )
             return False
 
         return True
+
+    @staticmethod
+    def _bot_mentioned(
+        message: discord.Message,
+        content: str,
+        bot_user_id: str,
+    ) -> bool:
+        """Return True when the bot is mentioned by id, name, or role mention."""
+        if any(str(user.id) == bot_user_id for user in message.mentions):
+            return True
+        if bot_user_id in {str(user_id) for user_id in getattr(message, "raw_mentions", [])}:
+            return True
+        if f"<@{bot_user_id}>" in content or f"<@!{bot_user_id}>" in content:
+            return True
+        # Common display-name mention variants (no space, underscores/dashes).
+        lower = content.lower()
+        for name in (
+            getattr(message.author, "name", None),
+            getattr(message.author, "global_name", None),
+        ):
+            if name:
+                needle = f"@{name.lower().replace(' ', '')}"
+                if needle in lower.replace(" ", ""):
+                    return True
+        return False
 
     @staticmethod
     def _references_bot_message(message: discord.Message, bot_user_id: str) -> bool:
@@ -775,29 +932,19 @@ class DiscordChannel(BaseChannel):
     async def _start_typing(self, channel: Messageable) -> None:
         """Start periodic typing indicator for a channel."""
         channel_id = self._channel_key(channel)
-        await self._stop_typing(channel_id)
+        self._typing.start(channel_id, self._typing_action(channel))
 
-        async def typing_loop() -> None:
-            while self._running:
-                try:
-                    async with channel.typing():
-                        await asyncio.sleep(TYPING_INTERVAL_S)
-                except asyncio.CancelledError:
-                    return
-                except Exception as e:
-                    self.logger.debug("typing indicator failed for {}: {}", channel_id, e)
-                    return
+    def _typing_action(self, channel: Messageable) -> Callable[[], Awaitable[object]]:
+        async def _action() -> object:
+            async with channel.typing():
+                await asyncio.sleep(TYPING_INTERVAL_S)
+            return None
 
-        self._typing_tasks[channel_id] = asyncio.create_task(typing_loop())
+        return _action
 
     async def _stop_typing(self, channel_id: str) -> None:
         """Stop typing indicator for a channel."""
-        task = self._typing_tasks.pop(self._channel_key(channel_id), None)
-        if task is None:
-            return
-        task.cancel()
-        with suppress(asyncio.CancelledError):
-            await task
+        self._typing.stop(self._channel_key(channel_id))
 
     async def _clear_reactions(self, chat_id: str) -> None:
         """Remove all pending reactions after bot replies."""
@@ -825,6 +972,7 @@ class DiscordChannel(BaseChannel):
         await self._cancel_all_typing()
         self._stream_bufs.clear()
         self._known_channels.clear()
+        self._channel_context_buffers.clear()
         if close_client and self._client is not None and not self._client.is_closed():
             try:
                 await self._client.close()

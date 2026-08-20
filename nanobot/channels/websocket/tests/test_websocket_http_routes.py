@@ -201,13 +201,13 @@ def _stub_matrix_feature(
         },
     )
     monkeypatch.setattr(
-        "nanobot.optional_features.optional_dependency_groups",
+        "nanobot.runtime.features.optional_dependency_groups",
         lambda: {"matrix": deps if deps is not None else []},
     )
-    monkeypatch.setattr("nanobot.optional_features.extra_installed", lambda _name, _deps: installed)
+    monkeypatch.setattr("nanobot.runtime.features.extra_installed", lambda _name, _deps: installed)
     if install_calls is not None:
         monkeypatch.setattr(
-            "nanobot.optional_features.install_extra",
+            "nanobot.runtime.features.install_extra",
             lambda name, _deps, *, runner: install_calls.append(name)
             or InstallResult(True, f"{name} support", ["python", "-m", "pip", "install", name]),
         )

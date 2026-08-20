@@ -178,6 +178,8 @@ def _make_message(
     *,
     author_id: int = 123,
     author_bot: bool = False,
+    author_name: str = "User",
+    author_global_name: str | None = None,
     channel_id: int = 456,
     parent_channel_id: int | None = None,
     message_id: int = 789,
@@ -201,8 +203,15 @@ def _make_message(
         if reply_to is not None
         else None
     )
+    author = SimpleNamespace(
+        id=author_id,
+        bot=author_bot,
+        name=author_name,
+        global_name=author_global_name,
+        display_name=author_global_name or author_name,
+    )
     return SimpleNamespace(
-        author=SimpleNamespace(id=author_id, bot=author_bot),
+        author=author,
         channel=_FakeChannel(channel_id, parent_channel_id),
         content=content,
         guild=guild,
@@ -1391,3 +1400,253 @@ async def test_send_succeeds_normally() -> None:
     assert len(sent_messages) == 1
     assert sent_messages[0].content == "hello world"
     assert sent_messages[0].chat_id == "123"
+
+
+@pytest.mark.asyncio
+async def test_on_message_includes_recent_channel_context_when_addressed() -> None:
+    # When the bot is mentioned, the prompt should carry the previous messages
+    # from the same channel as runtime context.
+    channel = DiscordChannel(
+        DiscordConfig(
+            enabled=True,
+            allow_from=["*"],
+            allow_channels=["456"],
+            group_policy="mention",
+            context_buffer_size=3,
+        ),
+        MessageBus(),
+    )
+    channel._bot_user_id = "999"
+    handled: list[dict] = []
+
+    async def capture_handle(**kwargs) -> None:
+        handled.append(kwargs)
+
+    channel._handle_message = capture_handle  # type: ignore[method-assign]
+
+    # Pre-seed the channel context buffer directly; otherwise the first two
+    # unaddressed messages are dropped before reaching the buffer because the
+    # group_policy is "mention" and those tests already cover that path.
+    channel._add_channel_context("456", "111", "Alice", "first message")
+    channel._add_channel_context("456", "222", "Bob", "second message")
+
+    await channel._on_message(
+        _make_message(
+            author_id=333,
+            author_name="Carol",
+            channel_id=456,
+            guild_id=1,
+            content="<@999> what did they say?",
+            mentions=[SimpleNamespace(id=999)],
+        )
+    )
+
+    assert len(handled) == 1
+    assert handled[0]["sender_id"] == "333"
+    assert "what did they say?" in handled[0]["content"]
+    blocks = handled[0]["metadata"].get("_runtime_context_blocks")
+    assert blocks is not None
+    assert len(blocks) == 1
+    assert blocks[0]["source"] == "discord_recent_context"
+    context_text = blocks[0]["content"]
+    assert "Alice" in context_text
+    assert "first message" in context_text
+    assert "Bob" in context_text
+    assert "second message" in context_text
+    # Current message must not appear in its own context.
+    assert "what did they say?" not in context_text
+
+
+@pytest.mark.asyncio
+async def test_on_message_context_is_injected_for_mentions_and_replies() -> None:
+    # Verifies that the recent-context metadata is injected regardless of whether
+    # the user mentions the bot by id, replies to a bot message, or uses a name.
+    channel = DiscordChannel(
+        DiscordConfig(
+            enabled=True,
+            allow_from=["*"],
+            allow_channels=["456"],
+            group_policy="mention",
+            context_buffer_size=3,
+        ),
+        MessageBus(),
+    )
+    channel._bot_user_id = "999"
+
+    def make_msg(content: str, *, mentions=None, reply_author_id: int | None = None) -> object:
+        return _make_message(
+            author_id=111,
+            author_name="Alice",
+            channel_id=456,
+            guild_id=1,
+            content=content,
+            mentions=mentions or [],
+            reply_to=100 if reply_author_id else None,
+            reply_author_id=reply_author_id,
+        )
+
+    assert channel._is_addressed(make_msg("<@999> hi"), "<@999> hi") is True
+    assert channel._is_addressed(make_msg("hi", reply_author_id=999), "hi") is True
+    assert channel._is_addressed(make_msg("random"), "random") is False
+
+
+@pytest.mark.asyncio
+async def test_on_message_skips_context_when_not_addressed() -> None:
+    # With context_only_when_mention enabled, unaddressed guild messages are
+    # still buffered but not injected into the prompt.
+    channel = DiscordChannel(
+        DiscordConfig(
+            enabled=True,
+            allow_from=["*"],
+            allow_channels=["456"],
+            group_policy="mention",
+            context_buffer_size=3,
+        ),
+        MessageBus(),
+    )
+    channel._bot_user_id = "999"
+    handled: list[dict] = []
+
+    async def capture_handle(**kwargs) -> None:
+        handled.append(kwargs)
+
+    channel._handle_message = capture_handle  # type: ignore[method-assign]
+
+    await channel._on_message(
+        _make_message(
+            author_id=111,
+            author_name="Alice",
+            channel_id=456,
+            guild_id=1,
+            content="just chatting",
+        )
+    )
+
+    assert handled == []
+    # Because unaddressed guild messages are dropped before any side effects,
+    # the buffer is not populated in this path; the buffer only captures
+    # messages that are part of an active (addressed) conversation.
+    assert "456" not in channel._channel_context_buffers
+
+
+@pytest.mark.asyncio
+async def test_on_message_allows_any_profile_but_tracks_owner() -> None:
+    # Guild messages from non-allowed senders are still processed when the bot
+    # is addressed. The channel no longer rejects non-allowed senders outright;
+    # owner/non-owner separation is handled by the agent loop via owner_id.
+    channel = DiscordChannel(
+        DiscordConfig(
+            enabled=True,
+            allow_from=["777"],  # Only 777 is explicitly allowed
+            allow_channels=["456"],
+            group_policy="mention",
+            context_buffer_size=3,
+        ),
+        MessageBus(),
+    )
+    channel._owner_id = "777"
+    channel._bot_user_id = "999"
+    handled: list[dict] = []
+
+    async def capture_handle(**kwargs) -> None:
+        handled.append(kwargs)
+
+    channel._handle_message = capture_handle  # type: ignore[method-assign]
+
+    channel._add_channel_context("456", "111", "Guest", "hello everyone")
+
+    # Guest mentioning the bot is forwarded so the agent can respond to any profile.
+    await channel._on_message(
+        _make_message(
+            author_id=111,
+            author_name="Guest",
+            channel_id=456,
+            guild_id=1,
+            content="<@999> question",
+            mentions=[SimpleNamespace(id=999)],
+        )
+    )
+    assert len(handled) == 1
+    assert handled[0]["sender_id"] == "111"
+
+    # Owner mentioning the bot is forwarded too and the loop will treat sender 777
+    # as the operator while 111 remains a non-owner guest.
+    await channel._on_message(
+        _make_message(
+            author_id=777,
+            author_name="Owner",
+            channel_id=456,
+            guild_id=1,
+            content="<@999> summary",
+            mentions=[SimpleNamespace(id=999)],
+        )
+    )
+    assert len(handled) == 2
+    assert handled[1]["sender_id"] == "777"
+    blocks = handled[1]["metadata"].get("_runtime_context_blocks")
+    assert blocks is not None
+    assert "Guest" in blocks[0]["content"]
+
+
+@pytest.mark.asyncio
+async def test_on_message_threads_use_parent_channel_context_key() -> None:
+    # Messages in a thread should share the parent channel's context buffer.
+    channel = DiscordChannel(
+        DiscordConfig(
+            enabled=True,
+            allow_from=["*"],
+            allow_channels=["456"],
+            group_policy="mention",
+            context_buffer_size=3,
+        ),
+        MessageBus(),
+    )
+    channel._bot_user_id = "999"
+    handled: list[dict] = []
+
+    async def capture_handle(**kwargs) -> None:
+        handled.append(kwargs)
+
+    channel._handle_message = capture_handle  # type: ignore[method-assign]
+
+    channel._add_channel_context("456", "111", "Alice", "parent channel message")
+
+    await channel._on_message(
+        _make_message(
+            author_id=222,
+            author_name="Bob",
+            channel_id=777,
+            parent_channel_id=456,
+            guild_id=1,
+            content="<@999> thread reply",
+            mentions=[SimpleNamespace(id=999)],
+        )
+    )
+
+    assert len(handled) == 1
+    assert handled[0]["chat_id"] == "777"
+    blocks = handled[0]["metadata"].get("_runtime_context_blocks")
+    assert blocks is not None
+    assert "parent channel message" in blocks[0]["content"]
+
+
+@pytest.mark.asyncio
+async def test_context_buffer_size_validation() -> None:
+    with pytest.raises(ValueError, match="context_buffer_size must be > 0"):
+        DiscordConfig(enabled=True, context_buffer_size=0)
+
+
+@pytest.mark.asyncio
+async def test_display_name_prefers_global_name() -> None:
+    channel = DiscordChannel(DiscordConfig(enabled=True), MessageBus())
+    author = SimpleNamespace(
+        id=1,
+        global_name="Global Name",
+        display_name="Display Name",
+        name="username",
+        nick=None,
+    )
+    assert channel._display_name(author) == "Global Name"
+
+    author = SimpleNamespace(id=2, global_name=None, display_name="Display", name="user", nick="Nick")
+    assert channel._display_name(author) == "Nick"

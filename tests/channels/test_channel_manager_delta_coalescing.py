@@ -409,3 +409,34 @@ class TestRetryWaitFiltering:
         sent = send_mock.await_args_list[0].args[0]
         assert sent.content == "final answer"
         assert sent.event is None
+
+class TestWatchdogLiveness:
+    """The manager watchdog must not force-restart channels that are
+    actively answering. Successful outbound delivery counts as liveness
+    (regression: last_activity_at only moved on inbound, so a bot that
+    answered every message was still restarted every ~10 min of quiet)."""
+
+    @pytest.mark.asyncio
+    async def test_successful_outbound_touches_last_activity_at(self, manager, bus):
+        channel = manager.channels["mock"]
+        assert channel.last_activity_at == 0.0
+
+        await bus.publish_outbound(
+            OutboundMessage(channel="mock", chat_id="chat1", content="respuesta")
+        )
+
+        task = asyncio.create_task(manager._dispatch_outbound())
+        try:
+            for _ in range(30):
+                if channel.last_activity_at > 0.0:
+                    break
+                await asyncio.sleep(0.05)
+        finally:
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
+
+        assert channel.last_activity_at > 0.0
+        assert channel._send_mock.await_count == 1

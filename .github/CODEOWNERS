@@ -1,0 +1,3 @@
+# Default reviewer for all pull requests.
+# motoko-section9 reviews every PR that enters the repo.
+* @motoko-section9

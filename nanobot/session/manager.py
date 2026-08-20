@@ -4,7 +4,6 @@ import base64
 import errno
 import json
 import os
-import re
 import shutil
 from collections import OrderedDict
 from contextlib import suppress
@@ -29,18 +28,13 @@ from nanobot.utils.helpers import (
     image_placeholder_text,
     recent_message_start_index,
     safe_filename,
-    strip_think,
 )
-from nanobot.utils.subagent_channel_display import scrub_subagent_announce_body
 
 FILE_MAX_MESSAGES = 2000
 SESSION_CACHE_MAX_SIZE = 128
 MIN_REPLAY_MAX_MESSAGES = 120
 REPLAY_TOKENS_PER_MESSAGE = 100
-_MESSAGE_TIME_PREFIX_RE = re.compile(r"^\[Message Time: [^\]]+\]\n?")
-_LOCAL_IMAGE_BREADCRUMB_RE = re.compile(r"^\[image: (?:/|~)[^\]]+\]\s*$")
 
-_SESSION_PREVIEW_MAX_CHARS = 120
 _SESSION_LIST_PREVIEW_MAX_RECORDS = 200
 _SESSION_LIST_PREVIEW_MAX_CHARS = 1_000_000
 _SESSION_DATA_ERRORS = (ValueError, TypeError, AttributeError, KeyError)
@@ -64,60 +58,13 @@ def replay_max_messages_for_context(context_window_tokens: int | None) -> int:
     )
 
 
-def _sanitize_assistant_replay_text(content: str) -> str:
-    """Remove internal replay artifacts that the model may have copied before.
-
-    These strings are useful as runtime/session metadata, but when they appear
-    in assistant examples they become demonstrations for the model to repeat.
-    """
-    content = _MESSAGE_TIME_PREFIX_RE.sub("", content, count=1)
-    lines = [
-        line
-        for line in content.splitlines()
-        if not _LOCAL_IMAGE_BREADCRUMB_RE.match(line)
-    ]
-    return "\n".join(lines).strip()
-
-
-def _text_preview(content: Any) -> str:
-    """Return compact display text for session lists."""
-    if isinstance(content, str):
-        text = content
-    elif isinstance(content, list):
-        parts: list[str] = []
-        for block in content:
-            if isinstance(block, dict) and block.get("type") == "text":
-                value = block.get("text")
-                if isinstance(value, str):
-                    parts.append(value)
-        text = " ".join(parts)
-    else:
-        return ""
-    text = _sanitize_assistant_replay_text(text)
-    text = re.sub(r"\s+", " ", text).strip()
-    if len(text) > _SESSION_PREVIEW_MAX_CHARS:
-        text = text[: _SESSION_PREVIEW_MAX_CHARS - 1].rstrip() + "…"
-    return text
-
-
-def _message_preview_text(message: dict[str, Any]) -> str:
-    """Session list preview text; subagent inject blobs are shortened for display."""
-    message = public_history_message(message)
-    content: Any = message.get("content")
-    if message.get("injected_event") == "subagent_result" and isinstance(content, str):
-        content = scrub_subagent_announce_body(content)
-    return _text_preview(content)
-
-
-def _metadata_title(metadata: Any) -> str:
-    if not isinstance(metadata, dict):
-        return ""
-    title = metadata.get("title")
-    if not isinstance(title, str):
-        return ""
-    if metadata.get("title_user_edited") is True:
-        return title
-    return strip_think(title)
+# Message preview/sanitization helpers live in session/replay_text.py; re-export
+# so existing import sites keep working unchanged.
+from nanobot.session.replay_text import (  # noqa: E402
+    _message_preview_text,
+    _metadata_title,
+    _sanitize_assistant_replay_text,
+)
 
 
 @dataclass
@@ -405,13 +352,26 @@ class Session:
         if limit <= 0 or len(self.messages) <= limit:
             return
 
+        original_messages = self.messages
+        original_last_consolidated = self.last_consolidated
+        original_updated_at = self.updated_at
         result = self.retain_recent_legal_suffix(limit)
         if not result.dropped:
             return
 
         archive_chunk = result.dropped[result.already_consolidated_count:]
         if archive_chunk and on_archive:
-            on_archive(archive_chunk)
+            try:
+                on_archive(archive_chunk)
+            except BaseException:
+                # Retention runs before the archive callback so the callback can
+                # receive the exact dropped prefix. Restore the in-memory session
+                # if archival fails; otherwise a later save would persist the
+                # trimmed state and make that prefix impossible to retry.
+                self.messages = original_messages
+                self.last_consolidated = original_last_consolidated
+                self.updated_at = original_updated_at
+                raise
         logger.info(
             "Session file cap hit for {}: dropped {}, raw-archived {}, kept {}",
             self.key,
@@ -437,6 +397,7 @@ class SessionManager:
         self._overflow_cache: WeakValueDictionary[str, Session] = WeakValueDictionary()
         self._max_cached_sessions = SESSION_CACHE_MAX_SIZE
         self._file_cap_archiver: Callable[..., None] | None = None
+        self._delete_observer: Callable[[str], None] | None = None
 
     def _remember(self, session: Session) -> None:
         """Keep recent sessions strongly cached without duplicating live objects."""
@@ -461,6 +422,10 @@ class SessionManager:
     def set_file_cap_archiver(self, archiver: Callable[..., None]) -> None:
         """Archive unconsolidated overflow whenever a session is persisted."""
         self._file_cap_archiver = archiver
+
+    def set_delete_observer(self, observer: Callable[[str], None]) -> None:
+        """Observe explicit session deletion for process-local state cleanup."""
+        self._delete_observer = observer
 
     @staticmethod
     def safe_key(key: str) -> str:
@@ -713,9 +678,9 @@ class SessionManager:
                     "metadata": session.metadata,
                     "last_consolidated": session.last_consolidated
                 }
-                f.write(json.dumps(metadata_line, ensure_ascii=False) + "\n")
+                f.write(json.dumps(metadata_line, ensure_ascii=False, default=str) + "\n")
                 for msg in session.messages:
-                    f.write(json.dumps(msg, ensure_ascii=False) + "\n")
+                    f.write(json.dumps(msg, ensure_ascii=False, default=str) + "\n")
                 if fsync:
                     f.flush()
                     os.fsync(f.fileno())
@@ -770,16 +735,18 @@ class SessionManager:
 
         Returns True if the JSONL file was found and unlinked.
         """
-        path = self._get_session_path(key)
         self.invalidate(key)
-        if not path.exists():
-            return False
-        try:
-            path.unlink()
-            return True
-        except OSError as e:
-            logger.warning("Failed to delete session file {}: {}", path, e)
-            return False
+        path = self._get_session_path(key)
+        deleted = path.exists()
+        if deleted:
+            try:
+                path.unlink()
+            except OSError as e:
+                logger.warning("Failed to delete session file {}: {}", path, e)
+                deleted = False
+        if self._delete_observer is not None:
+            self._delete_observer(key)
+        return deleted
 
     def fork_session_before_user_index(
         self,

@@ -10,7 +10,7 @@ import os
 import re
 import secrets
 import time
-from collections import OrderedDict
+from collections import deque
 from collections.abc import Awaitable, Callable
 from contextlib import suppress
 from pathlib import Path
@@ -20,8 +20,8 @@ from pydantic import Field
 
 from nanobot.bus.events import OutboundMessage
 from nanobot.bus.queue import MessageBus
-from nanobot.channels.base import BaseChannel
-from nanobot.channels.whatsapp.group_workspace import GroupWorkspaceRegistry
+from nanobot.channels.base import BaseChannel, BoundedSet
+from nanobot.channels.whatsapp.group_workspace import ChatWorkspaceRegistry
 from nanobot.config.paths import get_media_dir, get_runtime_subdir
 from nanobot.config.schema import Base
 from nanobot.runtime_context import RUNTIME_CONTEXT_INPUT_META, RuntimeContextBlock
@@ -64,6 +64,26 @@ class WhatsAppConfig(Base):
     # that don't exist as directories are skipped (with a warning) so a
     # stale entry never breaks a turn.
     group_workspaces: dict[str, str] = Field(default_factory=dict)
+    # Per-DM workspace override. Single path used for all DMs when no
+    # per-sender dm_workspaces entry matches.
+    dm_workspace: str = ""
+    # Per-sender DM workspace override. The key can be a bare phone number,
+    # a WhatsApp "lid", or a full "56912345678@s.whatsapp.net" JID.
+    dm_workspaces: dict[str, str] = Field(default_factory=dict)
+    # Number of recent messages to keep per group as conversation context.
+    group_context_buffer_size: int = 20
+    # DM policy for messages from numbers not in known_contacts.
+    # "open": process immediately (legacy behavior).
+    # "screen": ask the sender to identify themselves, accumulate messages,
+    #           and send the owner a summary after ``unknown_dm_summary_after``
+    #           messages so the owner can decide whether to authorize the chat.
+    unknown_dm_policy: Literal["open", "screen"] = "open"
+    # Number of buffered messages from an unknown DM sender before the owner
+    # receives a summary request. 0 disables automatic summary.
+    unknown_dm_summary_after: int = 3
+    # Known contacts (bare phone numbers or full JIDs) that bypass the screen.
+    # The owner is always considered known. Empty list = only owner is known.
+    known_contacts: list[str] = Field(default_factory=list)
 
 
 class _NeonizeAPI(NamedTuple):
@@ -89,7 +109,6 @@ class _MediaInfo(NamedTuple):
 
 
 _NEONIZE_API: _NeonizeAPI | None = None
-_JID_RE = re.compile(r"^(?P<user>[^@]+)@(?P<server>[^@]+)$")
 _LEGACY_BRIDGE_CONFIG_FIELDS = ("bridgeUrl", "bridgeToken", "bridge_url", "bridge_token")
 # Names that look like generated WhatsApp IDs rather than human push names.
 _NAME_LIKE_ID_RE = re.compile(r"^[0-9a-f]{16,}$", re.IGNORECASE)
@@ -172,198 +191,23 @@ def _ensure_ffmpeg_in_path() -> None:
             os.environ["PATH"] = bin_dir + os.pathsep + path
 
 
-def _has_field(message: Any, name: str) -> bool:
-    if message is None:
-        return False
-
-    has_field = getattr(message, "HasField", None)
-    if callable(has_field):
-        try:
-            return bool(has_field(name))
-        except ValueError:
-            pass
-
-    list_fields = getattr(message, "ListFields", None)
-    if callable(list_fields):
-        try:
-            return any(getattr(field, "name", "") == name for field, _ in list_fields())
-        except Exception:
-            pass
-
-    value = getattr(message, name, None)
-    return value is not None and value != "" and value != b""
-
-
-def _message_field(message: Any, *names: str) -> Any:
-    for name in names:
-        if _has_field(message, name):
-            return getattr(message, name)
-    return None
-
-
-def _safe_attr(obj: Any, name: str, default: Any = None) -> Any:
-    if obj is None:
-        return default
-    return getattr(obj, name, default)
-
-
-def _jid_to_string(jid: Any) -> str:
-    if jid is None:
-        return ""
-    if isinstance(jid, str):
-        return jid.strip()
-    if bool(_safe_attr(jid, "IsEmpty", False)):
-        return ""
-
-    user = str(_safe_attr(jid, "User", "") or "").strip()
-    server = str(_safe_attr(jid, "Server", "") or "").strip()
-    if user and server:
-        return f"{user}@{server}"
-    return server or user
-
-
-def _typing_task_key(jid: Any) -> str:
-    """Stable key for the per-chat typing task.
-
-    Falls back to ``(user, server)`` tuples and finally to ``id(jid)`` so the
-    helper works for both real neonize JID protos and test doubles.
-    """
-    as_string = _jid_to_string(jid)
-    if as_string:
-        return as_string
-    if isinstance(jid, tuple) and len(jid) >= 2:
-        return f"{jid[0]}@{jid[1]}"
-    return f"jid:{id(jid)}"
-
-
-def _normalize_jid(raw: Any) -> str:
-    jid = _jid_to_string(raw).strip()
-    if not jid:
-        return ""
-    if jid.endswith("@lid.whatsapp.net"):
-        return jid[: -len(".whatsapp.net")]
-    return jid
-
-
-def _bare_jid(raw: Any) -> str:
-    jid = _normalize_jid(raw)
-    if "@" not in jid:
-        return jid
-    return jid.split("@", 1)[0].split(":", 1)[0]
-
-
-def _classify_sender_ids(jids: list[Any]) -> tuple[str, str]:
-    phone_id = ""
-    lid_id = ""
-
-    for raw in jids:
-        jid = _normalize_jid(raw)
-        if not jid:
-            continue
-        match = _JID_RE.match(jid)
-        if match:
-            user = match.group("user").split(":", 1)[0]
-            server = match.group("server")
-            if server in {"s.whatsapp.net", "c.us"}:
-                phone_id = phone_id or user
-            elif server in {"lid", "lid.whatsapp.net"}:
-                lid_id = lid_id or user
-            continue
-
-        if not phone_id:
-            phone_id = jid
-
-    return phone_id, lid_id
-
-
-def _context_infos(message: Any) -> list[Any]:
-    infos: list[Any] = []
-    for container in (
-        message,
-        _message_field(message, "extendedTextMessage"),
-        _message_field(message, "imageMessage"),
-        _message_field(message, "videoMessage"),
-        _message_field(message, "audioMessage"),
-        _message_field(message, "documentMessage"),
-        _message_field(message, "stickerMessage"),
-    ):
-        context = _message_field(container, "contextInfo")
-        if context is not None:
-            infos.append(context)
-    return infos
-
-
-def _message_text(message: Any) -> str:
-    conversation = str(_safe_attr(message, "conversation", "") or "").strip()
-    if conversation:
-        return conversation
-
-    extended = _message_field(message, "extendedTextMessage")
-    text = str(_safe_attr(extended, "text", "") or "").strip()
-    if text:
-        return text
-
-    for field_name in ("imageMessage", "videoMessage", "documentMessage", "stickerMessage"):
-        media_message = _message_field(message, field_name)
-        caption = str(_safe_attr(media_message, "caption", "") or "").strip()
-        if caption:
-            return caption
-
-    return ""
-
-
-def _media_message(message: Any) -> _MediaInfo | None:
-    image = _message_field(message, "imageMessage")
-    if image is not None:
-        return _MediaInfo(
-            kind="image",
-            message=image,
-            mimetype=str(_safe_attr(image, "mimetype", "") or "image/jpeg"),
-            filename=str(_safe_attr(image, "fileName", "") or ""),
-        )
-
-    video = _message_field(message, "videoMessage")
-    if video is not None:
-        return _MediaInfo(
-            kind="video",
-            message=video,
-            mimetype=str(_safe_attr(video, "mimetype", "") or "video/mp4"),
-            filename=str(_safe_attr(video, "fileName", "") or ""),
-        )
-
-    audio = _message_field(message, "audioMessage")
-    if audio is not None:
-        return _MediaInfo(
-            kind="audio",
-            message=audio,
-            mimetype=str(_safe_attr(audio, "mimetype", "") or "audio/ogg"),
-            filename=str(_safe_attr(audio, "fileName", "") or ""),
-            is_voice=bool(_safe_attr(audio, "PTT", False) or _safe_attr(audio, "ptt", False)),
-        )
-
-    document = _message_field(message, "documentMessage")
-    if document is not None:
-        return _MediaInfo(
-            kind="file",
-            message=document,
-            mimetype=str(_safe_attr(document, "mimetype", "") or "application/octet-stream"),
-            filename=str(
-                _safe_attr(document, "fileName", "")
-                or _safe_attr(document, "title", "")
-                or ""
-            ),
-        )
-
-    sticker = _message_field(message, "stickerMessage")
-    if sticker is not None:
-        return _MediaInfo(
-            kind="sticker",
-            message=sticker,
-            mimetype=str(_safe_attr(sticker, "mimetype", "") or "image/webp"),
-            filename=str(_safe_attr(sticker, "fileName", "") or ""),
-        )
-
-    return None
+# JID and message-field helpers live in whatsapp/jid.py and
+# whatsapp/message_helpers.py; re-export so existing import sites keep working.
+from nanobot.channels.whatsapp.jid import (  # noqa: E402
+    _JID_RE,
+    _bare_jid,
+    _classify_sender_ids,
+    _jid_to_string,
+    _normalize_jid,
+    _typing_task_key,
+)
+from nanobot.channels.whatsapp.message_helpers import (  # noqa: E402
+    _context_infos,
+    _media_message,
+    _MediaInfo,
+    _message_text,
+    _safe_attr,
+)
 
 
 class WhatsAppChannel(BaseChannel):
@@ -376,11 +220,17 @@ class WhatsAppChannel(BaseChannel):
     def default_config(cls) -> dict[str, Any]:
         return WhatsAppConfig().model_dump(by_alias=True)
 
-    def __init__(self, config: Any, bus: MessageBus):
+    def __init__(
+        self,
+        config: Any,
+        bus: MessageBus,
+        *,
+        owner_id: str | list[str] | None = None,
+    ):
         legacy_bridge_fields = _legacy_bridge_config_fields(config) if isinstance(config, dict) else []
         if isinstance(config, dict):
             config = WhatsAppConfig.model_validate(config)
-        super().__init__(config, bus)
+        super().__init__(config, bus, owner_id=owner_id)
         if legacy_bridge_fields:
             self.logger.warning(
                 "Ignoring deprecated WhatsApp bridge config fields: {}. "
@@ -389,7 +239,7 @@ class WhatsAppChannel(BaseChannel):
             )
         self._client: Any | None = None
         self._connected = False
-        self._processed_message_ids: OrderedDict[str, None] = OrderedDict()
+        self._processed_message_ids = self._bounded_set(1000)
         self._lid_to_phone: dict[str, str] = self._load_lid_mappings()
         # ponytail: debounced persistence for _processed_message_ids and
         # _lid_to_phone. Saves happen on a background task so the hot path
@@ -411,12 +261,21 @@ class WhatsAppChannel(BaseChannel):
         # Persisted display-name mappings per chat (phone/sender_id -> push_name).
         self._display_names: dict[str, dict[str, str]] = {}
         self._display_names_path = get_runtime_subdir("whatsapp-auth") / "display_names.json"
-        # Per-group workspace override registry. Channels.manager hands this
-        # to AgentLoop so turns originating in a mapped group pick up the
-        # group's AGENTS.md/SOUL.md instead of the channel-level workspace.
-        self.group_workspace_registry = GroupWorkspaceRegistry(
-            self.config.group_workspaces, log=self.logger
+        # Per-chat workspace registry. Channels.manager hands this to
+        # AgentLoop so turns originating in a mapped group or DM pick up
+        # the chat's AGENTS.md/SOUL.md instead of the channel-level workspace.
+        self.group_workspace_registry = ChatWorkspaceRegistry(
+            group_workspaces=self.config.group_workspaces,
+            dm_workspace=self.config.dm_workspace,
+            dm_workspaces=self.config.dm_workspaces,
+            log=self.logger,
         )
+        # Rolling buffer of recent messages per WhatsApp group (chat_jid -> deque).
+        # Each entry is (sender_id, display_name, text, timestamp).
+        self._group_context_buffers: dict[str, deque[tuple[str, str | None, str, float]]] = {}
+        # Buffered messages from unknown DM senders while they are being screened.
+        # Key is sender_id, value is a list of (display_name, text, timestamp).
+        self._unknown_dm_buffers: dict[str, list[tuple[str | None, str, float]]] = {}
 
     def _database_path(self) -> Path:
         configured = self.config.database_path.strip()
@@ -454,23 +313,23 @@ class WhatsAppChannel(BaseChannel):
     def _message_state_path(self) -> Path:
         return self._display_names_path.parent / "message_state.json"
 
-    def _load_message_state(self) -> tuple[OrderedDict[str, None], dict[str, str]]:
-        """Load persisted dedup LRU and LID->phone map. Missing file → empty."""
+    def _load_message_state(self) -> tuple[BoundedSet, dict[str, str]]:
+        """Load persisted dedup cache and LID->phone map. Missing file → empty."""
         path = self._message_state_path()
         if not path.exists():
-            return OrderedDict(), {}
+            return self._bounded_set(1000), {}
         try:
             data = json.loads(path.read_text(encoding="utf-8"))
         except Exception:
             self.logger.exception("Failed to load WhatsApp message state; resetting")
-            return OrderedDict(), {}
+            return self._bounded_set(1000), {}
         ids_raw = data.get("processed_ids") if isinstance(data, dict) else None
         lid_raw = data.get("lid_to_phone") if isinstance(data, dict) else None
-        ids: OrderedDict[str, None] = OrderedDict()
+        ids = self._bounded_set(1000)
         if isinstance(ids_raw, list):
             for mid in ids_raw[-1000:]:
                 if isinstance(mid, str) and mid:
-                    ids[mid] = None
+                    ids.add(mid)
         lid: dict[str, str] = {}
         if isinstance(lid_raw, dict):
             for k, v in lid_raw.items():
@@ -487,7 +346,7 @@ class WhatsAppChannel(BaseChannel):
             tmp.write_text(
                 json.dumps(
                     {
-                        "processed_ids": list(self._processed_message_ids.keys())[-1000:],
+                        "processed_ids": self._processed_message_ids.keys(),
                         "lid_to_phone": dict(self._lid_to_phone),
                     },
                     ensure_ascii=False,
@@ -791,6 +650,8 @@ class WhatsAppChannel(BaseChannel):
             if not self._connected:
                 continue
             try:
+                # ponytail: bump activity every healthy poll so the manager
+                # watchdog (WATCHDOG_IDLE_S=600s) doesn't kill idle sessions.
                 if not client.is_connected():
                     self._reconnect_triggered = True
                     self.logger.warning(
@@ -798,6 +659,7 @@ class WhatsAppChannel(BaseChannel):
                     )
                     await client.stop()
                     return
+                self._touch_activity()
             except Exception:
                 return
 
@@ -807,6 +669,7 @@ class WhatsAppChannel(BaseChannel):
         self._connected = False
         client = self._client
         self._client = None
+        self._group_context_buffers.clear()
         if client is not None:
             await client.stop()
 
@@ -1010,6 +873,21 @@ class WhatsAppChannel(BaseChannel):
         server = match.group("server")
         return api.build_jid(user, server)
 
+    def owner_chat_id(self) -> str | None:
+        # ponytail: route error notifications to the operator's WhatsApp DM
+        # (phone + "@s.whatsapp.net") instead of spamming the originating
+        # group when a send fails. The global owner_id may hold multiple
+        # identities (Discord, Telegram, ...); pick the phone-shaped one.
+        # Phones are 8-15 digits; Discord snowflakes are 17+ so they're
+        # excluded by the length cap.
+        owner_ids = self._owner_id if isinstance(self._owner_id, (list, tuple, set)) else [self._owner_id]
+        for ident in owner_ids:
+            digits = "".join(ch for ch in str(ident) if ch.isdigit())
+            if 8 <= len(digits) <= 15:
+                return self._build_jid(f"{digits}@s.whatsapp.net")
+        return None
+
+
     def _resolve_send_target(self, chat_id: str) -> Any:
         """Pick a routable JID for sending.
 
@@ -1026,6 +904,112 @@ class WhatsAppChannel(BaseChannel):
             if phone:
                 return self._build_jid(f"{phone}@s.whatsapp.net")
         return self._build_jid(chat_id)
+
+    def _is_known_sender(self, sender_id: str) -> bool:
+        """Return True when the sender is the owner or in the known contacts list."""
+        if not sender_id:
+            return False
+        normalized = _normalize_jid(sender_id)
+        bare = _bare_jid(sender_id)
+        owner_ids = self._owner_id if isinstance(self._owner_id, (list, tuple, set)) else [self._owner_id]
+        for owner in owner_ids:
+            owner_text = str(owner or "")
+            if not owner_text:
+                continue
+            if owner_text == sender_id or owner_text == normalized or owner_text == bare:
+                return True
+            # Owner may be configured as bare phone; match either phone form.
+            owner_bare = _bare_jid(owner_text)
+            if owner_bare and (owner_bare == bare or owner_bare == normalized):
+                return True
+        for contact in self.config.known_contacts:
+            contact_text = str(contact or "").strip()
+            if not contact_text:
+                continue
+            if contact_text == sender_id or contact_text == normalized or contact_text == bare:
+                return True
+            contact_bare = _bare_jid(contact_text)
+            if contact_bare and (contact_bare == bare or contact_bare == normalized):
+                return True
+        return False
+
+    def _unknown_dm_summary(self, sender_id: str) -> tuple[str, str] | None:
+        """Return (summary_text, sender_label) for buffered unknown DM messages."""
+        buffer = self._unknown_dm_buffers.get(sender_id)
+        if not buffer:
+            return None
+        lines = []
+        label = sender_id
+        for display_name, text, _timestamp in buffer:
+            if display_name:
+                label = display_name
+            lines.append(f"- [{label}]: {text[:200]}")
+        summary = "\n".join(lines)
+        return summary, label
+
+    async def _screen_unknown_dm(
+        self,
+        client: Any,
+        sender_id: str,
+        chat_jid: str,
+        display_name: str | None,
+        text: str,
+        *,
+        timestamp: float | None = None,
+    ) -> None:
+        """Buffer an unknown DM and ask the sender to identify themselves.
+
+        Once ``unknown_dm_summary_after`` messages have been buffered, send the
+        owner a summary so they can decide whether to authorize the chat.
+        """
+        buffer = self._unknown_dm_buffers.setdefault(sender_id, [])
+        buffer.append((display_name, text, timestamp or time.monotonic()))
+        self.logger.info(
+            "Screening unknown WhatsApp DM from {} ({} messages buffered)",
+            sender_id, len(buffer),
+        )
+
+        # Reply once, politely, asking the sender to identify themselves.
+        if len(buffer) == 1:
+            greeting = display_name or "Hola"
+            reply = (
+                f"Hola {greeting}, soy el asistente de {self._owner_name()}. "
+                "No reconozco tu número. Por favor cuéntame quién eres "
+                "y cómo puedo ayudarte. Tu mensaje será revisado."
+            )
+            await self._send_whatsapp_text(client, chat_jid, reply)
+
+        summary_after = self.config.unknown_dm_summary_after
+        if summary_after > 0 and len(buffer) >= summary_after:
+            summary, label = self._unknown_dm_summary(sender_id) or ("", sender_id)
+            owner_chat = self.owner_chat_id()
+            if owner_chat and summary:
+                header = (
+                    f"Resumen de mensajes de un número desconocido ({sender_id} / {label}):\n\n"
+                )
+                footer = (
+                    "\n\nEste remitente no está en mis contactos conocidos. "
+                    "Responde en este chat si quieres que autorice la conversación."
+                )
+                await self._send_whatsapp_text(client, owner_chat, header + summary + footer)
+            # Keep buffering; the owner can reply to authorize later.
+
+    def _owner_name(self) -> str:
+        """Return a display name for the owner in the greeting message."""
+        owner_ids = self._owner_id if isinstance(self._owner_id, (list, tuple, set)) else [self._owner_id]
+        for ident in owner_ids:
+            text = str(ident or "").strip()
+            if text:
+                return text
+        return "mi operador"
+
+    async def _send_whatsapp_text(self, client: Any, to: Any, text: str) -> None:
+        """Send a plain text WhatsApp message, translating LID JIDs when possible."""
+        if not hasattr(client, "send_message"):
+            self.logger.debug("client has no send_message; dropping text to {}", to)
+            return
+        target = self._resolve_send_target(to) if isinstance(to, str) else to
+        await client.send_message(target, text)
 
     def _whatsapp_session_key(self, chat_id: str, sender_id: str, is_group: bool) -> str:
         """Return an isolated session key per sender inside group chats.
@@ -1250,18 +1234,12 @@ class WhatsAppChannel(BaseChannel):
             return
 
         is_group = bool(_safe_attr(source, "IsGroup", False))
-        if is_group and self.config.group_policy == "mention":
-            if not self._is_addressed_to_bot(message):
-                return
-
         message_id = str(_safe_attr(info, "ID", "") or "")
         if message_id:
             if message_id in self._processed_message_ids:
                 self.logger.debug("Ignoring duplicate WhatsApp message id={}", message_id)
                 return
-            self._processed_message_ids[message_id] = None
-            while len(self._processed_message_ids) > 1000:
-                self._processed_message_ids.popitem(last=False)
+            self._processed_message_ids.add(message_id)
             self._touch_message_state()
 
         # Mark the incoming message as read (blue double-check). Best-effort.
@@ -1286,6 +1264,31 @@ class WhatsAppChannel(BaseChannel):
         push_name = str(_safe_attr(info, "Pushname", "") or "").strip()
         self._remember_display_name(chat_jid, sender_id, push_name)
         display_name = push_name or self._display_name_for(chat_jid, sender_id)
+
+        is_addressed = self._is_addressed_to_bot(message)
+        if is_group and self.config.group_policy == "mention" and not is_addressed:
+            # Still buffer the message for later context, but do not respond now.
+            text_for_buffer = _message_text(message)
+            self._add_group_context(
+                chat_jid,
+                sender_id,
+                display_name,
+                text_for_buffer,
+                timestamp=timestamp,
+            )
+            return
+
+        # Always buffer group messages for context when the bot is addressed too.
+        text_for_buffer = _message_text(message)
+        if is_group:
+            self._add_group_context(
+                chat_jid,
+                sender_id,
+                display_name,
+                text_for_buffer,
+                timestamp=timestamp,
+            )
+
         mention = self._resolve_mention(sender_id, display_name) if is_group else None
         identity_block = self._sender_identity_block(
             sender_id, display_name, self._is_reply_to_bot(message), phone_id
@@ -1294,6 +1297,12 @@ class WhatsAppChannel(BaseChannel):
         runtime_blocks: list[RuntimeContextBlock] = [identity_block]
         if contact_block is not None:
             runtime_blocks.append(contact_block)
+        if is_group and self.config.group_context_buffer_size > 0:
+            recent_context = self._get_group_context(chat_jid)
+            if recent_context:
+                runtime_blocks.append(
+                    RuntimeContextBlock(source="whatsapp_recent_context", content=recent_context)
+                )
         metadata = {
             "message_id": message_id or None,
             "timestamp": int(timestamp) if timestamp else None,
@@ -1316,6 +1325,20 @@ class WhatsAppChannel(BaseChannel):
         # still use `_resolve_send_target` so LID-based DMs reach a phone JID.
         typing_jid = self._build_typing_jid(chat_jid)
         session_key = self._whatsapp_session_key(chat_jid, sender_id, is_group)
+
+        # Screen DMs from unknown senders before handing them to the agent.
+        if not is_group and self.config.unknown_dm_policy == "screen":
+            if not self._is_known_sender(sender_id):
+                text_for_buffer = _message_text(message)
+                await self._screen_unknown_dm(
+                    client,
+                    sender_id,
+                    chat_jid,
+                    display_name,
+                    text_for_buffer,
+                    timestamp=timestamp,
+                )
+                return
 
         async def _process(mention_tag: str | None) -> None:
             if authorization_id is None:
@@ -1462,6 +1485,47 @@ class WhatsAppChannel(BaseChannel):
                 + "\n".join(entries)
                 + "\n\nUse these names when referring to other people in the group."
             ),
+        )
+
+    def _get_group_context(self, chat_jid: str) -> str:
+        """Format the recent buffered group messages as prompt context."""
+        buffer = self._group_context_buffers.get(chat_jid)
+        if not buffer or len(buffer) == 0:
+            return ""
+        # The last entry is the current message; exclude it from the context.
+        context_entries = list(buffer)[:-1]
+        if not context_entries:
+            return ""
+        lines: list[str] = []
+        for sender_id, display_name, content, _timestamp in context_entries:
+            label = display_name or sender_id
+            snippet = content[:200]
+            lines.append(f"[{label}]: {snippet}")
+        return "\n".join(
+            [
+                f"Recent messages in this WhatsApp group (last {len(context_entries)}):",
+                *lines,
+            ]
+        )
+
+    def _add_group_context(
+        self,
+        chat_jid: str,
+        sender_id: str,
+        display_name: str | None,
+        content: str,
+        *,
+        timestamp: float | None = None,
+    ) -> None:
+        """Add one message to the rolling per-group context buffer."""
+        if self.config.group_context_buffer_size <= 0:
+            return
+        if chat_jid not in self._group_context_buffers:
+            self._group_context_buffers[chat_jid] = deque(
+                maxlen=self.config.group_context_buffer_size
+            )
+        self._group_context_buffers[chat_jid].append(
+            (sender_id, display_name, content, timestamp or time.monotonic())
         )
 
     def _is_group_chat(self, chat_id: str) -> bool:

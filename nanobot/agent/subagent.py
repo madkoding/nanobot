@@ -1,13 +1,11 @@
 """Subagent manager for background task execution."""
 
 import asyncio
-import base64
 import json
 import time
 import uuid
 import warnings
 from collections.abc import Awaitable
-from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable
 
@@ -15,6 +13,18 @@ from loguru import logger
 
 from nanobot.agent.hook import AgentHook, AgentHookContext
 from nanobot.agent.runner import AgentRunner, AgentRunSpec
+
+# Subagent status/pending persistence lives in subagent_persistence.py;
+# re-export so existing import sites keep working unchanged.
+from nanobot.agent.subagent_persistence import (  # noqa: E402
+    SUBAGENT_STATUS_TTL_S,
+    SubagentStatus,
+    _delete_subagent_pending,
+    _load_persisted_subagent_statuses,
+    _load_subagent_pendings,
+    _persist_subagent_pending,
+    _persist_subagent_status,
+)
 from nanobot.agent.tools.base import ToolResult
 from nanobot.agent.tools.context import (
     RequestContext,
@@ -38,238 +48,6 @@ from nanobot.security.workspace_access import (
 )
 from nanobot.utils.llm_runtime import LLMRuntime
 from nanobot.utils.prompt_templates import render_template
-
-
-@dataclass(slots=True)
-class SubagentStatus:
-    """Real-time status of a running subagent."""
-
-    task_id: str
-    label: str
-    task_description: str
-    started_at: float          # time.monotonic()
-    phase: str = "initializing"  # initializing | awaiting_tools | tools_completed | final_response | done | error
-    iteration: int = 0
-    tool_events: list = field(default_factory=list)   # [{name, status, detail}, ...]
-    usage: dict = field(default_factory=dict)          # token usage
-    stop_reason: str | None = None
-    error: str | None = None
-    result: str | None = None
-    finished_at: float | None = None
-    chat_id: str | None = None
-    persisted_at: float | None = None
-
-    def to_payload(self) -> dict[str, Any]:
-        """Serialize for WS / HTTP transport."""
-        return {
-            "task_id": self.task_id,
-            "label": self.label,
-            "task_description": self.task_description,
-            "phase": self.phase,
-            "iteration": self.iteration,
-            "tool_events": list(self.tool_events),
-            "usage": dict(self.usage),
-            "stop_reason": self.stop_reason,
-            "error": self.error,
-            "result": self.result,
-            "chat_id": self.chat_id,
-            "persisted_at": self.persisted_at,
-        }
-
-
-#: How long a finished subagent keeps its status snapshot for HTTP fetch.
-#: ponytail: 24h window — enough to reopen the panel after the user comes back,
-#: without keeping finished snapshots forever.
-SUBAGENT_STATUS_TTL_S = 86400.0
-
-
-def _storage_key(key: str) -> str:
-    """Collision-resistant encoding for subagent snapshot subdirectories."""
-    return base64.urlsafe_b64encode(key.encode()).decode().rstrip("=")
-
-
-def _subagent_snapshot_dir(workspace: Path, session_key: str | None) -> Path:
-    """Return the directory where a session's subagent snapshots live."""
-    base = workspace / "subagents"
-    if session_key:
-        return base / _storage_key(session_key)
-    return base / "_unknown_"
-
-
-def _persist_subagent_status(
-    workspace: Path,
-    session_key: str | None,
-    status: SubagentStatus,
-) -> None:
-    """Persist a subagent snapshot so it survives gateway restarts."""
-    if status.phase not in ("done", "error"):
-        # ponytail: only finished snapshots are persisted. Running subagents
-        # would need task-reconstruction; that is left for a future phase.
-        return
-    directory = _subagent_snapshot_dir(workspace, session_key)
-    directory.mkdir(parents=True, exist_ok=True)
-    status.persisted_at = time.time()
-    path = directory / f"{status.task_id}.json"
-    try:
-        path.write_text(json.dumps(status.to_payload(), ensure_ascii=False), encoding="utf-8")
-    except Exception:
-        logger.exception("Failed to persist subagent status for {}", status.task_id)
-
-
-def _subagent_status_from_payload(payload: dict[str, Any]) -> SubagentStatus | None:
-    """Reconstruct a SubagentStatus from a persisted payload."""
-    try:
-        return SubagentStatus(
-            task_id=payload["task_id"],
-            label=payload.get("label", ""),
-            task_description=payload.get("task_description", ""),
-            started_at=payload.get("started_at", 0.0),
-            phase=payload.get("phase", "done"),
-            iteration=payload.get("iteration", 0),
-            tool_events=list(payload.get("tool_events", [])),
-            usage=dict(payload.get("usage", {})),
-            stop_reason=payload.get("stop_reason"),
-            error=payload.get("error"),
-            result=payload.get("result"),
-            finished_at=payload.get("finished_at"),
-            chat_id=payload.get("chat_id"),
-        )
-    except Exception:
-        logger.warning("Skipping malformed subagent snapshot: {}", payload)
-        return None
-
-
-def _load_persisted_subagent_statuses(
-    workspace: Path,
-    ttl_s: float = SUBAGENT_STATUS_TTL_S,
-) -> dict[str, SubagentStatus]:
-    """Load non-expired finished subagent snapshots from disk.
-
-    Removes expired snapshot files while scanning.
-    """
-    base = workspace / "subagents"
-    if not base.exists():
-        return {}
-    now = time.time()
-    loaded: dict[str, SubagentStatus] = {}
-    for session_dir in base.iterdir():
-        if not session_dir.is_dir():
-            continue
-        for path in session_dir.glob("*.json"):
-            if path.suffixes == [".pending", ".json"]:
-                # Pending records are handled by resume_pending, not here.
-                continue
-            try:
-                payload = json.loads(path.read_text(encoding="utf-8"))
-            except Exception:
-                logger.warning("Could not read subagent snapshot {}", path)
-                continue
-            persisted_at = payload.get("persisted_at")
-            if not isinstance(persisted_at, (int, float)) or now - persisted_at > ttl_s:
-                try:
-                    path.unlink()
-                except Exception:
-                    pass
-                continue
-            status = _subagent_status_from_payload(payload)
-            if status is not None:
-                status.persisted_at = persisted_at
-                loaded[status.task_id] = status
-        # Remove empty session directories to keep the workspace tidy.
-        try:
-            if not any(session_dir.iterdir()):
-                session_dir.rmdir()
-        except Exception:
-            pass
-    return loaded
-
-
-def _pending_path(workspace: Path, session_key: str | None, task_id: str) -> Path:
-    """Path for a subagent pending record."""
-    return _subagent_snapshot_dir(workspace, session_key) / f"{task_id}.pending.json"
-
-
-def _persist_subagent_pending(
-    workspace: Path,
-    task_id: str,
-    task: str,
-    label: str | None,
-    origin_channel: str,
-    origin_chat_id: str,
-    session_key: str | None,
-    origin_message_id: str | None,
-    temperature: float | None,
-    workspace_scope: WorkspaceScope | None,
-    model_preset: str | None = None,
-    checkpoint: dict[str, Any] | None = None,
-) -> None:
-    """Persist a pending subagent record so it can be relaunched after restart."""
-    directory = _subagent_snapshot_dir(workspace, session_key)
-    directory.mkdir(parents=True, exist_ok=True)
-    payload: dict[str, Any] = {
-        "task_id": task_id,
-        "task": task,
-        "label": label,
-        "origin_channel": origin_channel,
-        "origin_chat_id": origin_chat_id,
-        "session_key": session_key,
-        "origin_message_id": origin_message_id,
-        "temperature": temperature,
-        "workspace_scope": workspace_scope.to_dict() if workspace_scope is not None else None,
-        "model_preset": model_preset,
-        "persisted_at": time.time(),
-    }
-    if checkpoint is not None:
-        payload["checkpoint"] = checkpoint
-    path = _pending_path(workspace, session_key, task_id)
-    try:
-        path.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
-    except Exception:
-        logger.exception("Failed to persist subagent pending record for {}", task_id)
-
-
-def _delete_subagent_pending(
-    workspace: Path,
-    session_key: str | None,
-    task_id: str,
-) -> None:
-    """Remove a pending subagent record once it finishes."""
-    path = _pending_path(workspace, session_key, task_id)
-    try:
-        path.unlink(missing_ok=True)
-    except Exception:
-        pass
-
-
-def _load_subagent_pendings(workspace: Path) -> list[dict[str, Any]]:
-    """Load all pending subagent records from disk.
-
-    Removes expired pending records while scanning.
-    """
-    base = workspace / "subagents"
-    if not base.exists():
-        return []
-    now = time.time()
-    loaded: list[dict[str, Any]] = []
-    for session_dir in base.iterdir():
-        if not session_dir.is_dir():
-            continue
-        for path in session_dir.glob("*.pending.json"):
-            try:
-                payload = json.loads(path.read_text(encoding="utf-8"))
-            except Exception:
-                logger.warning("Could not read subagent pending record {}", path)
-                continue
-            persisted_at = payload.get("persisted_at")
-            if not isinstance(persisted_at, (int, float)) or now - persisted_at > SUBAGENT_STATUS_TTL_S:
-                try:
-                    path.unlink()
-                except Exception:
-                    pass
-                continue
-            loaded.append(payload)
-    return loaded
-
 
 SubagentEventCallback = Callable[[dict[str, Any]], Awaitable[None]]
 
@@ -317,6 +95,7 @@ class SubagentManager:
         max_concurrent_subagents: int | None = None,
         fail_on_tool_error: bool | None = None,
         llm_wall_timeout_for_session: Callable[[str | None], float | None] | None = None,
+        owner_id: str | list[str] | None = None,
     ):
         if workspace is None:
             raise TypeError("SubagentManager.__init__() missing required argument: 'workspace'")
@@ -364,6 +143,7 @@ class SubagentManager:
             if fail_on_tool_error is not None
             else defaults.fail_on_tool_error
         )
+        self.owner_id = owner_id
         self.runner = AgentRunner()
         self._exec_session_manager = ExecSessionManager()
         self._llm_wall_timeout_for_session = llm_wall_timeout_for_session
@@ -566,9 +346,24 @@ class SubagentManager:
                 restrict_to_workspace=cfg.restrict_to_workspace,
                 workspace=root,
             ),
+            owner_id=self.owner_id,
         )
         ToolLoader().load(ctx, registry, scope=scope)
         return registry
+
+    def _default_sender_id(self) -> str | None:
+        """Return a representative owner identity when no origin sender is known.
+
+        WebUI-triggered subagents have no inbound sender, so we fall back to
+        the configured operator identity so owner-only tools still behave as
+        expected inside a subagent.
+        """
+        if not self.owner_id:
+            return None
+        if isinstance(self.owner_id, (list, tuple, set)):
+            first = next(iter(self.owner_id), None)
+            return str(first) if first else None
+        return str(self.owner_id)
 
     async def spawn(
         self,
@@ -578,6 +373,7 @@ class SubagentManager:
         origin_chat_id: str = "direct",
         session_key: str | None = None,
         origin_message_id: str | None = None,
+        origin_sender_id: str | None = None,
         temperature: float | None = None,
         workspace_scope: WorkspaceScope | None = None,
         *,
@@ -598,7 +394,7 @@ class SubagentManager:
             runtime = runtime.with_generation_overrides(temperature=temperature)
         task_id = task_id or str(uuid.uuid4())[:8]
         display_label = label or task[:30] + ("..." if len(task) > 30 else "")
-        origin = {"channel": origin_channel, "chat_id": origin_chat_id, "session_key": session_key}
+        origin = {"channel": origin_channel, "chat_id": origin_chat_id, "session_key": session_key, "sender_id": origin_sender_id}
 
         status = SubagentStatus(
             task_id=task_id,
@@ -629,14 +425,15 @@ class SubagentManager:
                 display_label,
                 origin,
                 status,
-                runtime,
-                origin_message_id,
-                workspace_scope,
-                initial_messages=initial_messages,
-                tool_scope=tool_scope,
-                extra_metadata=extra_metadata,
-                on_announce=on_announce,
-            )
+            runtime,
+            origin_message_id,
+            workspace_scope,
+            initial_messages=initial_messages,
+            tool_scope=tool_scope,
+            extra_metadata=extra_metadata,
+            on_announce=on_announce,
+            origin_sender_id=origin_sender_id,
+        )
         )
         self._running_tasks[task_id] = bg_task
         if session_key:
@@ -670,6 +467,7 @@ class SubagentManager:
         origin_chat_id: str = "direct",
         session_key: str | None = None,
         origin_message_id: str | None = None,
+        origin_sender_id: str | None = None,
         temperature: float | None = None,
         workspace_scope: WorkspaceScope | None = None,
         *,
@@ -690,6 +488,7 @@ class SubagentManager:
             "channel": origin_channel,
             "chat_id": origin_chat_id,
             "session_key": session_key,
+            "sender_id": origin_sender_id,
         }
         status = SubagentStatus(
             task_id=task_id,
@@ -712,6 +511,7 @@ class SubagentManager:
                 workspace_scope,
                 announce=False,
                 tool_scope=tool_scope,
+                origin_sender_id=origin_sender_id,
             )
         )
         self._running_tasks[task_id] = inline_task
@@ -749,6 +549,7 @@ class SubagentManager:
         tool_scope: str = "subagent",
         extra_metadata: dict[str, Any] | None = None,
         on_announce: Callable[[str, dict[str, Any]], Awaitable[None]] | None = None,
+        origin_sender_id: str | None = None,
     ) -> str:
         """Execute the subagent task and announce the result."""
         logger.info("Subagent [{}] starting task: {}", task_id, label)
@@ -818,12 +619,14 @@ class SubagentManager:
                 if self._llm_wall_timeout_for_session
                 else None
             )
+            sender_id = origin_sender_id or origin.get("sender_id") or self._default_sender_id()
             request_token = bind_request_context(RequestContext(
                 channel=origin["channel"],
                 chat_id=origin["chat_id"],
                 message_id=origin_message_id,
                 session_key=sess_key,
                 runtime=runtime,
+                sender_id=sender_id,
             ))
             token = bind_workspace_scope(workspace_scope) if workspace_scope is not None else None
             try:
@@ -848,7 +651,6 @@ class SubagentManager:
                     reset_workspace_scope(token)
                 reset_request_context(request_token)
             status.phase = "done"
-            status.stop_reason = result.stop_reason
             status.stop_reason = result.stop_reason
 
             if result.stop_reason == "tool_error":

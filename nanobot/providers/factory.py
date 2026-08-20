@@ -297,10 +297,20 @@ def build_provider_snapshot(
         if preset_name is None and preset is None
         else preset_name
     )
-    fallback_windows = [
-        fallback.context_window_tokens
-        for fallback in _resolve_fallback_presets(config, resolved)
-    ]
+    # The fallback chain (agents.defaults.fallbackModels) only constrains the
+    # default runtime: that runtime may fail over to any candidate, so its
+    # context window must fit the smallest link. An explicitly named preset
+    # (e.g. via /model <preset> or a session-scoped selection) is a deliberate
+    # choice — its window is the preset's own, not the global minimum.
+    is_default_selection = preset_name is None and preset is None
+    fallback_windows = (
+        [
+            fallback.context_window_tokens
+            for fallback in _resolve_fallback_presets(config, resolved)
+        ]
+        if is_default_selection
+        else []
+    )
     return ProviderSnapshot(
         provider=make_provider(config, preset=resolved),
         model=resolved.model,

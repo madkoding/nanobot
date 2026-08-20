@@ -1,10 +1,13 @@
+import asyncio
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+from pytest_httpx import HTTPXMock
 
 from nanobot.bus.events import OutboundMessage
 from nanobot.bus.queue import MessageBus
-from nanobot.channels.base import BaseChannel
+from nanobot.channels.base import BaseChannel, BoundedSet, TypingIndicator, reconnect_loop
 
 
 class _DummyChannel(BaseChannel):
@@ -23,6 +26,109 @@ class _DummyChannel(BaseChannel):
 
     async def send(self, msg: OutboundMessage) -> None:
         self._sent.append(msg)
+
+
+def test_bounded_set_adds_and_evicts_oldest() -> None:
+    cache = BoundedSet(3)
+    cache.add("a")
+    cache.add("b")
+    cache.add("c")
+    assert "a" in cache
+    assert list(cache) == ["a", "b", "c"]
+    cache.add("d")
+    assert "a" not in cache
+    assert "d" in cache
+    assert len(cache) == 3
+
+
+def test_bounded_set_setitem_compat() -> None:
+    cache = BoundedSet(2)
+    cache["x"] = None
+    cache["y"] = None
+    assert "x" in cache and "y" in cache
+
+
+@pytest.mark.asyncio
+async def test_typing_indicator_sends_periodically() -> None:
+    calls: list[str] = []
+
+    async def _send() -> None:
+        calls.append("tick")
+
+    indicator = TypingIndicator(interval=0.05)
+    indicator.start("room1", _send)
+    await asyncio.sleep(0.12)
+    indicator.stop("room1")
+
+    assert len(calls) >= 2
+
+
+@pytest.mark.asyncio
+async def test_typing_indicator_stop_cancels_task() -> None:
+    calls: list[str] = []
+
+    async def _send() -> None:
+        calls.append("tick")
+
+    indicator = TypingIndicator(interval=0.05)
+    indicator.start("room1", _send)
+    # Wait until at least one tick has had time to fire, then stop.
+    await asyncio.sleep(0.12)
+    before = len(calls)
+    indicator.stop("room1")
+    await asyncio.sleep(0.1)
+
+    # After stop, no new ticks should arrive.
+    assert len(calls) == before
+
+
+@pytest.mark.asyncio
+async def test_reconnect_loop_retries_with_backoff() -> None:
+    attempts: list[int] = []
+    run_flag = {"run": True}
+
+    async def _connect() -> None:
+        attempts.append(len(attempts))
+        if len(attempts) >= 3:
+            run_flag["run"] = False
+        raise RuntimeError("boom")
+
+    task = asyncio.create_task(
+        reconnect_loop(
+            _connect,
+            lambda: run_flag["run"],
+            base_delay=0.01,
+            max_delay=0.05,
+        )
+    )
+    await asyncio.wait_for(task, timeout=0.3)
+
+    assert len(attempts) >= 3
+
+
+@pytest.mark.asyncio
+async def test_reconnect_loop_resets_delay_after_success() -> None:
+    attempts: list[str] = []
+    run_flag = {"run": True}
+
+    async def _connect() -> None:
+        attempts.append("ok")
+        if len(attempts) == 1:
+            raise RuntimeError("boom")
+        run_flag["run"] = False
+
+    task = asyncio.create_task(
+        reconnect_loop(
+            _connect,
+            lambda: run_flag["run"],
+            base_delay=0.01,
+            max_delay=0.05,
+        )
+    )
+    await asyncio.wait_for(task, timeout=0.15)
+
+    # First attempt fails, second succeeds, then loop exits because should_run is False.
+    assert attempts == ["ok", "ok"]
 
 
 def test_is_allowed_requires_exact_match() -> None:
@@ -92,6 +198,41 @@ async def test_handle_message_group_ignores_unknown() -> None:
     )
 
     assert channel._sent == []
+
+
+@pytest.mark.asyncio
+async def test_download_to_media_dir_success(tmp_path: Path, httpx_mock: HTTPXMock, monkeypatch) -> None:
+    monkeypatch.setattr(
+        "nanobot.config.paths.get_media_dir", lambda _name: tmp_path
+    )
+    channel = _DummyChannel({}, MessageBus())
+    httpx_mock.add_response(url="https://example.com/a.png", content=b"pngdata")
+
+    path, marker = await channel._download_to_media_dir(
+        "https://example.com/a.png", "file_a.png", marker_type="image"
+    )
+
+    assert path is not None
+    assert path.read_bytes() == b"pngdata"
+    assert marker == "[image: file_a.png]"
+
+
+@pytest.mark.asyncio
+async def test_download_to_media_dir_failure_returns_marker(
+    tmp_path: Path, httpx_mock: HTTPXMock, monkeypatch
+) -> None:
+    monkeypatch.setattr(
+        "nanobot.config.paths.get_media_dir", lambda _name: tmp_path
+    )
+    channel = _DummyChannel({}, MessageBus())
+    httpx_mock.add_response(url="https://example.com/b.png", status_code=404)
+
+    path, marker = await channel._download_to_media_dir(
+        "https://example.com/b.png", "file_b.png", marker_type="image"
+    )
+
+    assert path is None
+    assert "download failed" in marker
 
 
 @pytest.mark.asyncio

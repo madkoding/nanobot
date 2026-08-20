@@ -172,6 +172,48 @@ class TestBuildDreamPrompt:
         assert cursor == 2
         assert "usable memory" in prompt
 
+    def test_owner_filter_includes_only_matching_sender(self, store):
+        """Dream must only fold the owner's memories into durable memory files."""
+        owner_id = "whatsapp:15551234567@s.whatsapp.net"
+        other_id = "whatsapp:56999999999@s.whatsapp.net"
+        store.append_history("owner fact", sender_id=owner_id)
+        store.append_history("other person fact", sender_id=other_id)
+
+        result = store.build_dream_prompt(owner_id=owner_id)
+        assert result is not None
+        prompt, _ = result
+        assert "owner fact" in prompt
+        assert "other person fact" not in prompt
+
+    def test_owner_filter_excludes_legacy_entries_without_sender(self, store):
+        """Entries written before sender_id tracking must not be attributed to the owner."""
+        owner_id = "whatsapp:15551234567@s.whatsapp.net"
+        store.append_history("legacy fact")
+        store.append_history("owner fact", sender_id=owner_id)
+
+        result = store.build_dream_prompt(owner_id=owner_id)
+        assert result is not None
+        prompt, _ = result
+        assert "owner fact" in prompt
+        assert "legacy fact" not in prompt
+
+    def test_no_owner_filter_keeps_all_entries(self, store):
+        """When owner_id is omitted, Dream remains backward-compatible and sees everything."""
+        store.append_history("first")
+        store.append_history("second", sender_id="someone")
+
+        result = store.build_dream_prompt()
+        assert result is not None
+        prompt, _ = result
+        assert "first" in prompt
+        assert "second" in prompt
+
+    def test_owner_filter_returns_none_when_only_other_senders(self, store):
+        """Dream should be a no-op when the owner has no unprocessed entries."""
+        store.append_history("other fact", sender_id="whatsapp:56999999999@s.whatsapp.net")
+
+        assert store.build_dream_prompt(owner_id="whatsapp:15551234567@s.whatsapp.net") is None
+
     def test_dream_prompt_consumes_consolidator_attribute_tags(self):
         prompt = render_template(
             "agent/dream.md",

@@ -283,7 +283,7 @@ class TestConsolidatorArchiveErrorHandling:
     ):
         consolidator.store.raw_archive = MagicMock()
         monkeypatch.setattr(
-            "nanobot.agent.memory.render_template",
+            "nanobot.agent.memory_consolidator.render_template",
             MagicMock(side_effect=RuntimeError("template failed")),
         )
 

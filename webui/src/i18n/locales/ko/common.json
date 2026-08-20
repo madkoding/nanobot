@@ -234,6 +234,7 @@
       "compact": "컴팩트",
       "auto": "자동",
       "expanded": "펼침",
+      "collapsed": "접힘",
       "default": "기본값",
       "summary": "요약",
       "diff": "Diff",
@@ -641,7 +642,13 @@
         "needs_setup": "설정 필요",
         "invalid": "잘못됨",
         "unsupported": "수동 설정"
-      }
+      },
+      "keyValueKey": "Key",
+      "keyValueValue": "Value",
+      "keyValueKeyAria": "Key",
+      "keyValueValueAria": "Value",
+      "keyValueAdd": "Add",
+      "keyValueRemove": "Remove entry"
     },
     "nanobotFeatures": {
       "enabled": "활성화됨",

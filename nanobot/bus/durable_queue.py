@@ -123,6 +123,7 @@ def _dict_to_inbound(data: dict[str, Any]) -> InboundMessage:
     data.pop("_delivery_kind", None)
     data.pop("_delivery_id", None)
     data = _deep_decode_datetimes(data)
+    data["sender_id"] = str(data.get("sender_id", ""))
     return InboundMessage(**data)
 
 
@@ -147,6 +148,12 @@ def _dict_to_outbound(data: dict[str, Any]) -> OutboundMessage:
     data.pop("_delivery_id", None)
     data["event"] = _event_from_dict(data.get("event"))
     data = _deep_decode_datetimes(data)
+    # Tolerate fields written by older nanobot versions that this version's
+    # OutboundMessage no longer accepts (e.g. `rich`). Dropping unknown keys
+    # keeps the outbound dispatcher alive instead of crashing on a stale
+    # durable message.
+    known = set(OutboundMessage.__dataclass_fields__)
+    data = {k: v for k, v in data.items() if k in known}
     return OutboundMessage(**data)
 
 

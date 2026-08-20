@@ -234,6 +234,7 @@
       "compact": "Compacte",
       "auto": "Automatique",
       "expanded": "Développé",
+      "collapsed": "Replié",
       "default": "Par défaut",
       "summary": "Résumé",
       "diff": "Diff",
@@ -641,7 +642,13 @@
         "needs_setup": "Configuration requise",
         "invalid": "Non valide",
         "unsupported": "Configuration manuelle"
-      }
+      },
+      "keyValueKey": "Key",
+      "keyValueValue": "Value",
+      "keyValueKeyAria": "Key",
+      "keyValueValueAria": "Value",
+      "keyValueAdd": "Add",
+      "keyValueRemove": "Remove entry"
     },
     "nanobotFeatures": {
       "enabled": "Activé",

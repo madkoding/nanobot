@@ -21,6 +21,42 @@ _TOOLS_TOKEN_CACHE_MAX_ENTRIES = 64
 _TOOLS_TOKEN_CACHE: dict[int, tuple[tuple[int, ...], dict[bool, int]]] = {}
 
 
+def normalize_owner_match(value: str | None) -> str:
+    """Return a bare owner/sender identity suitable for cross-channel matching.
+
+    Strips WhatsApp-style server suffixes (``@s.whatsapp.net``, ``@g.us``,
+    ``@lid``), leading ``+`` signs, and whitespace so that a phone number
+    owner configured as ``15551234567`` matches inbound sender IDs like
+    ``15551234567@s.whatsapp.net`` or ``+15551234567``.
+    """
+    if not value:
+        return ""
+    if not isinstance(value, str):
+        return str(value)
+    normalized = value.strip().lstrip("+")
+    if "@" in normalized:
+        normalized = normalized.split("@", 1)[0]
+    if ":" in normalized:
+        normalized = normalized.split(":", 1)[0]
+    return normalized
+
+
+def is_owner_match(sender_id: str | None, owner_id: str | list[str] | None) -> bool:
+    """Return True when *sender_id* matches any configured owner identity.
+
+    ``owner_id`` may be a single identity or a list (one per channel, e.g. a
+    Discord user id and a WhatsApp phone number).
+    """
+    if not owner_id or not sender_id:
+        return False
+    if isinstance(owner_id, (list, tuple, set)):
+        return any(
+            normalize_owner_match(sender_id) == normalize_owner_match(o)
+            for o in owner_id
+        )
+    return normalize_owner_match(sender_id) == normalize_owner_match(owner_id)
+
+
 def sanitize_surrogates(text: str) -> str:
     """Reconstruct surrogate pairs and replace unpaired surrogates.
 

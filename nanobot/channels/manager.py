@@ -6,7 +6,6 @@ import asyncio
 import hashlib
 from collections.abc import Callable, Iterable
 from contextlib import suppress
-from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from loguru import logger
@@ -40,19 +39,10 @@ from nanobot.utils.restart import (
 )
 
 if TYPE_CHECKING:
-    from nanobot.channels.whatsapp.group_workspace import GroupWorkspaceRegistry
+    from nanobot.channels.whatsapp.group_workspace import ChatWorkspaceRegistry
     from nanobot.session.manager import SessionManager
 
-
-def _default_webui_dist() -> Path | None:
-    """Return the absolute path to the bundled webui dist directory if it exists."""
-    try:
-        import nanobot.web as web_pkg  # type: ignore[import-not-found]
-    except ImportError:
-        return None
-    candidate = Path(web_pkg.__file__).resolve().parent / "dist"
-    return candidate if candidate.is_dir() else None
-
+from nanobot.session.manager import SessionManager
 
 # Retry delays for message sending (exponential backoff: 1s, 2s, 4s)
 _SEND_RETRY_DELAYS = (1, 2, 4)
@@ -154,6 +144,12 @@ class ChannelManager:
         self._watchdog_task: asyncio.Task | None = None
         self._started = False
         self._origin_reply_fingerprints: dict[tuple[str, str, str], str] = {}
+        # Streams currently active per (channel, chat_id). A stream is added
+        # on the first delta and removed on stream_end. Used to detect
+        # duplicate sends: if a stream is active for a chat, the runner also
+        # emits a final OutboundMessage with the streamed content, and we
+        # must drop it so the user doesn't see the reply twice.
+        self._active_streams: set[tuple[str, str]] = set()
 
         self._init_channels()
         self._wire_group_workspaces_to_agent_loop()
@@ -188,41 +184,12 @@ class ChannelManager:
         *,
         runtime_name: str | None = None,
     ) -> BaseChannel:
-        kwargs: dict[str, Any] = {}
-        if cls.name == "websocket":
-            from nanobot.channels.websocket.runtime import WebSocketConfig
-            from nanobot.webui.gateway_services import build_gateway_services
-
-            parsed = WebSocketConfig.model_validate(section)
-            static_path = _default_webui_dist() if self._webui_static_dist else None
-            workspace = Path(self.config.workspace_path)
-            gateway = build_gateway_services(
-                config=parsed,
-                bus=self.bus,
-                session_manager=self._session_manager,
-                static_dist_path=static_path,
-                workspace_path=workspace,
-                worktree_root=self.config.worktree_root_path,
-                default_restrict_to_workspace=self.config.tools.restrict_to_workspace,
-                disabled_skills=set(self.config.agents.defaults.disabled_skills),
-                runtime_model_name=self._webui_runtime_model_name,
-                runtime_surface=self._webui_runtime_surface,
-                runtime_capabilities_overrides=self._webui_runtime_capabilities,
-                cron_service=self._cron_service,
-                local_trigger_store=self._local_trigger_store,
-                cron_pending_job_ids=self._webui_cron_pending_job_ids,
-                local_trigger_pending_ids=self._webui_local_trigger_pending_ids,
-                channel_feature_action=self.apply_channel_feature_action,
-                channel_runtime_status=self.get_status,
-                agent_loop=getattr(self, "_agent_loop", None),
-                subagent_manager=getattr(self, "_subagent_manager", None),
-                runtime_resolver=self._resolve_subagent_runtime,
-                logger=logger,
-            )
-            kwargs["gateway"] = gateway
+        kwargs = cls.build_kwargs(self)
         channel = cls(section, self.bus, **kwargs)
-        if cls.name == "websocket" and self._subagent_manager is not None:
-            self._wire_subagent_broadcast(channel)
+        channel._owner_id = getattr(self.config, "owner_id", None)
+        if cls.accepts_outbound and self._subagent_manager is not None:
+            if hasattr(channel, "send_subagent_update"):
+                self._wire_subagent_broadcast(channel)
         if runtime_name and runtime_name != channel.name:
             channel.name = runtime_name
         channel.send_progress = self._resolve_bool_override(
@@ -262,7 +229,7 @@ class ChannelManager:
         set_registry = getattr(loop, "set_group_workspace_registry", None)
         if not callable(set_registry):
             return
-        merged: dict[str, "GroupWorkspaceRegistry"] = {}
+        merged: dict[str, "ChatWorkspaceRegistry"] = {}
         for channel in self.channels.values():
             registry = getattr(channel, "group_workspace_registry", None)
             if registry is not None:
@@ -796,6 +763,7 @@ class ChannelManager:
                     channel = self.channels.get(msg.channel)
                     if channel is not None and channel.show_reasoning:
                         await self._send_with_retry(channel, msg)
+                        channel._touch_activity()  # outbound counts as liveness
                     await self.bus.ack_outbound(msg)
                     continue
 
@@ -815,13 +783,11 @@ class ChannelManager:
                     await self.bus.ack_outbound(msg)
                     continue
 
-                if (
-                    isinstance(event, RuntimeModelUpdatedEvent)
-                    and msg.channel == "websocket"
-                    and "websocket" not in self.channels
-                ):
-                    await self.bus.ack_outbound(msg)
-                    continue
+                if isinstance(event, RuntimeModelUpdatedEvent):
+                    channel = self.channels.get(msg.channel)
+                    if channel is None or not channel.accepts_outbound(msg):
+                        await self.bus.ack_outbound(msg)
+                        continue
 
                 # Coalesce consecutive stream delta messages for the same (channel, chat_id)
                 # to reduce API calls and improve streaming latency
@@ -845,6 +811,7 @@ class ChannelManager:
                             await self.bus.ack_outbound(msg)
                             continue
                     await self._send_with_retry(channel, msg)
+                    channel._touch_activity()  # outbound counts as liveness
                 else:
                     logger.warning("Unknown channel: {}", msg.channel)
 
@@ -857,8 +824,16 @@ class ChannelManager:
             except asyncio.CancelledError:
                 break
             except Exception:
-                logger.exception("Failed to dispatch outbound message to {}:{}", msg.channel, msg.chat_id)
-                await self.bus.nack_outbound(msg)
+                # Do not reference `msg` here: the exception may originate in
+                # consume_outbound() before `msg` is ever assigned (e.g. a
+                # malformed durable message), which would raise a secondary
+                # UnboundLocalError and kill the dispatcher permanently.
+                logger.exception("Failed to dispatch outbound message")
+                if "msg" in locals():
+                    try:
+                        await self.bus.nack_outbound(msg)
+                    except Exception:
+                        logger.exception("Failed to nack outbound message")
 
     @staticmethod
     async def _send_reasoning_delta(
@@ -900,8 +875,7 @@ class ChannelManager:
             resuming=event.resuming if isinstance(event, StreamEndEvent) else False,
         )
 
-    @staticmethod
-    async def _send_once(channel: BaseChannel, msg: OutboundMessage) -> None:
+    async def _send_once(self, channel: BaseChannel, msg: OutboundMessage) -> None:
         """Send one outbound message without retry policy."""
         event = outbound_event_from_message(msg)
         if isinstance(event, ProgressEvent) and event.reasoning_end:
@@ -919,10 +893,23 @@ class ChannelManager:
                 msg.metadata,
             )
         elif isinstance(event, StreamDeltaEvent):
+            self._active_streams.add((msg.channel, msg.chat_id))
             await ChannelManager._send_stream_event(channel, msg, event)
         elif isinstance(event, StreamEndEvent):
             await ChannelManager._send_stream_event(channel, msg, event)
+            self._active_streams.discard((msg.channel, msg.chat_id))
         elif not isinstance(event, StreamedResponseEvent):
+            # If a streaming reply is active for this chat, the runner will
+            # also emit a final OutboundMessage with the streamed content
+            # (without StreamedResponseEvent). Drop it so the user doesn't
+            # get the reply twice. Channels that don't stream (no prior
+            # deltas) continue through the legacy send path.
+            if (msg.channel, msg.chat_id) in self._active_streams:
+                logger.debug(
+                    "Dropping legacy outbound to {}:{} (stream active)",
+                    msg.channel, msg.chat_id,
+                )
+                return
             await channel.send(msg)
 
     def _coalesce_stream_deltas(
@@ -1022,6 +1009,7 @@ class ChannelManager:
                         "Send to {} failed with non-retriable {}: {}; not retrying.",
                         msg.channel, type(e).__name__, e,
                     )
+                    await self._notify_owner_of_send_failure(channel, msg, e)
                     return
 
                 loop = asyncio.get_running_loop()
@@ -1035,6 +1023,7 @@ class ChannelManager:
                         "Failed to send to {} after {} attempts",
                         msg.channel, attempt,
                     )
+                    await self._notify_owner_of_send_failure(channel, msg, e)
                     return
                 delay = _SEND_RETRY_DELAYS[min(attempt - 1, len(_SEND_RETRY_DELAYS) - 1)]
                 if deadline is not None:
@@ -1050,6 +1039,37 @@ class ChannelManager:
                     await asyncio.sleep(delay)
                 except asyncio.CancelledError:
                     raise  # Propagate cancellation during sleep
+
+    async def _notify_owner_of_send_failure(
+        self,
+        channel: BaseChannel,
+        msg: OutboundMessage,
+        error: BaseException,
+    ) -> None:
+        # ponytail: when a send fails permanently (group removed us, 463,
+        # socket down, ...) the message would otherwise stay stuck in a
+        # retry loop or be silently dropped. Instead, tell the operator
+        # over their private DM with the reason — never spam the group
+        # that caused the failure.
+        owner_chat = channel.owner_chat_id()
+        if not owner_chat or owner_chat == msg.chat_id:
+            return
+        reason = str(error).strip() or type(error).__name__
+        content = (
+            f"⚠️ Send to {msg.channel}:{msg.chat_id} failed: "
+            f"{type(error).__name__}: {reason}"
+        )
+        try:
+            await self.bus.publish_outbound(
+                OutboundMessage(
+                    channel=msg.channel,
+                    chat_id=owner_chat,
+                    content=content,
+                    metadata={"origin_channel": msg.channel, "origin_chat_id": msg.chat_id},
+                )
+            )
+        except Exception:
+            logger.exception("Failed to notify owner of send failure")
 
     def get_channel(self, name: str) -> BaseChannel | None:
         """Get a channel by name."""

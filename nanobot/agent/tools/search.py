@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import fnmatch
 import os
 import re
@@ -9,11 +10,18 @@ from contextlib import suppress
 from pathlib import Path, PurePosixPath
 from typing import Any, Iterable, TypeVar
 
+from nanobot.agent.indexer import WorkspaceIndexer
 from nanobot.agent.tools.base import ToolResult
 from nanobot.agent.tools.filesystem import ListDirTool, _FsTool
 
 _DEFAULT_HEAD_LIMIT = 250
 _DEFAULT_FILE_HEAD_LIMIT = 200
+# ponytail: hard cap on files scanned, not just results returned. Prevents
+# runaway os.walk over massive dependency trees from freezing a spinning disk.
+_MAX_WALKED_FILES = 20_000
+# ponytail: time limit for a single walk/grep scan. The walk runs in an
+# executor so asyncio can actually cancel it at timeout.
+_WALK_TIMEOUT_S = 10.0
 T = TypeVar("T")
 _TYPE_GLOB_MAP = {
     "py": ("*.py", "*.pyi"),
@@ -108,8 +116,10 @@ class _SearchTool(_FsTool):
                 return target.relative_to(workspace).as_posix()
         return target.relative_to(root).as_posix()
 
-    def _iter_files(self, root: Path) -> Iterable[Path]:
+    def _iter_files(self, root: Path, *, walked: list[int] | None = None) -> Iterable[Path]:
         if root.is_file():
+            if walked is not None:
+                walked[0] += 1
             yield root
             return
 
@@ -117,7 +127,65 @@ class _SearchTool(_FsTool):
             dirnames[:] = sorted(d for d in dirnames if d not in self._IGNORE_DIRS)
             current = Path(dirpath)
             for filename in sorted(filenames):
+                if walked is not None:
+                    walked[0] += 1
+                    if walked[0] > _MAX_WALKED_FILES:
+                        return
                 yield current / filename
+
+    def _iter_paths(
+        self,
+        root: Path,
+        *,
+        include_dirs: bool,
+        walked: list[int] | None = None,
+    ) -> Iterable[Path]:
+        if root.is_file():
+            if walked is not None:
+                walked[0] += 1
+            yield root
+            return
+        if include_dirs:
+            if walked is not None:
+                walked[0] += 1
+            yield root
+        for dirpath, dirnames, filenames in os.walk(root):
+            dirnames[:] = sorted(d for d in dirnames if d not in self._IGNORE_DIRS)
+            current = Path(dirpath)
+            if include_dirs and current != root:
+                if walked is not None:
+                    walked[0] += 1
+                yield current
+            for filename in sorted(filenames):
+                if walked is not None:
+                    walked[0] += 1
+                    if walked[0] > _MAX_WALKED_FILES:
+                        return
+                yield current / filename
+
+    async def _walk_with_timeout(self, root: Path, *, include_dirs: bool = False) -> list[Path]:
+        """Collect paths from a walk, aborting after _WALK_TIMEOUT_S seconds."""
+        walked = [0]
+
+        def _collect() -> list[Path]:
+            items: list[Path] = []
+            if root.is_file():
+                items.append(root)
+                return items
+            try:
+                for item in self._iter_paths(root, include_dirs=include_dirs, walked=walked):
+                    items.append(item)
+            except StopIteration:
+                pass
+            return items
+
+        try:
+            return await asyncio.wait_for(
+                asyncio.to_thread(_collect),
+                timeout=_WALK_TIMEOUT_S,
+            )
+        except asyncio.TimeoutError:
+            return []
 
 
 class FindFilesTool(_SearchTool):
@@ -171,8 +239,8 @@ class FindFilesTool(_SearchTool):
                 },
                 "head_limit": {
                     "type": "integer",
-                    "description": "Maximum number of paths to return (default 200, 0 for all, max 1000)",
-                    "minimum": 0,
+                    "description": "Maximum number of paths to return (default 200, max 1000)",
+                    "minimum": 1,
                     "maximum": 1000,
                 },
                 "offset": {
@@ -183,20 +251,6 @@ class FindFilesTool(_SearchTool):
                 },
             },
         }
-
-    def _iter_paths(self, root: Path, *, include_dirs: bool) -> Iterable[Path]:
-        if root.is_file():
-            yield root
-            return
-        if include_dirs:
-            yield root
-        for dirpath, dirnames, filenames in os.walk(root):
-            dirnames[:] = sorted(d for d in dirnames if d not in self._IGNORE_DIRS)
-            current = Path(dirpath)
-            if include_dirs and current != root:
-                yield current
-            for filename in sorted(filenames):
-                yield current / filename
 
     async def execute(
         self,
@@ -220,15 +274,21 @@ class FindFilesTool(_SearchTool):
             if sort not in {"path", "modified"}:
                 return ToolResult.error("Error: sort must be 'path' or 'modified'")
 
+            # ponytail: head_limit=0 used to mean unlimited and could walk the
+            # entire disk. Treat it as the default cap.
             limit = (
                 _DEFAULT_FILE_HEAD_LIMIT
-                if head_limit is None
-                else None if head_limit == 0 else head_limit
+                if head_limit is None or head_limit == 0
+                else min(head_limit, 1000)
             )
             root = target if target.is_dir() else target.parent
             matches: list[tuple[str, float]] = []
 
-            for candidate in self._iter_paths(target, include_dirs=include_dirs):
+            candidates = await self._walk_with_timeout(target, include_dirs=include_dirs)
+            if candidates is None:
+                candidates = []
+            walk_limited = len(candidates) >= _MAX_WALKED_FILES
+            for candidate in candidates:
                 if candidate.is_dir() and not include_dirs:
                     continue
                 rel_path = candidate.relative_to(root).as_posix()
@@ -261,14 +321,21 @@ class FindFilesTool(_SearchTool):
                 return "No files found"
 
             result = "\n".join(paged)
+            notes: list[str] = []
             note = _pagination_note(limit, offset, truncated)
             if note:
-                result += "\n\n" + note
+                notes.append(note)
+            if walk_limited:
+                notes.append(f"(scanned up to {_MAX_WALKED_FILES} files)")
+            if not candidates:
+                notes.append("(search timed out before completing)")
+            if notes:
+                result += "\n\n" + "\n".join(notes)
             return result
         except PermissionError as e:
             return ToolResult.error(f"Error: {e}")
         except Exception as e:
-            return ToolResult.error(f"Error finding files: {e}")
+            return ToolResult.error(f"Error searching files: {e}")
 
 
 class GrepTool(_SearchTool):
@@ -369,7 +436,7 @@ class GrepTool(_SearchTool):
                         "matching line blocks; in other modes it limits file entries. "
                         "Default 250"
                     ),
-                    "minimum": 0,
+                    "minimum": 1,
                     "maximum": 1000,
                 },
                 "offset": {
@@ -429,8 +496,10 @@ class GrepTool(_SearchTool):
             except re.error as e:
                 return ToolResult.error(f"Error: invalid regex pattern: {e}")
 
-            if head_limit is not None:
-                limit = None if head_limit == 0 else head_limit
+            # ponytail: head_limit=0 used to mean unlimited and could walk the
+            # entire disk. Treat it as the default cap.
+            if head_limit is not None and head_limit > 0:
+                limit = head_limit
             elif output_mode == "content" and max_matches is not None:
                 limit = max_matches
             elif output_mode != "content" and max_results is not None:
@@ -444,6 +513,8 @@ class GrepTool(_SearchTool):
             size_truncated = False
             skipped_binary = 0
             skipped_large = 0
+            walk_limited = False
+            used_index = False
             matching_files: list[str] = []
             counts: dict[str, int] = {}
             file_mtimes: dict[str, float] = {}
@@ -452,75 +523,114 @@ class GrepTool(_SearchTool):
                 self._MAX_EXPLICIT_FILE_BYTES if target.is_file() else self._MAX_FILE_BYTES
             )
 
-            for file_path in self._iter_files(target):
-                rel_path = file_path.relative_to(root).as_posix()
-                if glob and not _match_glob(rel_path, file_path.name, glob):
-                    continue
-                if not _matches_type(file_path.name, type):
-                    continue
-
-                with file_path.open("rb") as file:
-                    raw = file.read(max_file_bytes + 1)
-                if len(raw) > max_file_bytes:
-                    skipped_large += 1
-                    continue
-                if _is_binary(raw):
-                    skipped_binary += 1
-                    continue
+            # ponytail: try the SQLite inverted index first for non-content modes.
+            # It avoids walking + reading every file on spinning disks.
+            indexed_result = None
+            if target.is_dir() and output_mode in {"files_with_matches", "count"} and context_before == 0 and context_after == 0:
                 try:
-                    mtime = file_path.stat().st_mtime
-                except OSError:
-                    mtime = 0.0
-                try:
-                    content = raw.decode("utf-8")
-                except UnicodeDecodeError:
-                    skipped_binary += 1
-                    continue
+                    indexer = WorkspaceIndexer(target)
+                    indexed_result = indexer.search(
+                        pattern,
+                        output_mode=output_mode,
+                        case_insensitive=case_insensitive,
+                        fixed_strings=fixed_strings,
+                        glob=glob,
+                        file_type=type,
+                        limit=limit + offset if limit is not None else None,
+                    )
+                except Exception:
+                    indexed_result = None
 
-                lines = content.splitlines()
-                display_path = self._display_path(file_path, root)
-                file_had_match = False
-                for idx, line in enumerate(lines, start=1):
-                    if not regex.search(line):
-                        continue
-                    file_had_match = True
-
+            if indexed_result is not None and not indexed_result.get("stale_index"):
+                used_index = True
+                # Index hit: materialize display paths and apply offset.
+                for rel in indexed_result["files"]:
+                    display_path = self._display_path(target / rel, root)
                     if output_mode == "count":
-                        counts[display_path] = counts.get(display_path, 0) + 1
+                        counts[display_path] = indexed_result["counts"].get(rel, 0)
+                    matching_files.append(display_path)
+                # Apply offset lazily.
+                if offset:
+                    matching_files = matching_files[offset:]
+                    counts = {p: counts[p] for p in matching_files if p in counts}
+                if limit is not None:
+                    matching_files = matching_files[:limit]
+                walk_limited = bool(indexed_result.get("limit_hit"))
+                file_paths: list[Path] = []
+            else:
+                file_paths = await self._walk_with_timeout(target)
+                if file_paths is None:
+                    file_paths = []
+                walk_limited = len(file_paths) >= _MAX_WALKED_FILES
+                for file_path in file_paths:
+                    rel_path = file_path.relative_to(root).as_posix()
+                    if glob and not _match_glob(rel_path, file_path.name, glob):
                         continue
-                    if output_mode == "files_with_matches":
+                    if not _matches_type(file_path.name, type):
+                        continue
+
+                    with file_path.open("rb") as file:
+                        raw = file.read(max_file_bytes + 1)
+                    if len(raw) > max_file_bytes:
+                        skipped_large += 1
+                        continue
+                    if _is_binary(raw):
+                        skipped_binary += 1
+                        continue
+                    try:
+                        mtime = file_path.stat().st_mtime
+                    except OSError:
+                        mtime = 0.0
+                    try:
+                        content = raw.decode("utf-8")
+                    except UnicodeDecodeError:
+                        skipped_binary += 1
+                        continue
+
+                    lines = content.splitlines()
+                    display_path = self._display_path(file_path, root)
+                    file_had_match = False
+                    for idx, line in enumerate(lines, start=1):
+                        if not regex.search(line):
+                            continue
+                        file_had_match = True
+
+                        if output_mode == "count":
+                            counts[display_path] = counts.get(display_path, 0) + 1
+                            continue
+                        if output_mode == "files_with_matches":
+                            if display_path not in matching_files:
+                                matching_files.append(display_path)
+                                file_mtimes[display_path] = mtime
+                            break
+
+                        seen_content_matches += 1
+                        if seen_content_matches <= offset:
+                            continue
+                        if limit is not None and len(blocks) >= limit:
+                            truncated = True
+                            break
+                        block = self._format_block(
+                            display_path,
+                            lines,
+                            idx,
+                            context_before,
+                            context_after,
+                        )
+                        extra_sep = 2 if blocks else 0
+                        if result_chars + extra_sep + len(block) > self._MAX_RESULT_CHARS:
+                            size_truncated = True
+                            break
+                        blocks.append(block)
+                        result_chars += extra_sep + len(block)
+                    if output_mode == "count" and file_had_match:
                         if display_path not in matching_files:
                             matching_files.append(display_path)
                             file_mtimes[display_path] = mtime
-                        break
-
-                    seen_content_matches += 1
-                    if seen_content_matches <= offset:
+                    if output_mode in {"count", "files_with_matches"} and file_had_match:
                         continue
-                    if limit is not None and len(blocks) >= limit:
-                        truncated = True
+                    if truncated or size_truncated:
                         break
-                    block = self._format_block(
-                        display_path,
-                        lines,
-                        idx,
-                        context_before,
-                        context_after,
-                    )
-                    extra_sep = 2 if blocks else 0
-                    if result_chars + extra_sep + len(block) > self._MAX_RESULT_CHARS:
-                        size_truncated = True
-                        break
-                    blocks.append(block)
-                    result_chars += extra_sep + len(block)
-                if output_mode == "count" and file_had_match:
-                    if display_path not in matching_files:
-                        matching_files.append(display_path)
-                        file_mtimes[display_path] = mtime
-                if output_mode in {"count", "files_with_matches"} and file_had_match:
-                    continue
-                if truncated or size_truncated:
-                    break
 
             if output_mode == "files_with_matches":
                 if not matching_files:
@@ -572,6 +682,12 @@ class GrepTool(_SearchTool):
                 notes.append(
                     f"(total matches: {sum(counts.values())} in {len(counts)} files)"
                 )
+            if walk_limited:
+                notes.append(f"(scanned up to {_MAX_WALKED_FILES} files)")
+            if used_index:
+                notes.append("(used workspace index)")
+            if not used_index and not file_paths:
+                notes.append("(search timed out before completing)")
             if notes:
                 result += "\n\n" + "\n".join(notes)
             return result

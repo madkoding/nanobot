@@ -2,10 +2,14 @@
 
 from __future__ import annotations
 
+import asyncio
 from abc import ABC, abstractmethod
+from collections import deque
+from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import Any
 
+import httpx
 from loguru import logger
 
 from nanobot.bus.events import InboundMessage, OutboundMessage
@@ -32,18 +36,38 @@ class BaseChannel(ABC):
     send_tool_hints: bool = True
     show_reasoning: bool = True
 
-    def __init__(self, config: Any, bus: MessageBus):
+    def __init__(
+        self,
+        config: Any,
+        bus: MessageBus,
+        *,
+        owner_id: str | list[str] | None = None,
+    ):
         """
         Initialize the channel.
 
         Args:
             config: Channel-specific configuration.
             bus: The message bus for communication.
+            owner_id: Operator identity (or list) used to resolve the
+                owner DM chat for error notifications. Subclasses decide
+                which identity maps to their DM format.
         """
         self.config = config
         self.logger = logger.bind(channel=self.name)
         self.bus = bus
+        self._owner_id = owner_id
         self._running = False
+
+    def owner_chat_id(self) -> str | None:
+        """Return the operator's DM chat id for this channel, or None.
+
+        Used to route error notifications to the operator's private DM
+        instead of spamming the originating group. Subclasses override
+        this to translate the global ``owner_id`` into their channel's
+        DM chat format (e.g. WhatsApp ``<phone>@s.whatsapp.net``).
+        """
+        return None
         # ponytail: last_activity_at lets the manager watchdog detect a "live
         # but silent" channel (idle() blocked on a dead socket, group queue
         # task died, etc.) and force a restart. Subclasses should bump this
@@ -318,3 +342,204 @@ class BaseChannel(ABC):
     def is_running(self) -> bool:
         """Check if the channel is running."""
         return self._running
+
+    # ------------------------------------------------------------------
+    # Lifecycle helpers
+    # ------------------------------------------------------------------
+
+    def _require_ready(self) -> None:
+        """Raise if the channel has not been started.
+
+        Call at the top of :meth:`send` so the channel manager's retry policy
+        can classify the failure consistently.
+        """
+        if not self._running:
+            raise RuntimeError("channel not started")
+
+    @classmethod
+    def build_kwargs(cls, manager: Any) -> dict[str, Any]:
+        """Return extra constructor kwargs supplied by the channel manager.
+
+        Override this in channel subclasses that need runtime wiring from the
+        manager (e.g. the WebSocket channel needs gateway services). The default
+        is empty so ordinary channels require no special construction args.
+        """
+        return {}
+
+    def accepts_outbound(self, msg: OutboundMessage) -> bool:
+        """Return True when this channel should consume an outbound message.
+
+        Most channels accept every message directed at them. The WebSocket
+        channel uses this to keep :class:`RuntimeModelUpdatedEvent` fan-out
+        alive even when no websocket runtime is currently enabled.
+        """
+        return True
+
+    # ------------------------------------------------------------------
+    # Shared runtime helpers
+    # ------------------------------------------------------------------
+
+    def _bounded_set(self, maxlen: int) -> "_BoundedSet":
+        """Return a bounded set of string ids suitable for inbound dedup caches."""
+        return _BoundedSet(maxlen)
+
+    async def _download_to_media_dir(
+        self,
+        url: str,
+        filename_hint: str,
+        *,
+        headers: dict[str, str] | None = None,
+        timeout: float = 60.0,
+        marker_type: str = "image",
+    ) -> tuple[Path | None, str]:
+        """Download an inbound media file to the channel's media directory.
+
+        Returns the saved path and a content marker string. On failure it
+        returns ``(None, marker)`` where marker describes the failure, so the
+        upstream caller can still log what was dropped.
+        """
+        from nanobot.config.paths import get_media_dir
+        from nanobot.utils.helpers import safe_filename
+
+        media_dir = get_media_dir(self.name)
+        media_dir.mkdir(parents=True, exist_ok=True)
+        safe_name = safe_filename(filename_hint) or "attachment"
+        path = media_dir / safe_name
+
+        client: httpx.AsyncClient | None = None
+        try:
+            client = httpx.AsyncClient(timeout=timeout, follow_redirects=True)
+            response = await client.get(url, headers=headers)
+            response.raise_for_status()
+            path.write_bytes(response.content)
+            marker = f"[{marker_type}: {safe_name}]"
+            return path, marker
+        except Exception as exc:
+            self.logger.warning(
+                "Failed to download {} media from {}: {}", marker_type, url, exc
+            )
+            return None, f"[{marker_type}: {safe_name} - download failed]"
+        finally:
+            if client is not None:
+                await client.aclose()
+
+
+class BoundedSet:
+    """Bounded set of string ids used for inbound message deduplication."""
+
+    def __init__(self, maxlen: int) -> None:
+        self._maxlen = maxlen
+        self._deque: deque[str] = deque(maxlen=maxlen)
+        self._set: set[str] = set()
+
+    def add(self, key: str) -> None:
+        if key in self._set:
+            return
+        if len(self._deque) == self._maxlen:
+            oldest = self._deque.popleft()
+            self._set.discard(oldest)
+        self._deque.append(key)
+        self._set.add(key)
+
+    def __contains__(self, key: str) -> bool:
+        return key in self._set
+
+    def __setitem__(self, key: str, value: object) -> None:
+        """Support legacy OrderedDict-style insertion: ids[message_id] = None."""
+        self.add(key)
+
+    def clear(self) -> None:
+        self._deque.clear()
+        self._set.clear()
+
+    def __len__(self) -> int:
+        return len(self._set)
+
+    def __iter__(self):
+        return iter(self._deque)
+
+    def keys(self) -> list[str]:
+        return list(self._deque)
+
+
+_BoundedSet = BoundedSet  # compat alias for internal type hints
+
+
+class TypingIndicator:
+    """Periodic typing action helper for channels that support it.
+
+    Usage:
+        indicator = TypingIndicator(interval=4.0)
+        indicator.start(chat_id, send_action)
+        # ... do work ...
+        indicator.stop(chat_id)
+    """
+
+    def __init__(self, interval: float = 4.0) -> None:
+        self._interval = interval
+        self._tasks: dict[str, asyncio.Task[None]] = {}
+
+    def start(
+        self,
+        chat_id: str,
+        send_action: Callable[[], Awaitable[object]],
+    ) -> None:
+        """Start a typing task for *chat_id*."""
+        self.stop(chat_id)
+        self._tasks[chat_id] = asyncio.create_task(self._loop(chat_id, send_action))
+
+    def stop(self, chat_id: str) -> None:
+        """Cancel the typing task for *chat_id*, if any."""
+        task = self._tasks.pop(chat_id, None)
+        if task is not None and not task.done():
+            task.cancel()
+
+    def stop_all(self) -> None:
+        """Cancel all typing tasks."""
+        for chat_id in list(self._tasks):
+            self.stop(chat_id)
+
+    async def _loop(self, chat_id: str, send_action: Callable[[], Awaitable[object]]) -> None:
+        from contextlib import suppress
+
+        try:
+            while True:
+                with suppress(Exception):
+                    await send_action()
+                await asyncio.sleep(self._interval)
+        except asyncio.CancelledError:
+            pass
+
+
+async def reconnect_loop(
+    connect: Callable[[], Awaitable[None]],
+    should_run: Callable[[], bool],
+    *,
+    base_delay: float = 1.0,
+    max_delay: float = 30.0,
+    logger: Any = None,
+    label: str = "channel",
+) -> None:
+    """Run *connect* repeatedly with exponential backoff until *should_run* is False.
+
+    This is meant for simple WebSocket/long-poll channels that need a single
+    connection loop. Channels with complex state (e.g. WhatsApp neonize,
+    Weixin iLink) should keep their own specialized loops.
+    """
+    delay = base_delay
+    while should_run():
+        try:
+            await connect()
+            if not should_run():
+                break
+            delay = base_delay
+            continue
+        except asyncio.CancelledError:
+            break
+        except Exception as exc:
+            if logger is not None:
+                logger.warning("{} connection failed: {}", label, exc)
+            if not should_run():
+                break
+            await asyncio.sleep(delay)
+            delay = min(delay * 2, max_delay)

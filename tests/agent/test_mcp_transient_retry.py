@@ -10,6 +10,7 @@ from mcp.shared.exceptions import McpError
 from mcp.types import ErrorData
 
 from nanobot.agent.tools.mcp import (
+    _MCP_UNTRUSTED_BANNER,
     MCPPromptWrapper,
     MCPResourceWrapper,
     MCPToolWrapper,
@@ -116,7 +117,7 @@ async def test_tool_retries_on_transient_error():
     with patch("nanobot.agent.tools.mcp.asyncio.sleep", new_callable=AsyncMock):
         output = await wrapper.execute(foo="bar")
 
-    assert output == "ok"
+    assert output == f"{_MCP_UNTRUSTED_BANNER}\nok"
     assert session.call_tool.call_count == 2
 
 
@@ -176,7 +177,7 @@ async def test_tool_success_on_first_try_no_retry():
     wrapper = MCPToolWrapper(session, "test_server", _make_tool_def(), tool_timeout=5)
     output = await wrapper.execute()
 
-    assert output == "hello"
+    assert output == f"{_MCP_UNTRUSTED_BANNER}\nhello"
     assert session.call_tool.call_count == 1
 
 
@@ -218,7 +219,7 @@ async def test_tool_retry_on_connection_reset():
     with patch("nanobot.agent.tools.mcp.asyncio.sleep", new_callable=AsyncMock):
         output = await wrapper.execute()
 
-    assert output == "recovered"
+    assert output == f"{_MCP_UNTRUSTED_BANNER}\nrecovered"
     assert session.call_tool.call_count == 2
 
 
@@ -234,7 +235,7 @@ async def test_tool_retry_on_end_of_stream():
     with patch("nanobot.agent.tools.mcp.asyncio.sleep", new_callable=AsyncMock):
         output = await wrapper.execute()
 
-    assert output == "back"
+    assert output == f"{_MCP_UNTRUSTED_BANNER}\nback"
     assert session.call_tool.call_count == 2
 
 
@@ -260,7 +261,7 @@ async def test_tool_reconnects_on_transient_failure():
     with patch("nanobot.agent.tools.mcp.asyncio.sleep", new_callable=AsyncMock) as mock_sleep:
         output = await wrapper.execute(foo="bar")
 
-    assert output == "fresh"
+    assert output == f"{_MCP_UNTRUSTED_BANNER}\nfresh"
     assert old_session.call_tool.call_count == 1
     assert new_session.call_tool.call_count == 1
     mock_sleep.assert_not_called()
@@ -298,7 +299,7 @@ async def test_resource_retries_on_transient_error():
     with patch("nanobot.agent.tools.mcp.asyncio.sleep", new_callable=AsyncMock):
         output = await wrapper.execute()
 
-    assert output == "data"
+    assert output == f"{_MCP_UNTRUSTED_BANNER}\ndata"
     assert session.read_resource.call_count == 2
 
 
@@ -352,7 +353,7 @@ async def test_resource_reconnects_on_session_terminated():
 
     output = await wrapper.execute()
 
-    assert output == "fresh"
+    assert output == f"{_MCP_UNTRUSTED_BANNER}\nfresh"
     assert old_session.read_resource.call_count == 1
     assert new_session.read_resource.call_count == 1
 
@@ -393,7 +394,7 @@ async def test_prompt_retries_on_transient_error():
     with patch("nanobot.agent.tools.mcp.asyncio.sleep", new_callable=AsyncMock):
         output = await wrapper.execute()
 
-    assert output == "prompt text"
+    assert output == f"{_MCP_UNTRUSTED_BANNER}\nprompt text"
     assert session.get_prompt.call_count == 2
 
 
@@ -462,7 +463,7 @@ async def test_prompt_reconnects_on_session_terminated():
 
     output = await wrapper.execute()
 
-    assert output == "fresh prompt"
+    assert output == f"{_MCP_UNTRUSTED_BANNER}\nfresh prompt"
     assert old_session.get_prompt.call_count == 1
     assert new_session.get_prompt.call_count == 1
 
@@ -488,6 +489,6 @@ async def test_prompt_reconnects_on_connection_closed_exception():
 
     output = await wrapper.execute()
 
-    assert output == "fresh prompt"
+    assert output == f"{_MCP_UNTRUSTED_BANNER}\nfresh prompt"
     assert old_session.get_prompt.call_count == 1
     assert new_session.get_prompt.call_count == 1

@@ -1,3 +1,5 @@
+import asyncio
+
 import pytest
 
 from nanobot.bus.events import InboundMessage
@@ -120,3 +122,61 @@ async def test_runtime_event_publisher_consumes_turn_metadata_on_complete() -> N
     assert isinstance(second, TurnCompleted)
     assert second.latency_ms is None
     assert second.runtime is None
+
+
+@pytest.mark.asyncio
+async def test_publish_nowait_tracks_and_awaits_background_tasks() -> None:
+    bus = RuntimeEventBus()
+    seen: list[object] = []
+    slow_handled = asyncio.Event()
+
+    async def slow_handler(event: RuntimeModelChanged) -> None:
+        seen.append(event.model)
+        slow_handled.set()
+
+    bus.subscribe(slow_handler, RuntimeModelChanged)
+
+    bus.publish_nowait(RuntimeModelChanged(model="m1", model_preset=None))
+    # The task should exist until it completes.
+    assert len(bus._background_tasks) >= 1
+
+    await slow_handled.wait()
+    # Allow done callbacks to run so the set is cleaned up.
+    await asyncio.sleep(0)
+    assert bus._background_tasks == set()
+
+
+@pytest.mark.asyncio
+async def test_shutdown_awaits_pending_publish_nowait_tasks() -> None:
+    bus = RuntimeEventBus()
+    started = asyncio.Event()
+    gate = asyncio.Event()
+    seen: list[object] = []
+
+    async def gated_handler(event: RuntimeModelChanged) -> None:
+        started.set()
+        await gate.wait()
+        seen.append(event.model)
+
+    bus.subscribe(gated_handler, RuntimeModelChanged)
+
+    bus.publish_nowait(RuntimeModelChanged(model="m2", model_preset=None))
+    await started.wait()
+
+    assert len(bus._background_tasks) == 1
+    gate.set()
+    await bus.shutdown()
+
+    assert seen == ["m2"]
+    assert bus._background_tasks == set()
+
+
+@pytest.mark.asyncio
+async def test_publish_nowait_drops_event_without_running_loop() -> None:
+    bus = RuntimeEventBus()
+
+    def call_sync() -> None:
+        bus.publish_nowait(RuntimeModelChanged(model="m3", model_preset=None))
+
+    # Running outside an event loop should log and return without raising.
+    call_sync()

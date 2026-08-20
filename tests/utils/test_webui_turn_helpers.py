@@ -73,6 +73,27 @@ async def test_publish_turn_run_status_non_websocket_noop_registry() -> None:
 
 
 @pytest.mark.asyncio
+async def test_publish_turn_run_status_evicts_oldest_when_capacity_exceeded(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    bus = MagicMock()
+    bus.publish_outbound = AsyncMock()
+    monkeypatch.setattr(wth, "_MAX_WEBSOCKET_TURN_WALL_CLOCKS", 2)
+
+    for chat_id in ("chat-1", "chat-2", "chat-3"):
+        msg = InboundMessage(
+            channel="websocket",
+            sender_id="u",
+            chat_id=chat_id,
+            content="hi",
+        )
+        await wth.publish_turn_run_status(bus, msg, "running")
+
+    assert list(wth._WEBSOCKET_TURN_WALL_STARTED_AT.keys()) == ["chat-2", "chat-3"]
+    assert wth.websocket_turn_wall_started_at("chat-1") is None
+
+
+@pytest.mark.asyncio
 async def test_fallback_model_is_scoped_to_its_websocket_chat() -> None:
     bus = MagicMock()
     bus.publish_outbound = AsyncMock()

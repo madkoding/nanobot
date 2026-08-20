@@ -16,6 +16,7 @@ import nanobot.channels.matrix.runtime as matrix_module
 from nanobot.bus.events import OutboundMessage
 from nanobot.bus.outbound_events import ProgressEvent
 from nanobot.bus.queue import MessageBus
+from nanobot.channels.matrix import render as matrix_render_module
 from nanobot.channels.matrix.runtime import (
     MATRIX_HTML_FORMAT,
     TYPING_NOTICE_TIMEOUT_MS,
@@ -1668,7 +1669,7 @@ async def test_send_sanitizes_disallowed_link_scheme() -> None:
 
 def test_matrix_html_cleaner_strips_event_handlers_and_script_tags() -> None:
     dirty_html = '<a href="https://example.com" onclick="evil()">x</a><script>alert(1)</script>'
-    cleaned_html = matrix_module.MATRIX_HTML_CLEANER.clean(dirty_html)
+    cleaned_html = matrix_render_module.MATRIX_HTML_CLEANER.clean(dirty_html)
 
     assert "<script" not in cleaned_html
     assert "onclick=" not in cleaned_html
@@ -1700,7 +1701,7 @@ async def test_send_falls_back_to_plaintext_when_markdown_render_fails(monkeypat
     def _raise(text: str) -> str:
         raise RuntimeError("boom")
 
-    monkeypatch.setattr(matrix_module, "MATRIX_MARKDOWN", _raise)
+    monkeypatch.setattr(matrix_render_module, "MATRIX_MARKDOWN", _raise)
     markdown_text = "# Headline"
     await channel.send(
         OutboundMessage(channel="matrix", chat_id="!room:matrix.org", content=markdown_text)

@@ -17,6 +17,19 @@ def test_telegram_setup_exposes_proxy_as_an_optional_secret() -> None:
     assert "proxy" not in SETUP_SPEC.simple_required_fields
 
 
+def test_telegram_setup_exposes_streaming_toggle() -> None:
+    streaming = SETUP_SPEC.fields["streaming"]
+    rich_messages = SETUP_SPEC.fields["richMessages"]
+
+    assert streaming.kind == "bool"
+    assert streaming.default is True
+    assert "streaming" in SETUP_SPEC.route_field_types
+    assert SETUP_SPEC.route_field_types["streaming"] == "bool"
+    assert rich_messages.kind == "bool"
+    assert rich_messages.default is False
+    assert SETUP_SPEC.route_field_types["richMessages"] == "bool"
+
+
 def test_get_me_builds_http_client_with_explicit_proxy(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

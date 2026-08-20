@@ -420,6 +420,22 @@ describe("SettingsView Apps catalog", () => {
     });
   });
 
+  it("persists the activity detail local preference", async () => {
+    renderSettingsView({
+      initialSection: "appearance",
+      initialSettings: settingsPayload(),
+      showSidebar: true,
+    });
+
+    expect(screen.getByText("Activity detail")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Collapsed" }));
+
+    await waitFor(() => {
+      const saved = JSON.parse(localStorage.getItem("nanobot-webui.settings-preferences") || "{}");
+      expect(saved.activityMode).toBe("collapsed");
+    });
+  });
+
   it("does not show the Settings kicker on the standalone Automations surface", async () => {
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
@@ -1521,9 +1537,11 @@ describe("SettingsView Apps catalog", () => {
       target: { value: "discord-token" },
     });
     fireEvent.click(screen.getByText("Advanced"));
-    fireEvent.change(screen.getByLabelText("Allowed channels"), {
-      target: { value: "123, 456" },
-    });
+    const allowedChannels = screen.getByLabelText("Allowed channels");
+    fireEvent.change(allowedChannels, { target: { value: "123" } });
+    fireEvent.keyDown(allowedChannels, { key: "Enter" });
+    fireEvent.change(allowedChannels, { target: { value: "456" } });
+    fireEvent.keyDown(allowedChannels, { key: "Enter" });
     fireEvent.click(within(screen.getByRole("radiogroup", { name: "Group behavior" })).getByRole(
       "radio",
       { name: "All messages" },
@@ -1629,7 +1647,8 @@ describe("SettingsView Apps catalog", () => {
     expect(screen.queryByDisplayValue("discord-secret-token")).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByText("Advanced"));
-    expect(screen.getByLabelText("Allowed channels")).toHaveValue("123, 456");
+    expect(screen.getByText("123")).toBeInTheDocument();
+    expect(screen.getByText("456")).toBeInTheDocument();
     expect(within(screen.getByRole("radiogroup", { name: "Group behavior" })).getByRole(
       "radio",
       { name: "All messages" },

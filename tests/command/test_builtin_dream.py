@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import asyncio
+from pathlib import Path
 from types import SimpleNamespace
+from typing import Any
 
 import pytest
 
@@ -26,17 +28,19 @@ class _FakeStore:
         last_dream_cursor: int = 1,
         dream_prompt_result=None,
         content_diff: str = "",
+        workspace: Any = None,
     ):
         self.git = git
         self._last_dream_cursor = last_dream_cursor
         self._dream_prompt_result = dream_prompt_result
         self._content_diff = content_diff
         self.compact_history_called = False
+        self.workspace = workspace
 
     def get_last_dream_cursor(self) -> int:
         return self._last_dream_cursor
 
-    def build_dream_prompt(self):
+    def build_dream_prompt(self, *, owner_id=None):
         return self._dream_prompt_result
 
     def build_dream_tools(self):
@@ -109,14 +113,18 @@ class _FakeBus:
 
 def _make_ctx(raw: str, git: _FakeGit, *, args: str = "", last_dream_cursor: int = 1) -> CommandContext:
     msg = InboundMessage(channel="cli", sender_id="u1", chat_id="direct", content=raw)
-    store = _FakeStore(git, last_dream_cursor=last_dream_cursor)
-    loop = SimpleNamespace(consolidator=SimpleNamespace(store=store))
+    store = _FakeStore(git, last_dream_cursor=last_dream_cursor, workspace=Path("/tmp/fake-workspace"))
+    loop = SimpleNamespace(
+        consolidator=SimpleNamespace(store=store),
+        context=SimpleNamespace(memory=store),
+        workspace=Path("/tmp/fake-workspace"),
+    )
     return CommandContext(msg=msg, session=None, key=msg.session_key, raw=raw, args=args, loop=loop)
 
 
 def _make_dream_ctx(tmp_path) -> tuple[CommandContext, _FakeBus]:
     msg = InboundMessage(channel="cli", sender_id="u1", chat_id="direct", content="/dream")
-    store = _FakeStore(_FakeGit(initialized=False), dream_prompt_result=None)
+    store = _FakeStore(_FakeGit(initialized=False), dream_prompt_result=None, workspace=tmp_path)
     bus = _FakeBus()
     sessions_dir = tmp_path / "sessions"
     sessions_dir.mkdir()
@@ -124,6 +132,7 @@ def _make_dream_ctx(tmp_path) -> tuple[CommandContext, _FakeBus]:
         bus=bus,
         context=SimpleNamespace(memory=store, timezone="UTC"),
         sessions=SimpleNamespace(sessions_dir=sessions_dir),
+        workspace=tmp_path,
     )
     ctx = CommandContext(msg=msg, session=None, key=msg.session_key, raw="/dream", args="", loop=loop)
     return ctx, bus
@@ -176,6 +185,7 @@ async def test_dream_internal_run_silences_progress(tmp_path) -> None:
         context=SimpleNamespace(memory=store, timezone="UTC"),
         sessions=SimpleNamespace(sessions_dir=sessions_dir),
         process_direct=process_direct,
+        workspace=tmp_path,
     )
     ctx = CommandContext(msg=msg, session=None, key=msg.session_key, raw="/dream", args="", loop=loop)
 
@@ -201,6 +211,7 @@ def _build_runnable_dream(
         last_dream_cursor=5,
         dream_prompt_result=("dream prompt", 42),
         content_diff=content_diff,
+        workspace=tmp_path,
     )
 
     async def process_direct(*args, **kwargs):
@@ -228,6 +239,7 @@ def _build_runnable_dream(
         context=SimpleNamespace(memory=store, timezone="UTC"),
         sessions=SimpleNamespace(sessions_dir=sessions_dir),
         process_direct=process_direct,
+        workspace=tmp_path,
     )
     ctx = CommandContext(msg=msg, session=None, key=msg.session_key, raw="/dream", args="", loop=loop)
     return ctx, store

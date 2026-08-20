@@ -10,6 +10,10 @@ import pytest
 import pytest_asyncio
 
 from nanobot.api.server import (
+    _AGENT_LOOP_KEY,
+    _MODEL_NAME_KEY,
+    _REQUEST_TIMEOUT_KEY,
+    _SESSION_LOCKS_KEY,
     API_CHAT_ID,
     API_SESSION_KEY,
     _chat_completion_response,
@@ -184,10 +188,10 @@ async def test_model_mismatch_returns_400() -> None:
         }
     )
     request.app = {
-        "agent_loop": _make_mock_agent(),
-        "model_name": "test-model",
-        "request_timeout": 10.0,
-        "session_lock": asyncio.Lock(),
+        _AGENT_LOOP_KEY: _make_mock_agent(),
+        _MODEL_NAME_KEY: "test-model",
+        _REQUEST_TIMEOUT_KEY: 10.0,
+        _SESSION_LOCKS_KEY: {},
     }
 
     resp = await handle_chat_completions(request)
@@ -208,10 +212,10 @@ async def test_single_user_message_required() -> None:
         }
     )
     request.app = {
-        "agent_loop": _make_mock_agent(),
-        "model_name": "test-model",
-        "request_timeout": 10.0,
-        "session_lock": asyncio.Lock(),
+        _AGENT_LOOP_KEY: _make_mock_agent(),
+        _MODEL_NAME_KEY: "test-model",
+        _REQUEST_TIMEOUT_KEY: 10.0,
+        _SESSION_LOCKS_KEY: {},
     }
 
     resp = await handle_chat_completions(request)
@@ -229,10 +233,10 @@ async def test_single_user_message_must_have_user_role() -> None:
         }
     )
     request.app = {
-        "agent_loop": _make_mock_agent(),
-        "model_name": "test-model",
-        "request_timeout": 10.0,
-        "session_lock": asyncio.Lock(),
+        _AGENT_LOOP_KEY: _make_mock_agent(),
+        _MODEL_NAME_KEY: "test-model",
+        _REQUEST_TIMEOUT_KEY: 10.0,
+        _SESSION_LOCKS_KEY: {},
     }
 
     resp = await handle_chat_completions(request)

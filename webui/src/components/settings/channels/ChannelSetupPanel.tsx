@@ -18,6 +18,7 @@ import {
 } from "@/components/settings/channels/catalog";
 import {
   CredentialForm,
+  channelValuesForSave,
   channelValuesForSubmit,
   defaultChannelFieldValues,
 } from "@/components/settings/channels/CredentialForm";
@@ -273,6 +274,7 @@ function ChannelSetupSurface({
   const tx = (key: string, fallback: string) => t(key, { defaultValue: fallback });
   const [notice, setNotice] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [savingAdvanced, setSavingAdvanced] = useState(false);
   const [validating, setValidating] = useState(false);
   const [validation, setValidation] = useState<ChannelValidationPayload | null>(null);
   const [visibleSecrets, setVisibleSecrets] = useState<Record<string, boolean>>({});
@@ -369,6 +371,23 @@ function ChannelSetupSurface({
     } finally {
       setSaving(false);
       setValidating(false);
+    }
+  };
+
+  const saveAdvancedSettings = async () => {
+    setSavingAdvanced(true);
+    setNotice(null);
+    try {
+      const values = channelValuesForSave(advancedFields, fieldValues);
+      const payload = await configureChannel(token, feature.name, values, { enable: false });
+      if (payload.nanobot_features) {
+        onFeaturesUpdate(payload.nanobot_features);
+      }
+      setNotice(tx("settings.channels.savedSettings", "Settings saved."));
+    } catch (err) {
+      setNotice((err as Error).message);
+    } finally {
+      setSavingAdvanced(false);
     }
   };
 
@@ -558,6 +577,21 @@ function ChannelSetupSurface({
                 onToggleSecret={toggleSecret}
                 compact
               />
+              <div className="mt-3 flex justify-end">
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  className="h-8 rounded-full border-border/65 bg-background/80 px-3 text-[12px] font-semibold hover:bg-muted/70"
+                  disabled={savingAdvanced}
+                  onClick={() => void saveAdvancedSettings()}
+                >
+                  {savingAdvanced ? (
+                    <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" aria-hidden />
+                  ) : null}
+                  {tx("settings.channels.saveSettings", "Save settings")}
+                </Button>
+              </div>
             </div>
           ) : null}
         </details>
