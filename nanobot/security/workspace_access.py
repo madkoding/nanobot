@@ -437,9 +437,11 @@ def current_tool_workspace(
         if scope is not None
         else Path(default_workspace).expanduser() if default_workspace is not None else None
     )
+    # If the bound scope is full access (e.g. owner bypass), tool-level default
+    # restrictions must not re-lock the workspace.
     restrict = (
         scope.restrict_to_workspace
-        if scope is not None
+        if scope is not None and scope.access_mode == "restricted"
         else bool(restrict_to_workspace)
     ) or sandbox_restricts_workspace
     return ToolWorkspace(
