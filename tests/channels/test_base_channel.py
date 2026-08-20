@@ -66,6 +66,23 @@ def test_is_allowed_pairing_fallback(monkeypatch) -> None:
     assert channel.is_allowed("unknown") is False
 
 
+def test_is_allowed_owner_bypasses_allowlist(monkeypatch) -> None:
+    channel = _DummyChannel({"allowFrom": []}, MessageBus())
+
+    def _fake_load_config():
+        return SimpleNamespace(
+            owner_id=["dummy:owner-1", "plain-id"],
+            owner_display_name="madKoding",
+            owner_identifiers=lambda: {"dummy": {"owner-1"}, "other": {"plain-id"}},
+            is_owner=lambda ch, sid: ch == "dummy" and sid == "owner-1",
+        )
+
+    monkeypatch.setattr("nanobot.channels.base.load_config", _fake_load_config)
+    assert channel.is_allowed("owner-1") is True
+    assert channel.is_allowed("plain-id") is False
+    assert channel.is_allowed("stranger") is False
+
+
 @pytest.mark.asyncio
 async def test_handle_message_dm_sends_pairing_code(monkeypatch) -> None:
     channel = _DummyChannel({"allowFrom": []}, MessageBus())

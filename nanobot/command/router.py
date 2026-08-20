@@ -8,9 +8,10 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Awaitable, Callable
 
 if TYPE_CHECKING:
-    from nanobot.bus.events import InboundMessage, OutboundMessage
     from nanobot.session.manager import Session
     from nanobot.utils.llm_runtime import LLMRuntime
+
+from nanobot.bus.events import InboundMessage, OutboundMessage
 
 Handler = Callable[["CommandContext"], Awaitable["OutboundMessage | None"]]
 _BOT_SUFFIX_RE = re.compile(r"^[A-Za-z0-9_]+$")
@@ -48,6 +49,18 @@ class CommandContext:
     runtime: LLMRuntime | None = None
     is_user_turn: bool = False
     turn_scopes: list[AbstractContextManager[Any]] = field(default_factory=list)
+    is_owner: bool = False
+
+    def require_owner(self, action: str = "this command") -> OutboundMessage | None:
+        """Return a refusal message if the current sender is not the owner."""
+        if self.is_owner:
+            return None
+        return OutboundMessage(
+            channel=self.msg.channel,
+            chat_id=self.msg.chat_id,
+            content=f"Only the operator can use {action}.",
+            metadata=dict(self.msg.metadata or {}),
+        )
 
 
 class CommandRouter:

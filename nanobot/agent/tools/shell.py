@@ -662,13 +662,13 @@ class ExecTool(Tool):
     def _build_env(self) -> dict[str, str]:
         """Build a minimal environment for subprocess execution.
 
-        On Unix, only HOME/LANG/TERM are passed by default. If callers request
-        ``login=True``, bash/zsh may source the user's profile and add PATH or
-        other variables.
+        On Unix, only HOME/LANG/TERM/PATH are passed by default so that basic
+        command lookup works. If callers request ``login=True``, bash/zsh may
+        source the user's profile and add further variables.
 
         On Windows, ``cmd.exe`` has no login-profile mechanism, so a curated
         set of system variables (including PATH) is forwarded.  API keys and
-        other secrets are still excluded.
+        other secrets are still excluded unless listed in ``allowed_env_keys``.
         """
         if _IS_WINDOWS:
             sr = os.environ.get("SYSTEMROOT", r"C:\Windows")
@@ -700,6 +700,7 @@ class ExecTool(Tool):
             "HOME": home,
             "LANG": os.environ.get("LANG", "C.UTF-8"),
             "TERM": os.environ.get("TERM", "dumb"),
+            "PATH": os.environ.get("PATH", "/usr/bin:/bin"),
             "PYTHONUNBUFFERED": "1",
         }
         for key in self.allowed_env_keys:

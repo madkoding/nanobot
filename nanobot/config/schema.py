@@ -10,6 +10,37 @@ from pydantic_settings import BaseSettings
 from nanobot.config_base import Base
 from nanobot.cron.types import CronSchedule
 
+# Canonical channel names used in owner identifiers.
+_OWNER_CHANNELS: frozenset[str] = frozenset(
+    {
+        "cli",
+        "discord",
+        "email",
+        "matrix",
+        "mattermost",
+        "mochat",
+        "napcat",
+        "qq",
+        "slack",
+        "sms",
+        "teams",
+        "telegram",
+        "twitter",
+        "webui",
+        "websocket",
+        "whatsapp",
+    }
+)
+
+
+def _normalize_owner_id(value: str) -> str:
+    """Strip whitespace and a leading '+' from phone-style identifiers."""
+    value = value.strip()
+    if value.startswith("+"):
+        value = value[1:]
+    return value
+
+
 if TYPE_CHECKING:
     from nanobot.agent.tools.cli_apps import CliAppsToolConfig
     from nanobot.agent.tools.filesystem import FileToolsConfig
@@ -403,14 +434,24 @@ class Config(BaseSettings):
         validation_alias=AliasChoices("modelPresets", "model_presets"),
         serialization_alias="modelPresets",
     )
-    # Top-level owner identifier(s). Kept here because the gateway and several
+    # Top-level owner identity. Kept here because the gateway and several
     # channels (whatsapp, telegram, etc.) need a single source of truth for who
-    # is allowed to run privileged commands.
+    # is allowed to run privileged commands. Each entry is either a plain id
+    # (legacy/shortcut, channel-dependent) or "channel:identifier", e.g.
+    # "discord:940323605223444601", "whatsapp:+56975746099", "webui:*".
     owner_id: list[str] | None = Field(
         default=None,
         validation_alias=AliasChoices("ownerId", "owner_id"),
         serialization_alias="ownerId",
     )
+    owner_name: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("ownerName", "owner_name"),
+        serialization_alias="ownerName",
+    )
+    # Comma-separated or list of slash-command names that only the owner may
+    # invoke. "*" means every built-in command is owner-only.
+
 
     def __init__(self, **values: Any) -> None:
         if not type(self).__pydantic_complete__:
@@ -427,6 +468,22 @@ class Config(BaseSettings):
         for fallback in self.agents.defaults.fallback_models:
             if isinstance(fallback, str) and fallback not in self.model_presets:
                 raise ValueError(f"fallback_models entry {fallback!r} not found in model_presets")
+        return self
+
+    @model_validator(mode="after")
+    def _normalize_owner_id(self) -> "Config":
+        if self.owner_id:
+            seen: set[str] = set()
+            normalized: list[str] = []
+            for raw in self.owner_id:
+                if not isinstance(raw, str) or not raw.strip():
+                    continue
+                key = raw.lower().strip()
+                if key in seen:
+                    continue
+                seen.add(key)
+                normalized.append(raw.strip())
+            self.owner_id = normalized if normalized else None
         return self
 
     def resolve_default_preset(self) -> ModelPresetConfig:
@@ -456,6 +513,53 @@ class Config(BaseSettings):
     def worktree_root_path(self) -> Path:
         """Get expanded git worktree root path."""
         return Path(self.agents.defaults.worktree_root).expanduser()
+
+    @property
+    def owner_display_name(self) -> str:
+        """Return the configured owner name, defaulting to 'operator'."""
+        return (self.owner_name or "operator").strip()
+
+    def owner_identifiers(self) -> dict[str, set[str]]:
+        """Return owner identifiers grouped by canonical channel name.
+
+        Entries that omit a channel prefix are treated as a short wildcard
+        id for every channel that does not already have a prefixed entry for
+        that id. Phone numbers are normalized (leading '+' stripped). The
+        special identifier '*' makes every sender on that channel an owner.
+        """
+        result: dict[str, set[str]] = {}
+        bare_ids: list[str] = []
+
+        for raw in self.owner_id or []:
+            raw = raw.strip()
+            if not raw:
+                continue
+            if ":" in raw:
+                channel, _, identifier = raw.partition(":")
+                channel = channel.lower().strip()
+                identifier = _normalize_owner_id(identifier)
+                if not identifier or channel not in _OWNER_CHANNELS:
+                    continue
+                result.setdefault(channel, set()).add(identifier)
+            else:
+                bare_ids.append(_normalize_owner_id(raw))
+
+        for bid in bare_ids:
+            # Register the bare id on every channel that has not already been
+            # explicitly configured with a prefixed version of it.
+            for channel in _OWNER_CHANNELS:
+                if bid not in result.get(channel, set()):
+                    result.setdefault(channel, set()).add(bid)
+        return result
+
+    def is_owner(self, channel: str, sender_id: str) -> bool:
+        """Check whether *sender_id* on *channel* is the configured owner."""
+        if not self.owner_id:
+            return False
+        ids = self.owner_identifiers()
+        channel = channel.lower().strip()
+        normalized = _normalize_owner_id(sender_id)
+        return normalized in ids.get(channel, set()) or "*" in ids.get(channel, set())
 
     def _match_provider(
         self, model: str | None = None,
@@ -645,14 +749,13 @@ def _resolve_tool_config_refs() -> None:
     from nanobot.agent.tools.shell import ExecToolConfig
     from nanobot.agent.tools.web import WebFetchConfig, WebSearchConfig, WebToolsConfig
 
-    # Re-export into this module's namespace
     mod = sys.modules[__name__]
-    mod.ExecToolConfig = ExecToolConfig  # type: ignore[attr-defined]
-    mod.FileToolsConfig = FileToolsConfig  # type: ignore[attr-defined]
-    mod.CliAppsToolConfig = CliAppsToolConfig  # type: ignore[attr-defined]
     mod.WebToolsConfig = WebToolsConfig  # type: ignore[attr-defined]
     mod.WebSearchConfig = WebSearchConfig  # type: ignore[attr-defined]
     mod.WebFetchConfig = WebFetchConfig  # type: ignore[attr-defined]
+    mod.ExecToolConfig = ExecToolConfig  # type: ignore[attr-defined]
+    mod.FileToolsConfig = FileToolsConfig  # type: ignore[attr-defined]
+    mod.CliAppsToolConfig = CliAppsToolConfig  # type: ignore[attr-defined]
     mod.MyToolConfig = MyToolConfig  # type: ignore[attr-defined]
     mod.ImageGenerationToolConfig = ImageGenerationToolConfig  # type: ignore[attr-defined]
 

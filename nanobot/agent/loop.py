@@ -48,7 +48,8 @@ from nanobot.bus.runtime_events import (
     RuntimeEventPublisher,
     ensure_runtime_event_publisher,
 )
-from nanobot.command import CommandContext, CommandRouter, register_builtin_commands
+from nanobot.command.builtin import register_builtin_commands
+from nanobot.command.router import CommandContext, CommandRouter
 from nanobot.config.schema import AgentDefaults, ModelPresetConfig
 from nanobot.providers.base import LLMProvider
 from nanobot.providers.factory import ProviderSnapshot
@@ -64,6 +65,7 @@ from nanobot.runtime_context import (
 from nanobot.security.workspace_access import (
     WorkspaceScopeResolver,
     bind_workspace_scope,
+    build_workspace_scope,
     reset_workspace_scope,
 )
 from nanobot.session import turn_continuation
@@ -155,6 +157,8 @@ class TurnContext:
     input_persisted_early: bool = False
     save_skip: int = 0
 
+    is_owner: bool = False
+
     outbound: OutboundMessage | None = None
     suppress_response: bool = False
 
@@ -243,6 +247,23 @@ class AgentLoop:
 
     _RUNTIME_CHECKPOINT_KEY = "runtime_checkpoint"
     _PENDING_USER_TURN_KEY = "pending_user_turn"
+
+    @staticmethod
+    def _is_owner(channel: str, sender_id: str, metadata: dict[str, Any] | None = None) -> bool:
+        """Check whether *sender_id* on *channel* is the configured owner."""
+        from nanobot.config.loader import load_config
+
+        try:
+            cfg = load_config()
+        except Exception:
+            return False
+        # WebUI clients that authenticate via bootstrap settings token are
+        # implicitly treated as the operator.
+        if channel in {"websocket", "webui"} and metadata and metadata.get("webui_authenticated") is True:
+            webui_ids = cfg.owner_identifiers().get("webui", set())
+            if "*" in webui_ids or not webui_ids:
+                return True
+        return cfg.is_owner(channel, sender_id)
 
     # Event-driven state transition table.
     # Handlers return an event string; the driver looks up the next state here.
@@ -818,7 +839,14 @@ class AgentLoop:
             channel=ctx.delivery.route.channel,
             message_metadata=ctx.msg.metadata,
             session_metadata=ctx.session.metadata,
+            sender_id=ctx.msg.sender_id,
         )
+        metadata = dict(ctx.msg.metadata or {})
+        is_owner = self._is_owner(
+            ctx.delivery.route.channel, ctx.msg.sender_id, metadata
+        )
+        metadata["is_owner"] = is_owner
+        ctx.is_owner = is_owner
         return RequestContext(
             channel=ctx.delivery.route.channel,
             chat_id=ctx.delivery.route.chat_id,
@@ -826,7 +854,7 @@ class AgentLoop:
             session_key=ctx.session_key,
             original_user_text=ctx.original_user_text,
             runtime=ctx.runtime,
-            metadata=dict(ctx.msg.metadata or {}),
+            metadata=metadata,
             sender_id=ctx.msg.sender_id,
             turn_id=ctx.turn_id,
             workspace=scope.project_path,
@@ -853,7 +881,54 @@ class AgentLoop:
         ]
         blocks = runtime_context_blocks_from_metadata(request.metadata)
         blocks.extend(await resolve_runtime_context(providers, request))
+        owner_block = self._owner_identity_block(request)
+        if owner_block is not None:
+            blocks.append(owner_block)
         return blocks
+
+    def _owner_identity_block(
+        self, request: RequestContext
+    ) -> RuntimeContextBlock | None:
+        """Return a runtime context block declaring the configured operator."""
+        from nanobot.config.loader import load_config
+
+        try:
+            cfg = load_config()
+        except Exception:
+            return None
+        if not cfg.owner_id:
+            return None
+        name = cfg.owner_display_name
+        identifiers = cfg.owner_identifiers()
+        channel = request.channel.lower().strip()
+        ids_for_channel = sorted(identifiers.get(channel, set()))
+        all_ids = sorted(
+            {ident for ids in identifiers.values() for ident in ids}
+        )
+        sender_id = request.sender_id or "unknown"
+        is_owner = cfg.is_owner(channel, sender_id)
+        lines = [
+            f"operator_name: {name}",
+            f"current_channel: {channel}",
+            f"current_sender_id: {sender_id}",
+            f"current_sender_is_operator: {'yes' if is_owner else 'no'}",
+        ]
+        if ids_for_channel:
+            lines.append(f"operator_ids_on_this_channel: {', '.join(ids_for_channel)}")
+        if all_ids:
+            lines.append(f"all_operator_ids: {', '.join(all_ids)}")
+        return RuntimeContextBlock(
+            source="operator_identity",
+            content=(
+                "[Operator identity for this turn]\n"
+                + "\n".join(lines)
+                + "\n\n"
+                + "If current_sender_is_operator is 'no', do not assume the "
+                + "current sender is the operator. Address them generically "
+                + "unless you have explicit personal context about them. "
+                + "If it is 'yes', treat them as the authoritative owner of this agent."
+            ),
+        )
 
     async def _dispatch_command_inline(
         self,
@@ -863,7 +938,10 @@ class AgentLoop:
         dispatch_fn: Callable[[CommandContext], Awaitable[OutboundMessage | None]],
     ) -> None:
         """Dispatch a command directly from the run() loop and publish the result."""
-        ctx = CommandContext(msg=msg, session=None, key=key, raw=raw, loop=self)
+        is_owner = self._is_owner(msg.channel, msg.sender_id, msg.metadata)
+        ctx = CommandContext(
+            msg=msg, session=None, key=key, raw=raw, loop=self, is_owner=is_owner
+        )
         result = await dispatch_fn(ctx)
         if result and result.content:
             await self.bus.publish_outbound(result)
@@ -969,6 +1047,7 @@ class AgentLoop:
                         channel=pending_msg.channel,
                         message_metadata=metadata,
                         session_metadata=session.metadata if session is not None else None,
+                        sender_id=pending_msg.sender_id,
                     )
                     pending_request = RequestContext(
                         channel=pending_msg.channel,
@@ -1037,18 +1116,30 @@ class AgentLoop:
             channel=channel,
             message_metadata=metadata,
             session_metadata=session.metadata if session is not None else None,
+            sender_id=request_context.sender_id if request_context else None,
         )
         effective_tools = tools or self.tools
-        request_ctx = request_context or RequestContext(
-            channel=channel,
-            chat_id=chat_id,
-            message_id=message_id,
-            session_key=active_session_key,
-            original_user_text=original_user_text,
-            runtime=runtime,
-            metadata=dict(metadata or {}),
-            workspace=effective_scope.project_path,
-        )
+        if request_context is not None:
+            request_ctx = request_context
+        else:
+            request_ctx = RequestContext(
+                channel=channel,
+                chat_id=chat_id,
+                message_id=message_id,
+                session_key=active_session_key,
+                original_user_text=original_user_text,
+                runtime=runtime,
+                metadata=dict(metadata or {}),
+                workspace=effective_scope.project_path,
+            )
+        # Owner bypass applies to the runner scope as well; re-resolve if the
+        # request context declares ownership so full access reaches tool calls.
+        if self._is_owner(channel, request_ctx.sender_id, request_ctx.metadata) and effective_scope.restrict_to_workspace:
+            effective_scope = build_workspace_scope(
+                effective_scope.project_path,
+                "full",
+                source_channel=channel,
+            )
         file_state_token = bind_file_states(self._file_state_store.for_session(active_session_key))
         request_token = bind_request_context(request_ctx)
         workspace_token = bind_workspace_scope(effective_scope)
@@ -1833,6 +1924,7 @@ class AgentLoop:
             runtime=ctx.runtime,
             is_user_turn=is_user_turn,
             turn_scopes=ctx.turn_scopes,
+            is_owner=ctx.is_owner,
         )
         result = await self.commands.dispatch(cmd_ctx)
         if result is not None:

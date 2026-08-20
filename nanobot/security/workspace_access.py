@@ -12,6 +12,19 @@ WorkspaceAccessMode = Literal["restricted", "full"]
 WORKSPACE_SCOPE_METADATA_KEY = "workspace_scope"
 _ACCESS_MODES = {"restricted", "full"}
 
+
+def _sender_is_owner(channel: str | None, sender_id: str | None) -> bool:
+    """Return True if the current sender is the configured operator."""
+    if not channel or not sender_id:
+        return False
+    try:
+        from nanobot.config.loader import load_config
+
+        cfg = load_config()
+    except Exception:
+        return False
+    return cfg.is_owner(channel, sender_id)
+
 _TRUE_VALUES = {"1", "true", "yes", "on", "enabled"}
 _FALSE_VALUES = {"0", "false", "no", "off", "disabled", ""}
 _PROVIDER_LABELS = {
@@ -175,6 +188,7 @@ class WorkspaceScopeResolver:
             channel=getattr(msg, "channel", None),
             message_metadata=getattr(msg, "metadata", None),
             session_metadata=session_metadata,
+            sender_id=getattr(msg, "sender_id", None),
         )
 
     def for_turn(
@@ -183,9 +197,18 @@ class WorkspaceScopeResolver:
         channel: str | None,
         message_metadata: Any,
         session_metadata: Any,
+        sender_id: str | None = None,
     ) -> WorkspaceScope:
         if channel != self.scoped_channel:
             return self.default()
+        # Owner bypasses workspace restriction: treat every WebUI turn as full
+        # access so the operator is never sandboxed by the global policy.
+        if _sender_is_owner(channel, sender_id):
+            return build_workspace_scope(
+                self.default_workspace,
+                "full",
+                source_channel=channel,
+            )
         scope = resolve_effective_workspace_scope(
             message_metadata=message_metadata,
             session_metadata=session_metadata,

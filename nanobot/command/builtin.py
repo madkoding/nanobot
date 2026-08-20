@@ -12,7 +12,6 @@ from dataclasses import dataclass
 from typing import Literal
 
 from nanobot import __version__
-from nanobot.agent.goal_permission import goal_mutation_permission
 from nanobot.bus.events import OutboundMessage
 from nanobot.command.router import CommandContext, CommandRouter
 from nanobot.utils.helpers import build_status_content
@@ -74,8 +73,8 @@ BUILTIN_COMMAND_SPECS: tuple[BuiltinCommandSpec, ...] = (
     BuiltinCommandSpec(
         "/restart",
         "Restart nanobot",
-        "Restart the bot process.",
-        "rotate-cw",
+        "Restart the nanobot gateway process (owner only).",
+        "refresh-cw",
     ),
     BuiltinCommandSpec(
         "/status",
@@ -167,7 +166,7 @@ BUILTIN_COMMAND_SPECS: tuple[BuiltinCommandSpec, ...] = (
     BuiltinCommandSpec(
         "/pairing",
         "Manage pairing",
-        "List, approve, deny or revoke pairing requests.",
+        "List, approve, deny or revoke pairing requests (owner only).",
         "shield",
         "[list|approve <code>|deny <code>|revoke <user_id>]",
         accepts_args=True,
@@ -201,6 +200,8 @@ async def cmd_stop(ctx: CommandContext) -> OutboundMessage:
 
 async def cmd_restart(ctx: CommandContext) -> OutboundMessage:
     """Restart the process."""
+    if refusal := ctx.require_owner("/restart"):
+        return refusal
     msg = ctx.msg
     set_restart_notice_to_env(
         channel=msg.channel,
@@ -857,7 +858,9 @@ async def cmd_history(ctx: CommandContext) -> OutboundMessage:
 
 
 async def cmd_goal(ctx: CommandContext) -> OutboundMessage | None:
-    """Mark this turn as an explicit sustained-goal request."""
+    """Mark this turn as an explicit sustained-goal request (owner only)."""
+    if refusal := ctx.require_owner("/goal"):
+        return refusal
     goal = ctx.args.strip()
     if not goal:
         return OutboundMessage(
@@ -884,6 +887,8 @@ async def cmd_goal(ctx: CommandContext) -> OutboundMessage | None:
             metadata={**dict(ctx.msg.metadata or {}), "render_as": "text"},
         )
 
+    from nanobot.agent.goal_permission import goal_mutation_permission
+
     ctx.turn_scopes.append(goal_mutation_permission(True))
     ctx.msg.metadata = {
         **dict(ctx.msg.metadata or {}),
@@ -898,6 +903,8 @@ async def cmd_goal(ctx: CommandContext) -> OutboundMessage | None:
 
 async def cmd_pairing(ctx: CommandContext) -> OutboundMessage:
     """List, approve, deny or revoke pairing requests."""
+    if refusal := ctx.require_owner("/pairing"):
+        return refusal
     from nanobot.pairing import PAIRING_COMMAND_META_KEY, handle_pairing_command
 
     reply = handle_pairing_command(ctx.msg.channel, ctx.args)

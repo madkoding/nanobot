@@ -10,6 +10,7 @@ from loguru import logger
 
 from nanobot.bus.events import InboundMessage, OutboundMessage
 from nanobot.bus.queue import MessageBus
+from nanobot.config.loader import load_config
 from nanobot.pairing import (
     PAIRING_CODE_META_KEY,
     format_pairing_reply,
@@ -214,12 +215,15 @@ class BaseChannel(ABC):
         return bool(streaming) and type(self).send_delta is not BaseChannel.send_delta
 
     def is_allowed(self, sender_id: str) -> bool:
-        """Check sender permission: star > allowlist > pairing store > deny."""
+        """Check sender permission: star > owner > allowlist > pairing store > deny."""
         if isinstance(self.config, dict):
             allow_list = self.config.get("allow_from") or self.config.get("allowFrom") or []
         else:
             allow_list = getattr(self.config, "allow_from", None) or []
         if "*" in allow_list:
+            return True
+        # Configured owner bypasses channel-level allowlists and pairing.
+        if self._is_owner(sender_id):
             return True
         # allowFrom entries are opaque tokens — must match exactly.
         if str(sender_id) in allow_list:
@@ -227,6 +231,14 @@ class BaseChannel(ABC):
         if is_approved(self.name, str(sender_id)):
             return True
         return False
+
+    def _is_owner(self, sender_id: str) -> bool:
+        """Return True if *sender_id* matches a globally configured owner identity."""
+        try:
+            cfg = load_config()
+        except Exception:
+            return False
+        return cfg.is_owner(self.name, str(sender_id))
 
     async def _handle_message(
         self,
