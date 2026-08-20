@@ -92,7 +92,7 @@ class _FsTool(Tool):
             extra_read_allowed_dirs=[BUILTIN_SKILLS_DIR, resolved_agent_workspace / "skills"],
             extra_read_allowed_files=[resolved_agent_workspace / "memory" / "history.jsonl"],
             file_states=ctx.file_state_store,
-            restrict_to_workspace=ctx.config.restrict_to_workspace,
+            restrict_to_workspace=restrict,
             sandbox_restricts_workspace=sandbox_restricts,
         )
 

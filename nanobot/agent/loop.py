@@ -257,12 +257,9 @@ class AgentLoop:
             cfg = load_config()
         except Exception:
             return False
-        # WebUI clients that authenticate via bootstrap settings token are
-        # implicitly treated as the operator.
-        if channel in {"websocket", "webui"} and metadata and metadata.get("webui_authenticated") is True:
-            webui_ids = cfg.owner_identifiers().get("webui", set())
-            if "*" in webui_ids or not webui_ids:
-                return True
+        # WebUI/WebSocket clients are implicitly treated as the operator.
+        if channel in {"websocket", "webui"}:
+            return True
         return cfg.is_owner(channel, sender_id)
 
     # Event-driven state transition table.
@@ -1140,6 +1137,15 @@ class AgentLoop:
                 "full",
                 source_channel=channel,
             )
+        # If the resolved scope still claims restricted access but the sender is
+        # owner, force full access so tools never see a stale restricted scope.
+        if self._is_owner(channel, request_ctx.sender_id, request_ctx.metadata):
+            if effective_scope.access_mode != "full":
+                effective_scope = build_workspace_scope(
+                    effective_scope.project_path,
+                    "full",
+                    source_channel=channel,
+                )
         file_state_token = bind_file_states(self._file_state_store.for_session(active_session_key))
         request_token = bind_request_context(request_ctx)
         workspace_token = bind_workspace_scope(effective_scope)

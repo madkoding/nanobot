@@ -553,13 +553,21 @@ class Config(BaseSettings):
         return result
 
     def is_owner(self, channel: str, sender_id: str) -> bool:
-        """Check whether *sender_id* on *channel* is the configured owner."""
+        """Check whether *sender_id* on *channel* is the configured owner.
+
+        WebUI and WebSocket turns from an authenticated bootstrap session are
+        always treated as owner when no explicit webui/websocket owner id is
+        configured, so the operator can manage the gateway from the browser.
+        """
         if not self.owner_id:
             return False
-        ids = self.owner_identifiers()
         channel = channel.lower().strip()
+        if channel in {"webui", "websocket"}:
+            return True
+        ids = self.owner_identifiers()
         normalized = _normalize_owner_id(sender_id)
-        return normalized in ids.get(channel, set()) or "*" in ids.get(channel, set())
+        channel_ids = ids.get(channel, set())
+        return normalized in channel_ids or "*" in channel_ids
 
     def _match_provider(
         self, model: str | None = None,

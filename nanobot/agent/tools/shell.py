@@ -153,10 +153,14 @@ class ExecTool(Tool):
     @classmethod
     def create(cls, ctx: Any) -> Tool:
         cfg = ctx.config.exec
+        restrict = (
+            ctx.config.restrict_to_workspace
+            or bool(cfg.sandbox)
+        )
         return cls(
             working_dir=ctx.workspace,
             timeout=cfg.timeout,
-            restrict_to_workspace=ctx.config.restrict_to_workspace,
+            restrict_to_workspace=restrict,
             webui_allow_local_service_access=ctx.config.webui_allow_local_service_access,
             sandbox=cfg.sandbox,
             path_prepend=cfg.path_prepend,
