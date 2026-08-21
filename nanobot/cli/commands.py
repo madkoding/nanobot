@@ -2333,6 +2333,30 @@ def _run_gateway(
             await cron.start()
             # Re-read once on first admission to close the watcher subscription window.
             agent.runtime_resolver.invalidate()
+            # Optional proactive RLAIF scanner: runs on its own loop, picks a
+            # file from the workspace every interval_s and proposes an
+            # improvement, independent of any agent turn.
+            rlaif_scanner_task: asyncio.Task | None = None
+            try:
+                from nanobot.agent.rlaif.scanner import build_scanner_from_config
+                rlaif_cfg = getattr(config.tools, "rlaif", None)
+                if rlaif_cfg is not None and getattr(rlaif_cfg, "scanner_enable", False):
+                    scanner = build_scanner_from_config(
+                        rlaif_cfg,
+                        workspace=Path(getattr(agent, "workspace", None) or "."),
+                        provider=provider_snapshot.provider,
+                        model=provider_snapshot.model,
+                    )
+                    if scanner is not None:
+                        rlaif_scanner_task = asyncio.create_task(
+                            scanner.run_forever(), name="nanobot-rlaif-scanner"
+                        )
+                        console.print(
+                            f"[dim]RLAIF scanner started "
+                            f"(every {scanner.interval_s:.0f}s)[/dim]"
+                        )
+            except Exception:
+                logger.exception("RLAIF scanner failed to start; continuing without it")
             tasks = [
                 asyncio.create_task(
                     watch_config_file(
@@ -2362,6 +2386,8 @@ def _run_gateway(
                     _open_browser_when_ready(),
                     name="nanobot-open-browser",
                 ))
+            if rlaif_scanner_task is not None:
+                tasks.append(rlaif_scanner_task)
             runtime_tasks = asyncio.gather(*tasks)
             shutdown_task = asyncio.create_task(
                 shutdown_event.wait(),

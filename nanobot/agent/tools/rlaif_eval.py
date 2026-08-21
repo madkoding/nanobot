@@ -53,6 +53,19 @@ class RlaifToolConfig(Base):
     # (``origin``, current branch). Requires SSH auth available in the
     # gateway process (default ~/.ssh/id_ed25519 works).
     observer_auto_push: bool = False
+    # ---- Proactive scanner (runs independently of agent turns) -----------
+    # If true, a background task periodically picks a Python file in the
+    # workspace, asks the critic LLM to propose a single bounded
+    # improvement, evaluates it with the configured tests + lint, and
+    # (optionally) auto-applies / commits / pushes it. Independent of the
+    # observer, which only fires after a turn.
+    scanner_enable: bool = False
+    scanner_critic_model: str | None = None
+    scanner_min_confidence: float = 0.7
+    scanner_interval_s: float = 3600.0
+    scanner_auto_apply: bool = True
+    scanner_auto_commit: bool = True
+    scanner_auto_push: bool = True
     # Workspace root where candidate patches are evaluated. Falls back to the
     # agent's default workspace when omitted.
     workspace: str | None = None
