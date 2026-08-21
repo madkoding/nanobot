@@ -2421,7 +2421,10 @@ def test_optional_dependency_metadata_for_enable():
     }
     assert channel_names.isdisjoint(deps)
     expected_channel_dependencies = {
-        "dingtalk": ("dingtalk-stream>=0.24.0,<1.0.0",),
+        "dingtalk": (
+            "dingtalk-stream>=0.24.0,<1.0.0",
+            "websockets>=16.0,<17.0",
+        ),
         "discord": ("discord.py>=2.5.2,<3.0.0",),
         "feishu": ("lark-oapi>=1.5.0,<2.0.0",),
         "matrix": (
@@ -2451,7 +2454,10 @@ def test_optional_dependency_metadata_for_enable():
             "socksio>=1.0.0,<2.0.0",
             "python-socks[asyncio]>=2.8.0,<3.0.0; sys_platform != 'win32'",
         ),
-        "wecom": ("wecom-aibot-sdk-python>=0.1.5",),
+        "wecom": (
+            "wecom-aibot-sdk-python>=0.1.5",
+            "websockets>=16.0,<17.0",
+        ),
         "weixin": ("qrcode[pil]>=8.0", "pycryptodome>=3.20.0"),
         "whatsapp": (
             "neonize>=0.4.0,<0.5.0",
