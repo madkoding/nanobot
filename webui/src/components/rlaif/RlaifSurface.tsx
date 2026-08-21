@@ -17,6 +17,72 @@ interface Props {
 
 const POLL_INTERVAL_MS = 5000;
 
+function formatSeconds(s: number): string {
+  if (s < 60) return `${s}s`;
+  const m = Math.floor(s / 60);
+  const sec = s % 60;
+  return `${m}m ${sec.toString().padStart(2, "0")}s`;
+}
+
+function RunningProgress({ message, elapsedSec }: { message: string; elapsedSec: number }) {
+  return (
+    <div
+      className="mt-2 rounded-md border border-sky-500/30 bg-sky-500/5 p-2.5 text-[12px]"
+      data-testid="rlaif-progress"
+    >
+      <div className="mb-1.5 flex items-center justify-between gap-2 text-sky-700 dark:text-sky-300">
+        <span className="flex items-center gap-1.5 font-medium">
+          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+          Approving… {formatSeconds(elapsedSec)} elapsed
+        </span>
+        <span className="font-mono text-[10.5px] text-sky-700/70 dark:text-sky-300/70">
+          tests + commit + push
+        </span>
+      </div>
+      <div className="relative h-1.5 w-full overflow-hidden rounded-full bg-sky-500/15">
+        <div
+          className="absolute inset-y-0 left-0 w-1/3 animate-[indeterminate_1.4s_ease-in-out_infinite] rounded-full bg-sky-500/70"
+          style={{ animationName: "rlaifProgress" }}
+        />
+        <style>{`
+          @keyframes rlaifProgress {
+            0%   { left: -33%; }
+            100% { left: 100%; }
+          }
+        `}</style>
+      </div>
+      <p className="mt-1 text-[11px] text-sky-700/80 dark:text-sky-300/80">{message}</p>
+    </div>
+  );
+}
+
+function DoneBanner({
+  ok,
+  message,
+  elapsedSec,
+}: {
+  ok: boolean;
+  message: string;
+  elapsedSec: number;
+}) {
+  return (
+    <div
+      className={
+        "mt-2 rounded-md border px-2.5 py-1.5 text-[12px] " +
+        (ok
+          ? "border-emerald-500/30 bg-emerald-500/5 text-emerald-700 dark:text-emerald-300"
+          : "border-destructive/30 bg-destructive/5 text-destructive")
+      }
+      data-testid="rlaif-done"
+    >
+      <div className="flex items-center gap-1.5 font-medium">
+        {ok ? "✓" : "✗"} {ok ? "Applied" : "Failed"} ({formatSeconds(elapsedSec)})
+      </div>
+      <div className="mt-0.5 break-words text-[11.5px] opacity-90">{message}</div>
+    </div>
+  );
+}
+
 export function RlaifSurface({ onBackToChat }: Props) {
   const { t } = useTranslation();
   const watch = useRlaifWatch();
@@ -28,8 +94,19 @@ export function RlaifSurface({ onBackToChat }: Props) {
   const [scannerActive, setScannerActive] = useState(false);
   const [expandedId, setExpandedId] = useState<number | null>(null);
   const [expandedPatch, setExpandedPatch] = useState<string | null>(null);
-  const [actionPending, setActionPending] = useState<number | null>(null);
-  const [actionResult, setActionResult] = useState<{ id: number; result: string; ok: boolean } | null>(null);
+  const [actionState, setActionState] = useState<
+    | { kind: "idle" }
+    | { kind: "running"; id: number; startedAt: number; jobId: string; lastMessage: string }
+    | { kind: "done"; id: number; ok: boolean; message: string; durationMs: number }
+  >({ kind: "idle" });
+  const [now, setNow] = useState<number>(Date.now());
+
+  // Tick a clock so the running progress can show live elapsed time.
+  useEffect(() => {
+    if (actionState.kind !== "running") return;
+    const id = window.setInterval(() => setNow(Date.now()), 500);
+    return () => window.clearInterval(id);
+  }, [actionState]);
 
   // Auto-scroll for the log card.
   useEffect(() => {
@@ -91,8 +168,7 @@ export function RlaifSurface({ onBackToChat }: Props) {
 
   const onApprove = useCallback(
     async (id: number) => {
-      setActionPending(id);
-      setActionResult(null);
+      const startedAt = Date.now();
       try {
         // Approve runs as a background job in the gateway (so the WS
         // event loop doesn't block). Backend returns 202 with a
@@ -100,37 +176,47 @@ export function RlaifSurface({ onBackToChat }: Props) {
         // proposal disappears (success) or shows an error.
         const r = await actOnRlaifProposal(token, id, "approve");
         if (r.status === "running") {
-          setActionResult({
+          setActionState({
+            kind: "running",
             id,
-            result: "running on gateway; this can take a minute or two...",
-            ok: true,
+            startedAt,
+            jobId: r.job_id ?? "(no id)",
+            lastMessage: r.message ?? "running on gateway...",
           });
-          // Poll until the proposal is gone.
-          for (let i = 0; i < 60; i++) {
+          // Poll until the proposal is gone (success) or 5 minutes elapse.
+          for (let i = 0; i < 150; i++) {
             await new Promise((res) => setTimeout(res, 2000));
             const proposals = await fetchRlaifProposals(token);
             const stillThere = proposals.items.some((p) => p.id === id);
             if (!stillThere) {
-              setActionResult({
+              setActionState({
+                kind: "done",
                 id,
-                result: "applied (proposal removed)",
                 ok: true,
+                message: "applied (proposal removed)",
+                durationMs: Date.now() - startedAt,
               });
               break;
             }
           }
         } else {
-          setActionResult({ id, result: r.result ?? "done", ok: r.ok });
+          setActionState({
+            kind: "done",
+            id,
+            ok: r.ok,
+            message: r.result ?? r.message ?? "done",
+            durationMs: Date.now() - startedAt,
+          });
         }
         await refreshProposals();
       } catch (e) {
-        setActionResult({
+        setActionState({
+          kind: "done",
           id,
-          result: e instanceof Error ? e.message : String(e),
           ok: false,
+          message: e instanceof Error ? e.message : String(e),
+          durationMs: Date.now() - startedAt,
         });
-      } finally {
-        setActionPending(null);
       }
     },
     [token, refreshProposals],
@@ -138,20 +224,24 @@ export function RlaifSurface({ onBackToChat }: Props) {
 
   const onReject = useCallback(
     async (id: number) => {
-      setActionPending(id);
-      setActionResult(null);
       try {
         const r = await actOnRlaifProposal(token, id, "reject");
-        setActionResult({ id, result: r.result ?? r.message ?? "done", ok: r.ok });
         await refreshProposals();
-      } catch (e) {
-        setActionResult({
+        setActionState({
+          kind: "done",
           id,
-          result: e instanceof Error ? e.message : String(e),
-          ok: false,
+          ok: r.ok,
+          message: r.result ?? r.message ?? "rejected",
+          durationMs: 0,
         });
-      } finally {
-        setActionPending(null);
+      } catch (e) {
+        setActionState({
+          kind: "done",
+          id,
+          ok: false,
+          message: e instanceof Error ? e.message : String(e),
+          durationMs: 0,
+        });
       }
     },
     [token, refreshProposals],
@@ -233,7 +323,17 @@ export function RlaifSurface({ onBackToChat }: Props) {
             <ul className="space-y-2">
               {proposals.map((p) => {
                 const isExpanded = expandedId === p.id;
-                const isPending = actionPending === p.id;
+                const myAction =
+                  actionState.kind !== "idle" && actionState.id === p.id
+                    ? actionState
+                    : null;
+                const isRunning = myAction?.kind === "running";
+                const isDone = myAction?.kind === "done";
+                const elapsedSec = isRunning
+                  ? Math.floor((now - (myAction as { startedAt: number }).startedAt) / 1000)
+                  : isDone
+                    ? Math.floor((myAction as { durationMs: number }).durationMs / 1000)
+                    : 0;
                 return (
                   <li
                     key={p.id}
@@ -260,11 +360,11 @@ export function RlaifSurface({ onBackToChat }: Props) {
                         <Button
                           size="sm"
                           variant="default"
-                          disabled={isPending}
+                          disabled={isRunning}
                           onClick={() => void onApprove(p.id)}
                           data-testid="rlaif-approve"
                         >
-                          {isPending ? (
+                          {isRunning ? (
                             <Loader2 className="h-3.5 w-3.5 animate-spin" />
                           ) : (
                             <Check className="h-3.5 w-3.5" />
@@ -274,7 +374,7 @@ export function RlaifSurface({ onBackToChat }: Props) {
                         <Button
                           size="sm"
                           variant="ghost"
-                          disabled={isPending}
+                          disabled={isRunning}
                           onClick={() => void onReject(p.id)}
                           data-testid="rlaif-reject"
                         >
@@ -288,17 +388,17 @@ export function RlaifSurface({ onBackToChat }: Props) {
                         {expandedPatch ?? "loading…"}
                       </pre>
                     ) : null}
-                    {actionResult && actionResult.id === p.id ? (
-                      <div
-                        className={
-                          "mt-2 rounded-md border px-2 py-1.5 text-[11.5px] " +
-                          (actionResult.ok
-                            ? "border-emerald-500/30 bg-emerald-500/5 text-emerald-700 dark:text-emerald-300"
-                            : "border-destructive/30 bg-destructive/5 text-destructive")
-                        }
-                      >
-                        {actionResult.result}
-                      </div>
+                    {isRunning ? (
+                      <RunningProgress
+                        message={(myAction as { lastMessage: string }).lastMessage}
+                        elapsedSec={elapsedSec}
+                      />
+                    ) : isDone ? (
+                      <DoneBanner
+                        ok={(myAction as { ok: boolean }).ok}
+                        message={(myAction as { message: string }).message}
+                        elapsedSec={elapsedSec}
+                      />
                     ) : null}
                   </li>
                 );
