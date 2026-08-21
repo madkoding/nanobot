@@ -24,7 +24,9 @@ requirements.
 from __future__ import annotations
 
 import asyncio
+import json
 import random
+import re
 import subprocess
 import tempfile
 import time
@@ -377,67 +379,185 @@ class RlaifProactiveScanner:
     # --- LLM proposal -----------------------------------------------------
 
     async def _propose(self, rel_path: str, text: str) -> dict[str, Any] | None:
-        """Ask the critic LLM for a unified-diff patch via RlaifEvalTool.
+        """Ask the critic LLM for a small change described as a JSON spec.
 
-        Returns a dict with 'patch', 'rationale', and 'confidence'.
+        The LLM sees the file with line numbers and returns:
+          {
+            "start_line": <int>,
+            "end_line": <int>,
+            "new_text": "<replacement text, with 4-space indent>",
+            "rationale": "<one-sentence justification>"
+          }
+
+        We build the unified diff ourselves from those line numbers.
+        This works much better than asking the model for a unified diff
+        directly — small models can identify a specific line range and
+        write replacement text, but they can't reliably produce
+        correctly-formatted diffs with exact context lines.
         """
-        from nanobot.agent.rlaif.diff_utils import (
-            extract_unified_diff,
-            is_valid_unified_diff,
-        )
-        from nanobot.agent.tools.rlaif_eval import RlaifEvalTool
+        import json
+        import re
 
-        abs_path = (self.workspace / rel_path).resolve()
-        task = (
-            f"Improve {rel_path}. "
-            f"File path: {abs_path}. "
-            "Pick ONE small, concrete improvement. Allowed categories: "
-            "bug fix, dead code removal, better error message, type-hint "
-            "fix, docstring fix, simplification. The diff must apply "
-            "cleanly with `git apply` to the file as shown."
+        # Number the file so the LLM can refer to specific lines.
+        numbered = "\n".join(
+            f"{i+1:5d}  {ln}" for i, ln in enumerate(text.splitlines())
         )
-        tool = RlaifEvalTool(workspace=self.workspace)
+        # Truncate if too long; the model loses focus past ~10k lines.
+        if len(numbered) > 40_000:
+            numbered = numbered[:40_000] + "\n... (truncated)"
+
+        system = (
+            "You are a code reviewer. Pick ONE small, concrete improvement "
+            "to the file. Allowed categories: bug fix, dead code removal, "
+            "better error message, type-hint fix, docstring fix, "
+            "simplification. Do not propose new features, big rewrites, "
+            "or speculative changes.\n\n"
+            "Reply with ONLY a JSON object (no markdown, no commentary) "
+            "with these fields:\n"
+            '  "start_line": <1-indexed line number of the first line to change>,\n'
+            '  "end_line": <1-indexed line number of the last line to change (inclusive)>,\n'
+            '  "new_text": <string, the text that should replace those lines; '
+            'use 4-space indent>,\n'
+            '  "rationale": <one-sentence justification>.\n\n'
+            "Read the line numbers carefully. start_line and end_line MUST "
+            "match lines in the file. The new_text replaces the existing "
+            "lines [start_line..end_line] verbatim, with the same indentation."
+        )
+        user = (
+            f"## File: {rel_path}\n\n"
+            f"```\n{numbered}\n```\n\n"
+            "Reply with ONLY the JSON object."
+        )
+
         try:
-            candidates = await tool._generate_candidates(
-                provider=self.provider,
-                task=task,
-                count=2,
+            response = await self.provider.chat_with_retry(
+                messages=[
+                    {"role": "system", "content": system},
+                    {"role": "user", "content": user},
+                ],
                 model=self.critic_model,
-                temperature=0.7,
+                max_tokens=2048,
+                temperature=0.0,
             )
         except Exception:
             logger.exception("RLAIF scanner: critic call failed for {}", rel_path)
             return None
 
-        if not candidates:
+        content = response.content or ""
+        spec = self._parse_json_spec(content)
+        if spec is None:
             logger.info(
-                "RLAIF scanner: critic for {} returned no candidate patch", rel_path,
+                "RLAIF scanner: critic for {} returned no valid JSON spec. content: {}",
+                rel_path, content[:300],
             )
             return None
 
-        for idx, (summary, raw) in enumerate(candidates):
-            patch = extract_unified_diff(raw)
-            if not is_valid_unified_diff(patch):
-                logger.info(
-                    "RLAIF scanner: candidate #{} for {} failed validation. raw content:\n{}",
-                    idx + 1, rel_path, raw[:600],
-                )
-                continue
-            # Rewrite the absolute path back to the relative one so
-            # git apply produces a tidy diff with the repo-relative
-            # a/ and b/ prefixes.
-            patch = patch.replace(str(abs_path), rel_path)
-            return {
-                "rationale": summary or "improvement",
-                "patch": patch,
-                "confidence": 0.5,
-            }
-
-        logger.info(
-            "RLAIF scanner: critic for {} produced {} candidate(s) but none were valid unified diffs",
-            rel_path, len(candidates),
+        # Build the unified diff from the spec.
+        patch = self._build_diff_from_spec(
+            rel_path=rel_path,
+            text=text,
+            start_line=int(spec.get("start_line", 0)),
+            end_line=int(spec.get("end_line", 0)),
+            new_text=str(spec.get("new_text", "")),
         )
-        return None
+        if not patch:
+            logger.info(
+                "RLAIF scanner: spec for {} did not yield a valid diff "
+                "(start_line={}, end_line={}, file has {} lines)",
+                rel_path, spec.get("start_line"), spec.get("end_line"),
+                len(text.splitlines()),
+            )
+            return None
+
+        return {
+            "rationale": str(spec.get("rationale", "improvement")),
+            "patch": patch,
+            "confidence": 0.6,
+        }
+
+    @staticmethod
+    def _parse_json_spec(content: str) -> dict[str, Any] | None:
+        """Pull the first JSON object out of an LLM response."""
+        if not content:
+            return None
+        # Strip leading/trailing whitespace and try to parse directly.
+        text = content.strip()
+        # Sometimes the LLM wraps the JSON in ```json ... ``` fences.
+        m = re.search(r"\{.*\}", text, re.DOTALL)
+        if not m:
+            try:
+                return json.loads(text)
+            except Exception:
+                return None
+        candidate = m.group(0)
+        try:
+            return json.loads(candidate)
+        except Exception:
+            return None
+
+    @staticmethod
+    def _build_diff_from_spec(
+        *,
+        rel_path: str,
+        text: str,
+        start_line: int,
+        end_line: int,
+        new_text: str,
+    ) -> str:
+        """Build a unified diff for the given spec. Returns '' if invalid.
+
+        The spec is: replace lines [start_line..end_line] (1-indexed,
+        inclusive) of `text` with `new_text`. The diff is built with 3
+        lines of context above and below so `git apply` can find the
+        location without fuzz.
+        """
+        file_lines = text.splitlines()
+        total = len(file_lines)
+        if start_line < 1 or end_line > total or end_line < start_line:
+            return ""
+        # Convert to 0-indexed, inclusive end.
+        start_idx = start_line - 1
+        end_idx = end_line  # exclusive for slicing
+        old_block = file_lines[start_idx:end_idx]
+        new_block = new_text.splitlines()
+
+        ctx = 3
+        hunk_start = max(0, start_idx - ctx)
+        # The +1 is because slice end is exclusive.
+        hunk_end = min(total, end_idx + ctx)
+        old_with_ctx = file_lines[hunk_start:hunk_end]
+
+        # The new hunk: lines before the change + new lines + lines after.
+        new_with_ctx = (
+            file_lines[hunk_start:start_idx]
+            + new_block
+            + file_lines[end_idx:hunk_end]
+        )
+
+        old_count = len(old_with_ctx)
+        new_count = len(new_with_ctx)
+        out: list[str] = [
+            f"--- a/{rel_path}",
+            f"+++ b/{rel_path}",
+            f"@@ -{hunk_start + 1},{old_count} +{hunk_start + 1},{new_count} @@",
+        ]
+        # Walk the three parts (ctx-before, change, ctx-after) separately.
+        ctx_before = file_lines[hunk_start:start_idx]
+        ctx_after = file_lines[end_idx:hunk_end]
+        # Context lines before the change.
+        for ln in ctx_before:
+            out.append(" " + ln)
+        # Removed (old_block) and added (new_block) lines. The
+        # standard unified diff format requires all - lines first,
+        # then all + lines, with a single hunk header.
+        for ln in old_block:
+            out.append("-" + ln)
+        for ln in new_block:
+            out.append("+" + ln)
+        # Context lines after the change.
+        for ln in ctx_after:
+            out.append(" " + ln)
+        return "\n".join(out) + "\n"
 
     # --- patch recovery / lint helpers ------------------------------------
 
