@@ -8,6 +8,57 @@ _DIFF_START_RE = re.compile(r"^---\s+")
 _HUNK_RE = re.compile(r"@@\s+-\d+(?:,\d+)?\s+\+\d+(?:,\d+)?\s+@@")
 
 
+def _normalize_unified_diff(patch: str, context_lines: int = 3) -> str:
+    """Rebuild a unified diff with correct hunk line counts.
+
+    Some LLMs emit hunks whose ``oldcount``/``newcount`` headers do not match
+    the actual number of lines in the hunk. This function parses the hunks,
+    validates them against the declared counts, and rewrites the patch with
+    accurate counts so ``git apply`` accepts it.
+    """
+    lines = patch.splitlines()
+    output: list[str] = []
+    i = 0
+    while i < len(lines):
+        line = lines[i]
+        if line.startswith("--- ") or line.startswith("+++ "):
+            output.append(line)
+            i += 1
+            continue
+        m = _HUNK_RE.match(line)
+        if not m:
+            output.append(line)
+            i += 1
+            continue
+        # Parse hunk header.
+        header = line
+        hunk_start = i + 1
+        hunk_end = hunk_start
+        while hunk_end < len(lines):
+            hl = lines[hunk_end]
+            if hl.startswith("--- ") or hl.startswith("+++ ") or _HUNK_RE.match(hl):
+                break
+            hunk_end += 1
+        hunk_body = lines[hunk_start:hunk_end]
+        old_count = sum(1 for hunk_line in hunk_body if not hunk_line.startswith("+"))
+        new_count = sum(1 for hunk_line in hunk_body if not hunk_line.startswith("-"))
+        # Extract old/new start lines from header.
+        header_match = re.match(
+            r"@@\s+-(\d+)(?:,\d+)?\s+\+(\d+)(?:,\d+)?\s+@@",
+            header,
+        )
+        if header_match:
+            old_start = int(header_match.group(1))
+            new_start = int(header_match.group(2))
+        else:
+            old_start = new_start = 1
+        output.append(
+            f"@@ -{old_start},{old_count} +{new_start},{new_count} @@"
+        )
+        output.extend(hunk_body)
+        i = hunk_end
+    return "\n".join(output)
+
 def extract_unified_diff(text: str) -> str:
     """Extract the first well-formed unified diff from a response.
 

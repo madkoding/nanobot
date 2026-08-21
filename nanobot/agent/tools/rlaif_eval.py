@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import shutil
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -10,6 +11,7 @@ from loguru import logger
 from nanobot.agent.rlaif.critic import RlaifCritic
 from nanobot.agent.rlaif.dataset import RlaifDataset, RlaifPreference
 from nanobot.agent.rlaif.diff_utils import (
+    _normalize_unified_diff,
     extract_unified_diff,
     is_valid_unified_diff,
     summarize_unified_diff,
@@ -41,6 +43,9 @@ class RlaifToolConfig(Base):
     observer: bool = False
     observer_critic_model: str | None = None
     observer_min_confidence: float = 0.6
+    # Workspace root where candidate patches are evaluated. Falls back to the
+    # agent's default workspace when omitted.
+    workspace: str | None = None
     test_command: list[str] | None = None
     lint_command: list[str] | None = None
 
@@ -124,8 +129,9 @@ class RlaifEvalTool(Tool):
                 default_model = getattr(snapshot, "model", None)
             except Exception:
                 logger.exception("Failed to load provider snapshot for rlaif_eval")
+        workspace = Path(cfg.workspace).expanduser().resolve() if cfg.workspace else Path(ctx.workspace)
         return cls(
-            workspace=Path(ctx.workspace),
+            workspace=workspace,
             default_candidate_count=cfg.candidate_count,
             auto_apply=cfg.auto_apply,
             test_command=cfg.test_command,
@@ -316,7 +322,13 @@ class RlaifEvalTool(Tool):
         model: str,
         temperature: float,
     ) -> list[tuple[str, str]]:
-        """Ask the LLM to generate N unified-diff patches for the task."""
+        """Ask the LLM to generate N unified-diff patches for the task.
+
+        If the task references existing files under the workspace, the file
+        contents are included in the prompt so the generated patch has real
+        context lines to apply against.
+        """
+        file_context = self._build_file_context(task)
         system = (
             "You are a precise coding assistant. Your job is to output a single, "
             "well-formed unified diff patch (git diff -u format) that solves the task. "
@@ -326,13 +338,25 @@ class RlaifEvalTool(Tool):
             "3. Only modify files that need changing.\n"
             "4. Do not explain the patch outside the diff.\n"
             "5. Do not wrap the patch in markdown fences.\n"
-            "6. Keep the context lines minimal (3 is enough)."
+            "6. Keep the context lines minimal but enough to apply: at least 3 "
+            "   unchanged lines above and below every changed block.\n"
+            "7. Patches must apply cleanly with `git apply`; use the exact existing "
+            "   lines shown in the file context.\n"
+            "8. Every hunk must have matching line counts: if the hunk header says "
+            "   `@@ -oldline,oldcount +newline,newcount @@`, include exactly "
+            "   oldcount context lines plus removed lines and exactly newcount "
+            "   context lines plus added lines."
         )
-        user = (
-            f"## Task\n{task}\n\n"
+        user_parts = [f"## Task\n{task}\n\n"]
+        if file_context:
+            user_parts.append("## Current files\n\n")
+            user_parts.append(file_context)
+            user_parts.append("\n\n")
+        user_parts.append(
             "Return a single unified diff patch in git diff -u format. "
             "No markdown, no commentary, only the patch."
         )
+        user = "".join(user_parts)
         candidates: list[tuple[str, str]] = []
         for i in range(count):
             try:
@@ -342,16 +366,58 @@ class RlaifEvalTool(Tool):
                     max_tokens=8192,
                     temperature=temperature,
                 )
-                text = response.content or ""
-                patch = extract_unified_diff(text)
+                patch = extract_unified_diff(response.content or "")
+                if not is_valid_unified_diff(patch):
+                    # Some reasoning-heavy models return the reasoning trace as the
+                    # assistant message content. Try to extract the diff from it.
+                    reasoning = getattr(response, "reasoning_content", None) or ""
+                    patch = extract_unified_diff(reasoning)
                 if not is_valid_unified_diff(patch):
                     logger.warning("RlaifEval candidate %s is not a valid unified diff; skipping", i + 1)
                     continue
+                patch = _normalize_unified_diff(patch)
                 summary = summarize_unified_diff(patch)
                 candidates.append((patch, summary))
             except Exception:
                 logger.exception("Failed to generate rlaif candidate %s", i + 1)
         return candidates
+
+    def _build_file_context(self, task: str) -> str:
+        """Extract likely file paths from the task and return their contents."""
+        import re
+
+        paths: list[Path] = []
+        # Match absolute paths and paths starting with a known project prefix.
+        for match in re.finditer(r"(?:^|\s)(/[a-zA-Z0-9_/.\-]+|nanobot/[a-zA-Z0-9_/.\-]+|tests/[a-zA-Z0-9_/.\-]+)", task):
+            raw = match.group(1).strip()
+            if not raw:
+                continue
+            candidate = Path(raw)
+            if candidate.is_absolute():
+                paths.append(candidate)
+            else:
+                paths.append(self.workspace / candidate)
+        seen: set[Path] = set()
+        parts: list[str] = []
+        for path in paths:
+            try:
+                resolved = path.resolve()
+                if resolved in seen:
+                    continue
+                seen.add(resolved)
+                if not resolved.is_file():
+                    continue
+                # Stay within the workspace for safety.
+                try:
+                    resolved.relative_to(self.workspace.resolve())
+                except ValueError:
+                    logger.warning("RLAIF task references file outside workspace: %s", resolved)
+                    continue
+                text = resolved.read_text(encoding="utf-8", errors="replace")
+                parts.append(f"### {resolved}\n\n```\n{text}\n```")
+            except Exception:
+                logger.exception("Failed to read file context for RLAIF task: %s", path)
+        return "\n\n".join(parts)
 
     def _resolve_provider(self, request_ctx: Any) -> LLMProvider | None:
         if self._provider is not None:
@@ -371,23 +437,17 @@ class RlaifEvalTool(Tool):
                 f.write(patch)
                 patch_path = f.name
 
-            proc = subprocess.run(
-                ["git", "apply", "--check", patch_path],
-                cwd=self.workspace,
-                capture_output=True,
-                text=True,
-            )
-            if proc.returncode != 0:
-                return f"Patch apply check failed: {proc.stderr}"
-
-            proc = subprocess.run(
-                ["git", "apply", patch_path],
-                cwd=self.workspace,
-                capture_output=True,
-                text=True,
-            )
-            if proc.returncode == 0:
-                return f"Patch applied to {self.workspace}"
+            for cmd in (["git", "apply", patch_path], ["patch", "-p1", "-i", patch_path]):
+                if cmd[0] == "patch" and not shutil.which("patch"):
+                    continue
+                proc = subprocess.run(
+                    cmd,
+                    cwd=self.workspace,
+                    capture_output=True,
+                    text=True,
+                )
+                if proc.returncode == 0:
+                    return f"Patch applied to {self.workspace}"
             return f"Patch apply failed: {proc.stderr}"
         except Exception as exc:
             return f"Patch apply error: {exc}"

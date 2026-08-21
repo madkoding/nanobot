@@ -94,6 +94,12 @@ class PatchHarness:
                 cwd=target,
             )
             apply_ok = apply.returncode == 0
+            if not apply_ok and shutil.which("patch"):
+                apply = await self._run(
+                    ["patch", "-p1", "-i", str(patch_file)],
+                    cwd=target,
+                )
+                apply_ok = apply.returncode == 0
             if not apply_ok:
                 duration = asyncio.get_event_loop().time() - start
                 return PatchHarnessResult(

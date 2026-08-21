@@ -343,8 +343,9 @@ class RlaifObserverHook(AgentHook):
             return None
         if not getattr(cfg, "observer", False):
             return None
+        rlaif_workspace = Path(getattr(cfg, "workspace", None) or workspace).expanduser().resolve()
         return cls(
-            workspace=workspace,
+            workspace=rlaif_workspace,
             provider=provider,
             model=model,
             critic_model=getattr(cfg, "observer_critic_model", None) or model,

@@ -2,6 +2,7 @@
 
 
 from nanobot.agent.rlaif.diff_utils import (
+    _normalize_unified_diff,
     extract_unified_diff,
     is_valid_unified_diff,
     summarize_unified_diff,
@@ -82,3 +83,43 @@ class TestSummarizeUnifiedDiff:
             "+++ b/bar.py\n@@ -1,1 +1,1 @@\n-old\n+new\n"
         )
         assert summarize_unified_diff(diff) == "patch touching b/foo.py, b/bar.py"
+
+
+class TestNormalizeUnifiedDiff:
+    def test_recounts_mismatched_hunk_counts(self):
+        diff = (
+            "--- a/foo.py\n"
+            "+++ b/foo.py\n"
+            "@@ -1,2 +1,3 @@\n"
+            " unchanged\n"
+            "+added\n"
+            "-removed\n"
+            " unchanged2\n"
+        )
+        normalized = _normalize_unified_diff(diff)
+        # The hunk now declares correct counts: 3 old lines (no plus) and 3 new lines (no minus).
+        assert "@@ -1,3 +1,3 @@" in normalized
+        assert "+added" in normalized
+        assert "-removed" in normalized
+
+    def test_preserves_file_headers(self):
+        diff = (
+            "--- a/foo.py\n"
+            "+++ b/foo.py\n"
+            "@@ -1,1 +1,1 @@\n"
+            "-old\n"
+            "+new\n"
+        )
+        normalized = _normalize_unified_diff(diff)
+        assert normalized.startswith("--- a/foo.py\n+++ b/foo.py\n")
+
+    def test_noop_for_correct_counts(self):
+        diff = (
+            "--- a/foo.py\n"
+            "+++ b/foo.py\n"
+            "@@ -1,1 +1,1 @@\n"
+            "-old\n"
+            "+new\n"
+        )
+        normalized = _normalize_unified_diff(diff)
+        assert "@@ -1,1 +1,1 @@" in normalized
