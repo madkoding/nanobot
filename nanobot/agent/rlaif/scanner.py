@@ -554,10 +554,34 @@ class RlaifProactiveScanner:
             replace_text=replace_text,
         )
         if not patch:
+            # ponytail: the critic often hallucinates plausible-looking text
+            # instead of copying from the file. Try a fuzzy match first
+            # (small substring anchored to a unique fragment) before
+            # asking the model to retry with explicit line numbers.
+            patch = self._fuzzy_anchor_to_unified_diff(
+                file_text=text,
+                rel_path=rel_path,
+                find_text=find_text,
+                replace_text=replace_text,
+            )
+        if not patch:
+            logger.info(
+                "RLAIF scanner: critic's find text did not match {} "
+                "(rationale: {}, find was: {!r}); retrying with line numbers",
+                rel_path, args.get("rationale", "")[:80], find_text[:200],
+            )
+            retry = await self._retry_with_line_numbers(
+                rel_path=rel_path,
+                text=text,
+                rationale=args.get("rationale", ""),
+                find_text=find_text,
+                replace_text=replace_text,
+            )
+            if retry:
+                return retry
             logger.warning(
-                "RLAIF scanner: critic's find text did not match the file {} "
-                "(rationale: {}, find was: {!r})",
-                rel_path, args.get("rationale", "")[:100], find_text[:200],
+                "RLAIF scanner: giving up on {} after retry; find was: {!r}",
+                rel_path, find_text[:200],
             )
             return None
         return {
@@ -635,6 +659,185 @@ class RlaifProactiveScanner:
             f"--- a/{rel_path}",
             f"+++ b/{rel_path}",
             f"@@ -{hunk_start_old + 1},{old_count} +{hunk_start_new + 1},{new_count} @@",
+        ]
+        for line in file_lines[hunk_start_old : match_start]:
+            out.append(" " + line)
+        for line in find_lines:
+            out.append("-" + line)
+        for line in replace_lines:
+            out.append("+" + line)
+        for line in file_lines[match_start + len(find_lines) : match_start + len(find_lines) + ctx_after]:
+            out.append(" " + line)
+        return "\n".join(out) + "\n"
+
+    @staticmethod
+    def _fuzzy_anchor_to_unified_diff(
+        *,
+        file_text: str,
+        rel_path: str,
+        find_text: str,
+        replace_text: str,
+    ) -> str:
+        """Try to recover from a hallucinated find by anchoring on a unique line.
+
+        The critic often produces text that LOOKS like the file but has
+        small drifts (different var name, wrong whitespace, missing
+        context). We try a few cheap fuzzy strategies before giving up:
+
+          1. Find the longest line in the find text; search for it in the
+             file; if it appears exactly once, anchor on it and use
+             the lines around it as the real `find`.
+          2. Same as 1 but ignoring leading whitespace.
+          3. Same as 1 but case-insensitive.
+
+        If anchoring succeeds, we still need a sensible `replace_text`
+        anchored to the same place. We assume the critic's intent is:
+        replace the matched span with the same span but with whatever
+        the replace_text says (line-by-line substitution when lengths
+        differ, else full swap).
+        """
+        if not find_text or not file_text:
+            return ""
+
+        find_lines = find_text.replace("\r\n", "\n").rstrip("\n").splitlines()
+        if not find_lines:
+            return ""
+
+        # Pick the longest non-blank line as the anchor.
+        anchor_candidates = [ln for ln in find_lines if ln.strip()]
+        if not anchor_candidates:
+            return ""
+        anchor = max(anchor_candidates, key=len)
+
+        file_norm = file_text.replace("\r\n", "\n")
+        file_lines = file_norm.splitlines()
+
+        match_idx = RlaifProactiveScanner._find_anchor_in_file(file_lines, anchor)
+        if match_idx is None:
+            return ""
+
+        # ponytail: figure out the indentation level at the match site
+        # so we can re-indent the replace_text if the critic left it
+        # unindented (which it usually does). The rule: for each line in
+        # replace_text, if its stripped form already exists in the file
+        # around the match site, keep its current indent (don't touch);
+        # otherwise add the match site's indent.
+        match_indent = len(file_lines[match_idx]) - len(file_lines[match_idx].lstrip())
+        replace_norm = replace_text.replace("\r\n", "\n").rstrip("\n")
+        replace_lines_raw = replace_norm.splitlines()
+        # Local file lines around the match (used to detect which replace
+        # lines already exist verbatim).
+        local_window = file_lines[max(0, match_idx - 8) : min(len(file_lines), match_idx + 8)]
+        local_stripped = {ln.strip() for ln in local_window if ln.strip()}
+        if match_indent > 0:
+            replace_lines = []
+            for ln in replace_lines_raw:
+                stripped = ln.strip()
+                if not stripped:
+                    replace_lines.append(ln)
+                elif stripped in local_stripped:
+                    # Already exists in the file; keep the line but
+                    # re-indent it to match the match site (the critic
+                    # probably forgot the indent when copying from the
+                    # file).
+                    replace_lines.append(" " * match_indent + stripped)
+                else:
+                    # Genuinely new line from the critic — re-indent
+                    # so it lines up with the surrounding code.
+                    replace_lines.append(" " * match_indent + stripped)
+        else:
+            replace_lines = replace_lines_raw
+
+        # Build a find block using len(find_lines) lines around the anchor.
+        ctx = len(find_lines)
+        start = max(0, match_idx - (ctx - 1) // 2)
+        end = min(len(file_lines), start + ctx)
+        actual_find_lines = file_lines[start:end]
+        actual_find = "\n".join(actual_find_lines)
+
+        # Build the replace block: line-by-line substitution where
+        # possible (preserving length), full swap otherwise.
+        if len(replace_lines) == len(actual_find_lines):
+            # Pair them up. The critic usually wants the same context
+            # lines plus a small change. Substitute the find_lines
+            # that don't match into the actual file lines, keep
+            # matching ones as-is. This is a heuristic but works for
+            # small edits.
+            new_replace: list[str] = []
+            for i, actual_line in enumerate(actual_find_lines):
+                if i < len(find_lines) and actual_line != find_lines[i]:
+                    new_replace.append(replace_lines[i] if i < len(replace_lines) else actual_line)
+                else:
+                    new_replace.append(actual_line)
+            actual_replace = new_replace
+        else:
+            # Different shape: do a positional replacement centered
+            # on the anchor.
+            anchor_offset = anchor_candidates.index(anchor)
+            before = replace_lines[:anchor_offset]
+            after = replace_lines[anchor_offset + 1 :]
+            actual_replace = list(file_lines[start:match_idx]) + before + after + list(
+                file_lines[match_idx + 1 : end]
+            )
+
+        return RlaifProactiveScanner._build_diff_from_lines(
+            rel_path=rel_path,
+            file_lines=file_lines,
+            start=start,
+            find_lines=actual_find_lines,
+            replace_lines=actual_replace,
+        )
+
+    @staticmethod
+    def _find_anchor_in_file(file_lines: list[str], anchor: str) -> int | None:
+        """Find the line index of `anchor` in file_lines. Tries exact,
+        whitespace-stripped, and case-insensitive matches. Returns the
+        index of the unique match, or None if there isn't one."""
+        # Exact
+        matches = [i for i, ln in enumerate(file_lines) if ln == anchor]
+        if len(matches) == 1:
+            return matches[0]
+        if len(matches) > 1:
+            return None  # ambiguous; bail.
+        # Whitespace-stripped
+        stripped = anchor.strip()
+        matches = [i for i, ln in enumerate(file_lines) if ln.strip() == stripped]
+        if len(matches) == 1:
+            return matches[0]
+        if len(matches) > 1:
+            return None
+        # Case-insensitive on stripped
+        lowered = stripped.lower()
+        matches = [i for i, ln in enumerate(file_lines) if ln.strip().lower() == lowered]
+        if len(matches) == 1:
+            return matches[0]
+        return None
+
+    @staticmethod
+    def _build_diff_from_lines(
+        *,
+        rel_path: str,
+        file_lines: list[str],
+        start: int,
+        find_lines: list[str],
+        replace_lines: list[str],
+        ctx_before: int = 3,
+        ctx_after: int = 3,
+    ) -> str:
+        match_start = start
+        hunk_start_old = max(0, match_start - ctx_before)
+        old_lines = file_lines[hunk_start_old : match_start + len(find_lines) + ctx_after]
+        new_lines = (
+            file_lines[hunk_start_old : match_start]
+            + replace_lines
+            + file_lines[match_start + len(find_lines) : match_start + len(find_lines) + ctx_after]
+        )
+        old_count = len(old_lines)
+        new_count = len(new_lines)
+        out: list[str] = [
+            f"--- a/{rel_path}",
+            f"+++ b/{rel_path}",
+            f"@@ -{hunk_start_old + 1},{old_count} +{hunk_start_old + 1},{new_count} @@",
         ]
         for line in file_lines[hunk_start_old : match_start]:
             out.append(" " + line)
@@ -771,3 +974,172 @@ def build_scanner_from_config(
         auto_push=getattr(cfg, "scanner_auto_push", True),
         on_report=on_report,
     )
+
+    async def _retry_with_line_numbers(
+        self,
+        *,
+        rel_path: str,
+        text: str,
+        rationale: str,
+        find_text: str,
+        replace_text: str,
+    ) -> dict[str, Any] | None:
+        """Give the critic a second chance with a numbered version of the file.
+
+        The previous attempt's `find` didn't match the file (hallucinated).
+        We send the file with line numbers and ask for `start_line` and
+        `end_line` (1-indexed, inclusive) instead of a free-form find.
+        Then we look up the actual lines in the file ourselves and build
+        the diff. This sidesteps the hallucination problem.
+        """
+        # Cap the file at ~12k chars so the prompt stays small.
+        max_chars = 12_000
+        truncated = text if len(text) <= max_chars else text[:max_chars] + "\n... (truncated)"
+        numbered = "\n".join(
+            f"{i+1:5d}  {ln}" for i, ln in enumerate(truncated.splitlines())
+        )
+        retry_tool = [
+            {
+                "type": "function",
+                "function": {
+                    "name": "specify_line_range",
+                    "description": (
+                        "Specify the EXACT line range in the file that you want to change. "
+                        "Return the start_line and end_line (both 1-indexed, inclusive) of the "
+                        "lines to be replaced, and the new text that should replace them."
+                    ),
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "rationale": {
+                                "type": "string",
+                                "description": "One-sentence justification.",
+                            },
+                            "start_line": {
+                                "type": "integer",
+                                "description": (
+                                    "The 1-indexed line number of the first line to be replaced. "
+                                    "Must match a line number shown in the user message."
+                                ),
+                            },
+                            "end_line": {
+                                "type": "integer",
+                                "description": (
+                                    "The 1-indexed line number of the last line to be replaced "
+                                    "(inclusive). Must be >= start_line."
+                                ),
+                            },
+                            "replace": {
+                                "type": "string",
+                                "description": (
+                                    "The new text that should replace lines [start_line, end_line]. "
+                                    "Use exact indentation (4 spaces)."
+                                ),
+                            },
+                            "confidence": {
+                                "type": "number",
+                                "minimum": 0,
+                                "maximum": 1,
+                            },
+                        },
+                        "required": ["rationale", "start_line", "end_line", "replace", "confidence"],
+                    },
+                },
+            }
+        ]
+        messages = [
+            {
+                "role": "system",
+                "content": (
+                    "Your previous 'find' text didn't match the file. You probably hallucinated. "
+                    "Try again, but this time return EXACT line numbers from the numbered file "
+                    "below. Pick a small range (1-8 lines) and provide the new text for those "
+                    "lines. Do NOT invent code that isn't there — read the numbered lines carefully."
+                ),
+            },
+            {
+                "role": "user",
+                "content": (
+                    f"## File: {rel_path}\n\n```\n{numbered}\n```\n\n"
+                    f"Previous rationale: {rationale}\n"
+                    f"Previous find (didn't match): {find_text[:200]}\n\n"
+                    "Call specify_line_range with start_line, end_line, replace, confidence."
+                ),
+            },
+        ]
+        try:
+            response = await self.provider.chat_with_retry(
+                messages=messages,
+                tools=retry_tool,
+                model=self.critic_model,
+                max_tokens=4096,
+                temperature=0.0,
+                tool_choice={
+                    "type": "function",
+                    "function": {"name": "specify_line_range"},
+                },
+            )
+        except Exception:
+            logger.exception("RLAIF scanner: retry-with-lines call failed for {}", rel_path)
+            return None
+        if not response.has_tool_calls:
+            return None
+        args = response.tool_calls[0].arguments
+        if not isinstance(args, dict):
+            return None
+        try:
+            start = int(args.get("start_line", 0))
+            end = int(args.get("end_line", 0))
+        except (TypeError, ValueError):
+            return None
+        replace_text_retry = (args.get("replace") or "").rstrip("\n")
+        if not start or not end or end < start:
+            return None
+        if start < 1 or end > len(text.splitlines()):
+            logger.info(
+                "RLAIF scanner: retry line range out of bounds: {}-{} (file has {} lines)",
+                start, end, len(text.splitlines()),
+            )
+            return None
+
+        file_lines = text.replace("\r\n", "\n").splitlines()
+        # 1-indexed to 0-indexed.
+        find_lines = file_lines[start - 1 : end]
+        replace_lines = replace_text_retry.splitlines()
+        if not find_lines:
+            return None
+        patch = self._build_diff_from_lines(
+            rel_path=rel_path,
+            file_lines=file_lines,
+            start=start - 1,
+            find_lines=find_lines,
+            replace_lines=replace_lines,
+        )
+        # Sanity: the patch must apply with git apply --check.
+        import subprocess, tempfile
+        try:
+            with tempfile.NamedTemporaryFile(
+                mode="w", suffix=".patch", delete=False, encoding="utf-8"
+            ) as f:
+                f.write(patch)
+                pp = f.name
+            r = subprocess.run(
+                ["git", "apply", "--check", pp],
+                cwd=str(self.workspace),
+                capture_output=True, text=True, timeout=10,
+            )
+            if r.returncode != 0:
+                logger.warning(
+                    "RLAIF scanner: retry patch unapplyable for {} ({}-{}): {}",
+                    rel_path, start, end, r.stderr.strip()[:200],
+                )
+                return None
+        except Exception as exc:
+            logger.warning("RLAIF scanner: retry git apply check failed: {}", exc)
+            return None
+
+        return {
+            "rationale": args.get("rationale") or rationale,
+            "patch": patch,
+            "confidence": float(args.get("confidence", 0.5)),
+        }
