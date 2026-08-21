@@ -115,6 +115,10 @@ class PatchHarness:
 
             test_proc = await self._run(self.test_command, cwd=target)
             lint_proc = await self._run(self.lint_command, cwd=target)
+            # ponytail: ruff is a standalone binary; on some runners `python -m ruff`
+            # is not importable. Fall back to the `ruff` executable when that happens.
+            if lint_proc.returncode != 0 and self.lint_command[:2] == ["python", "-m"] and self.lint_command[2] == "ruff" and "No module named" in lint_proc.stderr:
+                lint_proc = await self._run(["ruff", *self.lint_command[3:]], cwd=target)
 
             duration = asyncio.get_event_loop().time() - start
             return PatchHarnessResult(
