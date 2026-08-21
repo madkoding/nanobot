@@ -1,25 +1,32 @@
 """RLAIF proactive scanner: periodically reviews the repo and proposes
 concrete improvements (bug fixes, refactors, prompt tweaks) that pass
-the configured tests + lint, then applies, commits, and pushes them.
+the configured tests + lint, then queues them for the user to review.
 
 Unlike the observer hook (which fires after an agent turn), this scanner
 runs on its own asyncio loop while the gateway is up. It samples a
 small Python file at random from the configured workspace, asks the
-critic LLM for a unified diff of one concrete improvement, and runs
-the diff through ``PatchHarness`` like the observer does. Successful
-patches reuse the same auto-apply / auto-commit / auto-push helpers.
+critic LLM for a unified diff of one concrete improvement, runs a
+preflight (lint + git apply --check with a few recovery strategies),
+and if everything looks good, queues the patch as a pending proposal
+in the WebUI. The user reviews and approves/rejects; approval runs
+the full test suite and commits+pushes the change.
 
-ponytail: file selection is random with a "skip if recently touched"
-memory file so the scanner doesn't keep re-evaluating the same files
-after a busy edit session. Critic is a single LLM call (no multi-shot
-debate) because the budget is hourly, not per-turn.
+Architecture note: we re-use RlaifEvalTool._generate_candidates() for
+the actual diff generation. That helper builds file context from the
+absolute path, asks the LLM for a unified diff in plain text (no
+tool call), and extracts/validates the diff. The previous find+replace
+approach was hallucinating because small models can't copy exact
+text from long prompts; asking for a unified diff description works
+because it's a "describe the change" task without copy-fidelity
+requirements.
 """
 
 from __future__ import annotations
 
 import asyncio
 import random
-import re
+import subprocess
+import tempfile
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -31,57 +38,6 @@ from nanobot.agent.rlaif.dataset import RlaifDataset, RlaifPreference
 from nanobot.agent.rlaif.harness import PatchHarness
 from nanobot.agent.rlaif.observer import _git_commit, _git_push
 from nanobot.providers.base import LLMProvider
-
-
-PROPOSE_TOOL = [
-    {
-        "type": "function",
-        "function": {
-            "name": "propose_improvement",
-            "description": (
-                "Propose ONE small improvement to the file using an anchor-based "
-                "find-and-replace. Specify a small block of EXISTING text (the "
-                "'find' field) and the new text that should replace it (the "
-                "'replace' field). The system will turn this into a unified "
-                "diff that applies with 'git apply'. DO NOT generate a unified "
-                "diff yourself — just give the find/replace pair."
-            ),
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "rationale": {
-                        "type": "string",
-                        "description": "One-sentence justification for the change.",
-                    },
-                    "find": {
-                        "type": "string",
-                        "description": (
-                            "A small block of text that appears EXACTLY in the "
-                            "file as shown. Include 1-3 lines of context around "
-                            "the change to make the match unique. The text "
-                            "must match verbatim including indentation."
-                        ),
-                    },
-                    "replace": {
-                        "type": "string",
-                        "description": (
-                            "What the 'find' block should become after the "
-                            "change. Same length plus or minus a few lines. "
-                            "Keep the same indentation."
-                        ),
-                    },
-                    "confidence": {
-                        "type": "number",
-                        "minimum": 0,
-                        "maximum": 1,
-                        "description": "Confidence in the change being correct and useful.",
-                    },
-                },
-                "required": ["rationale", "find", "replace", "confidence"],
-            },
-        },
-    }
-]
 
 
 @dataclass
@@ -96,7 +52,7 @@ class ScannerState:
 
 
 class RlaifProactiveScanner:
-    """Periodically propose and apply self-improvements to the workspace."""
+    """Periodically propose and queue self-improvements for user review."""
 
     STATE_FILE = ".rlaif_scanner_state.json"
 
@@ -108,7 +64,7 @@ class RlaifProactiveScanner:
         *,
         critic_model: str | None = None,
         interval_s: float = 3600.0,
-        min_confidence: float = 0.7,
+        min_confidence: float = 0.0,
         test_command: list[str] | None = None,
         lint_command: list[str] | None = None,
         auto_apply: bool = True,
@@ -134,6 +90,8 @@ class RlaifProactiveScanner:
         self.on_report = on_report
         self._state = self._load_state()
         self._stop = asyncio.Event()
+
+    # --- state persistence -------------------------------------------------
 
     def _state_path(self) -> Path:
         return self.workspace / self.STATE_FILE
@@ -175,8 +133,9 @@ class RlaifProactiveScanner:
     def stop(self) -> None:
         self._stop.set()
 
+    # --- main loop ---------------------------------------------------------
+
     async def run_forever(self) -> None:
-        """Entry point: run ``tick`` every ``interval_s`` until ``stop()``."""
         # ponytail: stagger the first run by up to 60s so multiple gateways don't
         # all hammer the same file at the same time.
         initial_delay = random.uniform(0.0, min(60.0, self.interval_s / 2))
@@ -196,7 +155,7 @@ class RlaifProactiveScanner:
             pass
 
     async def tick(self) -> str:
-        """Run one pass: pick a file, propose, evaluate, maybe apply. Returns the report."""
+        """Run one pass: pick a file, propose, evaluate, queue if good."""
         self._state.last_run_at = time.time()
         target = self._pick_file()
         if target is None:
@@ -215,119 +174,81 @@ class RlaifProactiveScanner:
 
         logger.info("RLAIF scanner: reviewing {}", rel)
         proposal = await self._propose(rel, text)
-        if not proposal:
-            report = f"RLAIF scanner: no proposal for {rel}."
+        if not proposal or not proposal.get("patch"):
+            report = proposal.get("rationale") if proposal else "no proposal"
+            report = f"RLAIF scanner: no patch for {rel} ({report[:80]})"
             self._state.last_report = report
+            logger.info(report)
             return report
 
-        if proposal.get("confidence", 0.0) < self.min_confidence:
-            report = (
-                f"RLAIF scanner: low confidence ({proposal['confidence']:.2f}) "
-                f"for {rel}, skipping."
-            )
-            self._state.last_report = report
-            return report
-
-        patch = (proposal.get("patch") or "").strip()
-        if not patch:
-            report = f"RLAIF scanner: empty patch for {rel}, skipping."
-            self._state.last_report = report
-            return report
-
-        # Normalize the patch header so it targets the file we just read.
-        patch = self._normalize_patch_paths(patch, rel)
-
-        # ponytail: by default we run a quick lint-only preflight so obvious
-        # garbage (e.g. malformed patches from a non-diff model) is rejected
-        # before we burn 30+ seconds on pytest. The full tests are only run
-        # once the patch is approved.
-        #
-        # We compare lint output BEFORE and AFTER the patch: if the patch
-        # only keeps pre-existing errors, we let it through (the user
-        # already had those). Only NEW errors (introduced by the patch)
-        # cause rejection.
-        lint_pre = await asyncio.to_thread(
-            _run_lint_for_preflight, self.workspace, self.lint_command
-        )
-        preflight_harness = PatchHarness(
-            repo_root=self.workspace,
-            test_command=["true"],  # skip pytest on the preflight
-            lint_command=self.lint_command,
-            timeout=120.0,
-        )
-        preflight = await preflight_harness.evaluate(
-            patch, patch_summary=proposal.get("rationale", "")
-        )
-        if preflight.lint_passed:
-            lint_delta_ok = True
-        else:
-            lint_post = preflight.lint_output
-            lint_delta_ok = _lint_only_introduced(lint_pre, lint_post, rel)
-            if not lint_delta_ok:
-                logger.warning(
-                    "RLAIF scanner: {} failed preflight lint (new errors):\n{}\n\nlint tail:\n{}",
-                    rel, patch, preflight.lint_output[-300:],
-                )
-                report = f"RLAIF scanner: candidate for {rel} failed lint preflight."
-                self._state.last_report = report
-                logger.info(report)
-                return report
-
-        # Quick syntactic check: can `git apply` actually find where the diff
-        # goes? If not, try a few recovery strategies before giving up:
-        #   1. `git apply --check --recount` (recomputes hunk line counts).
-        #   2. `patch -p1 --fuzz=3 --dry-run` (tolerates small context drifts).
-        #   3. Manually re-indent the diff so leading whitespace matches.
-        if not _patch_applies(self.workspace, patch):
-            logger.warning(
-                "RLAIF scanner: {} has unapplyable diff (will be hidden):\n{}\n",
-                rel, patch,
-            )
+        patch = proposal["patch"]
+        if not self._patch_applies_strict(self.workspace, patch):
             report = f"RLAIF scanner: candidate for {rel} has unapplyable diff (skipped)."
             self._state.last_report = report
             logger.info(report)
             return report
 
-        # Patch is lint-clean and syntactically applyable. Save as a pending
-        # proposal. The user reviews it in the WebUI and either approves
-        # (which then runs the full tests + commit + push) or rejects.
-        proposal_id = self._state.next_proposal_id
-        self._state.next_proposal_id += 1
-        self._state.pending_proposals.append(
-            {
-                "id": proposal_id,
-                "created_at": time.time(),
-                "file": rel,
-                "rationale": proposal.get("rationale", ""),
-                "patch": patch,
-                "confidence": float(proposal.get("confidence", 0.0)),
-                "test_command": self.test_command,
-                "lint_command": self.lint_command,
-                "auto_commit": self.auto_commit,
-                "auto_push": self.auto_push,
-            }
+        # Preflight lint: only reject if the patch introduced NEW errors.
+        # Preexisting errors in the file are not our problem.
+        lint_pre = self._run_lint(self.workspace, self.lint_command)
+        harness = PatchHarness(
+            repo_root=self.workspace,
+            test_command=["true"],  # skip pytest on the preflight
+            lint_command=self.lint_command,
+            timeout=120.0,
         )
-        # Cap to the most recent 50 to keep the state file small.
-        if len(self._state.pending_proposals) > 50:
-            self._state.pending_proposals = self._state.pending_proposals[-50:]
+        preflight = await harness.evaluate(patch, patch_summary=proposal["rationale"])
+        if preflight.lint_passed or not self._lint_introduced_new(
+            lint_pre, preflight.lint_output, rel
+        ):
+            # Queue as a pending proposal.
+            proposal_id = self._state.next_proposal_id
+            self._state.next_proposal_id += 1
+            self._state.pending_proposals.append(
+                {
+                    "id": proposal_id,
+                    "created_at": time.time(),
+                    "file": rel,
+                    "rationale": proposal.get("rationale", ""),
+                    "patch": patch,
+                    "confidence": float(proposal.get("confidence", 0.0)),
+                    "test_command": self.test_command,
+                    "lint_command": self.lint_command,
+                    "auto_commit": self.auto_commit,
+                    "auto_push": self.auto_push,
+                }
+            )
+            if len(self._state.pending_proposals) > 50:
+                self._state.pending_proposals = self._state.pending_proposals[-50:]
+            self._save_state()
+            report = (
+                f"RLAIF scanner: queued proposal #{proposal_id} for {rel} "
+                f"(confidence {proposal.get('confidence', 0):.2f}); awaiting approval."
+            )
+            self._state.last_report = report
+            logger.info(report)
+            if self.on_report is not None:
+                try:
+                    maybe = self.on_report(report)
+                    if asyncio.iscoroutine(maybe):
+                        await maybe
+                except Exception:
+                    logger.exception("RLAIF scanner: on_report callback failed")
+            return report
 
-        report = (
-            f"RLAIF scanner: queued proposal #{proposal_id} for {rel} "
-            f"(confidence {proposal.get('confidence', 0):.2f}); awaiting approval."
+        # Patch introduced new lint errors. Discard.
+        logger.warning(
+            "RLAIF scanner: {} introduced new lint errors:\n{}",
+            rel, preflight.lint_output[-300:],
         )
+        report = f"RLAIF scanner: candidate for {rel} introduced new lint errors (skipped)."
         self._state.last_report = report
         logger.info(report)
-        if self.on_report is not None:
-            try:
-                maybe = self.on_report(report)
-                if asyncio.iscoroutine(maybe):
-                    await maybe
-            except Exception:
-                logger.exception("RLAIF scanner: on_report callback failed")
         return report
 
+    # --- proposal API ------------------------------------------------------
+
     def list_proposals(self) -> list[dict[str, Any]]:
-        """Return a copy of the pending proposals (without the patch body)."""
         return [
             {k: v for k, v in p.items() if k != "patch"}
             | {"preview": p.get("patch", "")[:200]}
@@ -341,7 +262,6 @@ class RlaifProactiveScanner:
         return None
 
     async def approve_proposal(self, proposal_id: int) -> str:
-        """Apply a pending proposal: run full tests, apply, commit, push."""
         prop = self.get_proposal(proposal_id)
         if prop is None:
             return f"proposal #{proposal_id} not found"
@@ -382,7 +302,6 @@ class RlaifProactiveScanner:
                 push_result = await asyncio.to_thread(_git_push, self.workspace)
                 status = f"{status}; {push_result or '(push failed)'}"
 
-        # Record the preference in the dataset so it counts for offline DPO/GRPO.
         try:
             RlaifDataset().append(
                 RlaifPreference(
@@ -406,7 +325,6 @@ class RlaifProactiveScanner:
         except Exception:
             logger.exception("RLAIF scanner: failed to record preference")
 
-        # Remove the proposal from the pending list.
         self._state.pending_proposals = [
             p for p in self._state.pending_proposals if p.get("id") != proposal_id
         ]
@@ -414,7 +332,6 @@ class RlaifProactiveScanner:
         return f"applied proposal #{proposal_id} for {rel}: {status}"
 
     def reject_proposal(self, proposal_id: int) -> str:
-        """Drop a pending proposal without applying it."""
         before = len(self._state.pending_proposals)
         self._state.pending_proposals = [
             p for p in self._state.pending_proposals if p.get("id") != proposal_id
@@ -423,6 +340,8 @@ class RlaifProactiveScanner:
             return f"proposal #{proposal_id} not found"
         self._save_state()
         return f"rejected proposal #{proposal_id}"
+
+    # --- file selection ----------------------------------------------------
 
     def _pick_file(self) -> Path | None:
         """Pick a Python file under self.workspace, avoiding ones seen recently."""
@@ -442,7 +361,6 @@ class RlaifProactiveScanner:
                 except OSError:
                     continue
                 rel = str(path.relative_to(self.workspace))
-                # De-prioritize files seen in the last 6 hours.
                 last_seen = self._state.files_seen.get(rel, 0.0)
                 if time.time() - last_seen < 6 * 3600:
                     continue
@@ -456,653 +374,146 @@ class RlaifProactiveScanner:
             candidates = random.sample(candidates, self.sample_pool)
         return random.choice(candidates)
 
-    async def _propose(self, rel_path: str, text: str) -> dict[str, Any] | None:
-        """Ask the critic LLM for a small find/replace improvement.
+    # --- LLM proposal -----------------------------------------------------
 
-        Returns a dict with 'patch' (a unified diff the system generated from
-        the anchor-based find/replace), 'rationale', and 'confidence'. The
-        model never has to produce a unified diff directly; it just gives
-        a small block of text that already exists and what it should become.
+    async def _propose(self, rel_path: str, text: str) -> dict[str, Any] | None:
+        """Ask the critic LLM for a unified-diff patch via RlaifEvalTool.
+
+        Returns a dict with 'patch', 'rationale', and 'confidence'.
         """
-        # Truncate the file content so the prompt stays bounded.
-        max_chars = 12_000
-        truncated = text if len(text) <= max_chars else text[:max_chars] + "\n... (truncated)"
-        messages = [
-            {
-                "role": "system",
-                "content": (
-                    "You are a senior Python reviewer on the nanobot agent framework. "
-                    "Your job: propose ONE small, concrete improvement to the file.\n\n"
-                    "Use the propose_improvement tool with `find` and `replace` fields. "
-                    "The `find` field is a small block of text that appears EXACTLY in "
-                    "the file (verbatim, including indentation and trailing whitespace). "
-                    "The `replace` field is what that block should become.\n\n"
-                    "Allowed categories (pick whichever fits):\n"
-                    "  - Bug fix (off-by-one, missing None check, wrong exception type).\n"
-                    "  - Dead code removal (unused import, unreachable branch, redundant "
-                    "    default, leftover TODO comment).\n"
-                    "  - Better error message (include the offending value, log context).\n"
-                    "  - Type-hint fix (missing return type, Any that should be specific).\n"
-                    "  - Docstring / comment fix (factual error, missing Args/Returns, typo).\n"
-                    "  - Simplification (collapse nested if, use a guard, hoist literal).\n\n"
-                    "Disallowed: new features, big rewrites, renaming across the file, "
-                    "speculative changes. If you truly cannot find anything, return an "
-                    "empty 'find' field and confidence 0.2 — but try hard first.\n\n"
-                    "CRITICAL FORMAT RULES — the find text will be matched with "
-                    "string.find() against the file:\n"
-                    "  1. The 'find' text must be a literal copy from the file. "
-                    "Do NOT paraphrase, summarize, or 'improve' the existing text.\n"
-                    "  2. Each line of the 'find' text must appear in the file exactly "
-                    "as written, including leading whitespace, trailing whitespace, "
-                    "and line endings.\n"
-                    "  3. Copy lines verbatim from the file shown in the user message. "
-                    "If you can't copy them exactly, return an empty find.\n"
-                    "  4. Include 1-3 lines of surrounding context so the block is "
-                    "unique in the file. 3-8 lines total is ideal.\n"
-                    "  5. Indentation is 4 spaces (Python standard). Tabs are not used."
-                ),
-            },
-            {
-                "role": "user",
-                "content": (
-                    f"## File: {rel_path}\n\n```python\n{truncated}\n```\n\n"
-                    "Find ONE small change. The 'find' field MUST be a verbatim copy "
-                    "of a small block from the file above. Copy the lines exactly as "
-                    "they appear, character for character. Then write the 'replace' "
-                    "field as what those lines should become. Call propose_improvement."
-                ),
-            },
-        ]
+        from nanobot.agent.rlaif.diff_utils import (
+            extract_unified_diff,
+            is_valid_unified_diff,
+        )
+        from nanobot.agent.tools.rlaif_eval import RlaifEvalTool
+
+        abs_path = (self.workspace / rel_path).resolve()
+        task = (
+            f"Improve {rel_path}. "
+            f"File path: {abs_path}. "
+            "Pick ONE small, concrete improvement. Allowed categories: "
+            "bug fix, dead code removal, better error message, type-hint "
+            "fix, docstring fix, simplification. The diff must apply "
+            "cleanly with `git apply` to the file as shown."
+        )
+        tool = RlaifEvalTool(workspace=self.workspace)
         try:
-            response = await self.provider.chat_with_retry(
-                messages=messages,
-                tools=PROPOSE_TOOL,
+            candidates = await tool._generate_candidates(
+                provider=self.provider,
+                task=task,
+                count=2,
                 model=self.critic_model,
-                max_tokens=4096,
-                temperature=0.0,
-                tool_choice={
-                    "type": "function",
-                    "function": {"name": "propose_improvement"},
-                },
+                temperature=0.7,
             )
         except Exception:
             logger.exception("RLAIF scanner: critic call failed for {}", rel_path)
             return None
-        if not response.has_tool_calls:
+
+        if not candidates:
             logger.info(
-                "RLAIF scanner: critic for {} returned no tool call. content: {}",
-                rel_path,
-                (response.content or "")[:200],
+                "RLAIF scanner: critic for {} returned no candidate patch", rel_path,
             )
             return None
-        args = response.tool_calls[0].arguments
-        if not isinstance(args, dict):
-            logger.warning("RLAIF scanner: critic returned non-dict args: {}", args)
-            return None
 
-        # Build a unified diff from the find/replace pair (if both present).
-        find_text = (args.get("find") or "").strip()
-        replace_text = (args.get("replace") or "").strip()
-        if not find_text:
+        for idx, (summary, raw) in enumerate(candidates):
+            patch = extract_unified_diff(raw)
+            if not is_valid_unified_diff(patch):
+                logger.info(
+                    "RLAIF scanner: candidate #{} for {} failed validation. raw content:\n{}",
+                    idx + 1, rel_path, raw[:600],
+                )
+                continue
+            # Rewrite the absolute path back to the relative one so
+            # git apply produces a tidy diff with the repo-relative
+            # a/ and b/ prefixes.
+            patch = patch.replace(str(abs_path), rel_path)
             return {
-                "rationale": args.get("rationale", ""),
-                "patch": "",
-                "confidence": float(args.get("confidence", 0.2)),
+                "rationale": summary or "improvement",
+                "patch": patch,
+                "confidence": 0.5,
             }
-        patch = self._anchor_to_unified_diff(
-            file_text=text,
-            rel_path=rel_path,
-            find_text=find_text,
-            replace_text=replace_text,
+
+        logger.info(
+            "RLAIF scanner: critic for {} produced {} candidate(s) but none were valid unified diffs",
+            rel_path, len(candidates),
         )
-        if not patch:
-            # ponytail: the critic often hallucinates plausible-looking text
-            # instead of copying from the file. Try a fuzzy match first
-            # (small substring anchored to a unique fragment) before
-            # asking the model to retry with explicit line numbers.
-            patch = self._fuzzy_anchor_to_unified_diff(
-                file_text=text,
-                rel_path=rel_path,
-                find_text=find_text,
-                replace_text=replace_text,
-            )
-        if not patch:
-            logger.info(
-                "RLAIF scanner: critic's find text did not match {} "
-                "(rationale: {}, find was: {!r}); retrying with line numbers",
-                rel_path, args.get("rationale", "")[:80], find_text[:200],
-            )
-            retry = await self._retry_with_line_numbers(
-                rel_path=rel_path,
-                text=text,
-                rationale=args.get("rationale", ""),
-                find_text=find_text,
-                replace_text=replace_text,
-            )
-            if retry:
-                return retry
-            logger.warning(
-                "RLAIF scanner: giving up on {} after retry; find was: {!r}",
-                rel_path, find_text[:200],
-            )
-            return None
-        return {
-            "rationale": args.get("rationale", ""),
-            "patch": patch,
-            "confidence": float(args.get("confidence", 0.5)),
-        }
-
-    @staticmethod
-    def _anchor_to_unified_diff(
-        *,
-        file_text: str,
-        rel_path: str,
-        find_text: str,
-        replace_text: str,
-    ) -> str:
-        """Build a unified diff from a find/replace pair.
-
-        The find text must appear exactly once in the file. The diff has
-        enough context for `git apply` to find the location without fuzz.
-        """
-        if not find_text:
-            return ""
-
-        # Normalize line endings.
-        find_norm = find_text.replace("\r\n", "\n").rstrip("\n") + "\n"
-        replace_norm = replace_text.replace("\r\n", "\n").rstrip("\n") + "\n"
-        file_norm = file_text.replace("\r\n", "\n")
-
-        # Look for an exact match.
-        if find_norm not in file_norm:
-            # Try matching with stripped trailing whitespace.
-            stripped = "\n".join(line.rstrip() for line in find_norm.splitlines()) + "\n"
-            if stripped not in file_norm:
-                return ""
-            find_norm = stripped
-            replace_norm = (
-                "\n".join(line.rstrip() for line in replace_norm.splitlines()) + "\n"
-            )
-
-        file_lines = file_norm.splitlines()
-        find_lines = find_norm.rstrip("\n").splitlines()
-        replace_lines = replace_norm.rstrip("\n").splitlines()
-
-        # Find the start line (0-indexed).
-        match_start = None
-        for i in range(len(file_lines) - len(find_lines) + 1):
-            if file_lines[i : i + len(find_lines)] == find_lines:
-                if match_start is not None:
-                    # Multiple matches — ambiguous.
-                    return ""
-                match_start = i
-        if match_start is None:
-            return ""
-
-        # Build the unified diff with 3 lines of context before and after.
-        ctx_before = 3
-        ctx_after = 3
-        hunk_start_old = max(0, match_start - ctx_before)
-        hunk_start_new = hunk_start_old  # context lines preserve alignment
-        old_lines = file_lines[hunk_start_old : match_start + len(find_lines) + ctx_after]
-        new_lines = (
-            file_lines[hunk_start_old : match_start]
-            + replace_lines
-            + file_lines[match_start + len(find_lines) : match_start + len(find_lines) + ctx_after]
-        )
-
-        # Trim context to actual file boundaries.
-        # We just truncate the lists; the hunk header counts what we actually
-        # emit.
-        old_count = len(old_lines)
-        new_count = len(new_lines)
-
-        out: list[str] = [
-            f"--- a/{rel_path}",
-            f"+++ b/{rel_path}",
-            f"@@ -{hunk_start_old + 1},{old_count} +{hunk_start_new + 1},{new_count} @@",
-        ]
-        for line in file_lines[hunk_start_old : match_start]:
-            out.append(" " + line)
-        for line in find_lines:
-            out.append("-" + line)
-        for line in replace_lines:
-            out.append("+" + line)
-        for line in file_lines[match_start + len(find_lines) : match_start + len(find_lines) + ctx_after]:
-            out.append(" " + line)
-        return "\n".join(out) + "\n"
-
-    @staticmethod
-    def _fuzzy_anchor_to_unified_diff(
-        *,
-        file_text: str,
-        rel_path: str,
-        find_text: str,
-        replace_text: str,
-    ) -> str:
-        """Try to recover from a hallucinated find by anchoring on a unique line.
-
-        The critic often produces text that LOOKS like the file but has
-        small drifts (different var name, wrong whitespace, missing
-        context). We try a few cheap fuzzy strategies before giving up:
-
-          1. Find the longest line in the find text; search for it in the
-             file; if it appears exactly once, anchor on it and use
-             the lines around it as the real `find`.
-          2. Same as 1 but ignoring leading whitespace.
-          3. Same as 1 but case-insensitive.
-
-        If anchoring succeeds, we still need a sensible `replace_text`
-        anchored to the same place. We assume the critic's intent is:
-        replace the matched span with the same span but with whatever
-        the replace_text says (line-by-line substitution when lengths
-        differ, else full swap).
-        """
-        if not find_text or not file_text:
-            return ""
-
-        find_lines = find_text.replace("\r\n", "\n").rstrip("\n").splitlines()
-        if not find_lines:
-            return ""
-
-        # Pick the longest non-blank line as the anchor.
-        anchor_candidates = [ln for ln in find_lines if ln.strip()]
-        if not anchor_candidates:
-            return ""
-        anchor = max(anchor_candidates, key=len)
-
-        file_norm = file_text.replace("\r\n", "\n")
-        file_lines = file_norm.splitlines()
-
-        match_idx = RlaifProactiveScanner._find_anchor_in_file(file_lines, anchor)
-        if match_idx is None:
-            return ""
-
-        # ponytail: figure out the indentation level at the match site
-        # so we can re-indent the replace_text if the critic left it
-        # unindented (which it usually does). The rule: for each line in
-        # replace_text, if its stripped form already exists in the file
-        # around the match site, keep its current indent (don't touch);
-        # otherwise add the match site's indent.
-        match_indent = len(file_lines[match_idx]) - len(file_lines[match_idx].lstrip())
-        replace_norm = replace_text.replace("\r\n", "\n").rstrip("\n")
-        replace_lines_raw = replace_norm.splitlines()
-        # Local file lines around the match (used to detect which replace
-        # lines already exist verbatim).
-        local_window = file_lines[max(0, match_idx - 8) : min(len(file_lines), match_idx + 8)]
-        local_stripped = {ln.strip() for ln in local_window if ln.strip()}
-        if match_indent > 0:
-            replace_lines = []
-            for ln in replace_lines_raw:
-                stripped = ln.strip()
-                if not stripped:
-                    replace_lines.append(ln)
-                elif stripped in local_stripped:
-                    # Already exists in the file; keep the line but
-                    # re-indent it to match the match site (the critic
-                    # probably forgot the indent when copying from the
-                    # file).
-                    replace_lines.append(" " * match_indent + stripped)
-                else:
-                    # Genuinely new line from the critic — re-indent
-                    # so it lines up with the surrounding code.
-                    replace_lines.append(" " * match_indent + stripped)
-        else:
-            replace_lines = replace_lines_raw
-
-        # Build a find block using len(find_lines) lines around the anchor.
-        ctx = len(find_lines)
-        start = max(0, match_idx - (ctx - 1) // 2)
-        end = min(len(file_lines), start + ctx)
-        actual_find_lines = file_lines[start:end]
-        actual_find = "\n".join(actual_find_lines)
-
-        # Build the replace block: line-by-line substitution where
-        # possible (preserving length), full swap otherwise.
-        if len(replace_lines) == len(actual_find_lines):
-            # Pair them up. The critic usually wants the same context
-            # lines plus a small change. Substitute the find_lines
-            # that don't match into the actual file lines, keep
-            # matching ones as-is. This is a heuristic but works for
-            # small edits.
-            new_replace: list[str] = []
-            for i, actual_line in enumerate(actual_find_lines):
-                if i < len(find_lines) and actual_line != find_lines[i]:
-                    new_replace.append(replace_lines[i] if i < len(replace_lines) else actual_line)
-                else:
-                    new_replace.append(actual_line)
-            actual_replace = new_replace
-        else:
-            # Different shape: do a positional replacement centered
-            # on the anchor.
-            anchor_offset = anchor_candidates.index(anchor)
-            before = replace_lines[:anchor_offset]
-            after = replace_lines[anchor_offset + 1 :]
-            actual_replace = list(file_lines[start:match_idx]) + before + after + list(
-                file_lines[match_idx + 1 : end]
-            )
-
-        return RlaifProactiveScanner._build_diff_from_lines(
-            rel_path=rel_path,
-            file_lines=file_lines,
-            start=start,
-            find_lines=actual_find_lines,
-            replace_lines=actual_replace,
-        )
-
-    @staticmethod
-    def _find_anchor_in_file(file_lines: list[str], anchor: str) -> int | None:
-        """Find the line index of `anchor` in file_lines. Tries exact,
-        whitespace-stripped, and case-insensitive matches. Returns the
-        index of the unique match, or None if there isn't one."""
-        # Exact
-        matches = [i for i, ln in enumerate(file_lines) if ln == anchor]
-        if len(matches) == 1:
-            return matches[0]
-        if len(matches) > 1:
-            return None  # ambiguous; bail.
-        # Whitespace-stripped
-        stripped = anchor.strip()
-        matches = [i for i, ln in enumerate(file_lines) if ln.strip() == stripped]
-        if len(matches) == 1:
-            return matches[0]
-        if len(matches) > 1:
-            return None
-        # Case-insensitive on stripped
-        lowered = stripped.lower()
-        matches = [i for i, ln in enumerate(file_lines) if ln.strip().lower() == lowered]
-        if len(matches) == 1:
-            return matches[0]
         return None
 
-    @staticmethod
-    def _build_diff_from_lines(
-        *,
-        rel_path: str,
-        file_lines: list[str],
-        start: int,
-        find_lines: list[str],
-        replace_lines: list[str],
-        ctx_before: int = 3,
-        ctx_after: int = 3,
-    ) -> str:
-        match_start = start
-        hunk_start_old = max(0, match_start - ctx_before)
-        old_lines = file_lines[hunk_start_old : match_start + len(find_lines) + ctx_after]
-        new_lines = (
-            file_lines[hunk_start_old : match_start]
-            + replace_lines
-            + file_lines[match_start + len(find_lines) : match_start + len(find_lines) + ctx_after]
-        )
-        old_count = len(old_lines)
-        new_count = len(new_lines)
-        out: list[str] = [
-            f"--- a/{rel_path}",
-            f"+++ b/{rel_path}",
-            f"@@ -{hunk_start_old + 1},{old_count} +{hunk_start_old + 1},{new_count} @@",
-        ]
-        for line in file_lines[hunk_start_old : match_start]:
-            out.append(" " + line)
-        for line in find_lines:
-            out.append("-" + line)
-        for line in replace_lines:
-            out.append("+" + line)
-        for line in file_lines[match_start + len(find_lines) : match_start + len(find_lines) + ctx_after]:
-            out.append(" " + line)
-        return "\n".join(out) + "\n"
+    # --- patch recovery / lint helpers ------------------------------------
 
     @staticmethod
-    def _extract_diff_from_text(text: str) -> str:
-        """Pull a unified diff out of a free-form LLM response. Returns '' if none.
-
-        Supports three formats seen in the wild:
-          1. Standard unified diff (--- a/... +++ b/...)
-          2. OpenAI "*** Begin Patch / *** Update File: / *** End Patch" style
-          3. Raw `@@ -N,M +N,K @@` hunks without a header
+    def _patch_applies_strict(workspace: Path, patch: str) -> bool:
+        """Check if `git apply --check` accepts the patch. We do the
+        strict check here; the recovery strategies live in the worker
+        thread at approve time.
         """
-        if not text:
-            return ""
-        lines = text.splitlines()
-
-        # 1. Standard unified diff
-        for i, line in enumerate(lines):
-            if line.startswith("--- a/") and i + 1 < len(lines) and lines[i + 1].startswith("+++ b/"):
-                return "\n".join(lines[i:]).rstrip() + "\n"
-
-        # 2. OpenAI custom patch format
-        if any(l.startswith("*** Begin Patch") for l in lines):
-            return RlaifProactiveScanner._translate_openai_patch(lines)
-
-        # 3. Raw hunks — find first @@
-        for i, line in enumerate(lines):
-            if line.startswith("@@"):
-                return RlaifProactiveScanner._wrap_hunks_with_headers(lines[i:])
-
-        return ""
-
-    @staticmethod
-    def _translate_openai_patch(lines: list[str]) -> str:
-        """Convert OpenAI's *** Begin Patch format to a unified diff."""
-        out: list[str] = []
-        current_file: str | None = None
-        hunks: list[list[str]] = []
-        hunk: list[str] = []
-        for raw in lines:
-            line = raw.rstrip("\n")
-            if line.startswith("*** Begin Patch"):
-                continue
-            if line.startswith("*** End Patch"):
-                if hunk:
-                    hunks.append(hunk)
-                    hunk = []
-                break
-            if line.startswith("*** Update File:"):
-                if hunk:
-                    hunks.append(hunk)
-                    hunk = []
-                current_file = line.split(":", 1)[1].strip()
-                continue
-            if line.startswith("*** Add File:") or line.startswith("*** Delete File:"):
-                # Not supported yet
-                return ""
-            if line.startswith("@@"):
-                if hunk:
-                    hunks.append(hunk)
-                hunk = [line]
-                continue
-            if hunk is not None:
-                hunk.append(line)
-        if hunk:
-            hunks.append(hunk)
-        if not current_file or not hunks:
-            return ""
-        for h in hunks:
-            out.append(f"--- a/{current_file}")
-            out.append(f"+++ b/{current_file}")
-            for ln in h:
-                out.append(ln)
-        return "\n".join(out) + "\n"
-
-    @staticmethod
-    def _wrap_hunks_with_headers(hunk_lines: list[str]) -> str:
-        """If the model emitted hunks without `--- a/` headers, add a placeholder.
-
-        We don't know the file here; the caller (RlaifProactiveScanner) sets the
-        file path later via _normalize_patch_paths, so we use a placeholder.
-        """
-        out = ["--- a/_", "+++ b/_"]
-        out.extend(hunk_lines)
-        return "\n".join(out) + "\n"
-
-    @staticmethod
-    def _normalize_patch_paths(patch: str, rel_path: str) -> str:
-        """Rewrite a/ and b/ headers to point at the actual file we read."""
-        lines = patch.splitlines()
-        out: list[str] = []
-        for line in lines:
-            if line.startswith("--- a/") or line.startswith("+++ b/"):
-                tail = line[6:]  # strip "--- a/" or "+++ b/"
-                out.append(line[:6] + rel_path)
-            else:
-                out.append(line)
-        return "\n".join(out) + ("\n" if patch.endswith("\n") else "")
-
-
-def _run_lint_for_preflight(workspace: Path, lint_command: list[str]) -> str:
-    """Run the lint command in `workspace` and return its output. Used to
-    capture the pre-existing lint state before applying a candidate patch."""
-    import subprocess
-
-    try:
-        proc = subprocess.run(
-            lint_command,
-            cwd=str(workspace),
-            capture_output=True,
-            text=True,
-            timeout=120,
-        )
-    except (subprocess.TimeoutExpired, OSError) as exc:
-        logger.warning("RLAIF scanner: pre-patch lint run failed: {}", exc)
-        return ""
-    return (proc.stdout or "") + (proc.stderr or "")
-
-
-def _lint_only_introduced(
-    lint_pre: str,
-    lint_post: str,
-    rel_path: str,
-) -> bool:
-    """True if every new error in lint_post is also a pre-existing error in lint_pre.
-
-    We compare the set of (code, message) tuples from each output. Line
-    numbers are ignored because the patch may have shifted them. If we
-    can't parse the output, fall back to permissive: pass.
-    """
-    import re
-
-    def _extract(s: str) -> set[str]:
-        out: set[str] = set()
-        for raw in s.splitlines():
-            line = raw.replace("\r", "").strip()
-            if not line:
-                continue
-            # ruff format: `path:line:col: CODE message`
-            m = re.match(r"^.*?:(\d+):(\d+):\s*([A-Z]+\d+)\s+(.*)$", line)
-            if not m:
-                continue
-            code, msg = m.group(3), m.group(4)
-            out.add(f"{code}:{msg}")
-        return out
-
-    pre = _extract(lint_pre)
-    post = _extract(lint_post)
-    if not post:
-        # No structured errors; can't compare. Trust the test_command
-        # to catch real issues later.
-        return True
-    new = post - pre
-    if new:
-        logger.info(
-            "RLAIF scanner: patch for {} introduced {} new lint errors: {}",
-            rel_path, len(new), sorted(new)[:5],
-        )
-    return not new
-
-
-def _patch_applies(workspace: Path, patch: str) -> bool:
-    """Return True if `git apply` (or a tolerant fallback) can apply the patch.
-
-    Tries, in order:
-      1. `git apply --check` — strict, requires exact hunk line counts.
-      2. `git apply --check --recount` — recomputes the hunk counts from
-         the actual context lines; tolerates a critic that wrote wrong
-         numbers in the @@ header.
-      3. `patch -p1 --fuzz=3 --dry-run` — ignores up to 3 lines of
-         context drift; can rescue patches where the critic's context
-         lines are off-by-one.
-      4. A manual whitespace-recovery: strips trailing whitespace on
-         every line, retries `git apply --check --recount`. The fuzzy
-         re-indenter sometimes pads or trims trailing spaces; this
-         normalizes them.
-    """
-    import subprocess
-    import tempfile
-    import shutil
-
-    def _write() -> str:
-        with tempfile.NamedTemporaryFile(
-            mode="w", suffix=".patch", delete=False, encoding="utf-8"
-        ) as f:
-            f.write(patch)
-            return f.name
-
-    path = _write()
-    try:
-        # 1. Strict.
-        r = subprocess.run(
-            ["git", "apply", "--check", path],
-            cwd=str(workspace),
-            capture_output=True, text=True, timeout=10,
-        )
-        if r.returncode == 0:
-            return True
-
-        # 2. Recount the hunk line counts.
-        r = subprocess.run(
-            ["git", "apply", "--check", "--recount", path],
-            cwd=str(workspace),
-            capture_output=True, text=True, timeout=10,
-        )
-        if r.returncode == 0:
-            logger.info("RLAIF scanner: patch recovered via git apply --recount")
-            return True
-
-        # 3. patch(1) with --fuzz=3.
-        if shutil.which("patch"):
-            r = subprocess.run(
-                ["patch", "-p1", "--fuzz=3", "--dry-run", "-i", path],
-                cwd=str(workspace),
-                capture_output=True, text=True, timeout=10,
-            )
-            if r.returncode == 0:
-                logger.info("RLAIF scanner: patch recovered via patch -p1 --fuzz=3")
-                return True
-
-        # 4. Strip trailing whitespace and try --recount again.
-        normalized = "\n".join(ln.rstrip() for ln in patch.splitlines()) + "\n"
-        if normalized != patch:
+        try:
             with tempfile.NamedTemporaryFile(
                 mode="w", suffix=".patch", delete=False, encoding="utf-8"
             ) as f:
-                f.write(normalized)
-                path2 = f.name
+                f.write(patch)
+                pp = f.name
+            r = subprocess.run(
+                ["git", "apply", "--check", pp],
+                cwd=str(workspace),
+                capture_output=True, text=True, timeout=10,
+            )
+            return r.returncode == 0
+        except Exception:
+            return False
+        finally:
             try:
-                r = subprocess.run(
-                    ["git", "apply", "--check", "--recount", path2],
-                    cwd=str(workspace),
-                    capture_output=True, text=True, timeout=10,
-                )
-                if r.returncode == 0:
-                    logger.info(
-                        "RLAIF scanner: patch recovered after stripping trailing whitespace"
-                    )
-                    return True
-            finally:
-                try:
-                    import os
-                    os.unlink(path2)
-                except OSError:
-                    pass
-    except Exception as exc:
-        logger.warning("RLAIF scanner: preflight git apply check failed: {}", exc)
-        return False
-    finally:
+                import os
+                os.unlink(pp)
+            except (OSError, UnboundLocalError):
+                pass
+
+    @staticmethod
+    def _run_lint(workspace: Path, lint_command: list[str]) -> str:
         try:
-            import os
-            os.unlink(path)
-        except OSError:
-            pass
-    return False
+            proc = subprocess.run(
+                lint_command,
+                cwd=str(workspace),
+                capture_output=True,
+                text=True,
+                timeout=120,
+            )
+        except (subprocess.TimeoutExpired, OSError) as exc:
+            logger.warning("RLAIF scanner: pre-patch lint run failed: {}", exc)
+            return ""
+        return (proc.stdout or "") + (proc.stderr or "")
+
+    @staticmethod
+    def _lint_introduced_new(lint_pre: str, lint_post: str, rel_path: str) -> bool:
+        """True if every (code, message) in lint_post is also in lint_pre.
+
+        We ignore line numbers (the patch may shift them).
+        """
+        import re
+
+        def _extract(s: str) -> set[str]:
+            out: set[str] = set()
+            for raw in s.splitlines():
+                line = raw.replace("\r", "").strip()
+                if not line:
+                    continue
+                m = re.match(r"^.*?:(\d+):(\d+):\s*([A-Z]+\d+)\s+(.*)$", line)
+                if not m:
+                    continue
+                out.add(f"{m.group(3)}:{m.group(4)}")
+            return out
+
+        pre = _extract(lint_pre)
+        post = _extract(lint_post)
+        if not post:
+            return False
+        new = post - pre
+        if new:
+            logger.info(
+                "RLAIF scanner: patch for {} introduced {} new lint errors: {}",
+                rel_path, len(new), sorted(new)[:5],
+            )
+        return bool(new)
 
 
 def build_scanner_from_config(
@@ -1125,7 +536,7 @@ def build_scanner_from_config(
         model=model,
         critic_model=critic_model or getattr(cfg, "scanner_critic_model", None) or model,
         interval_s=float(getattr(cfg, "scanner_interval_s", 3600.0)),
-        min_confidence=float(getattr(cfg, "scanner_min_confidence", 0.7)),
+        min_confidence=float(getattr(cfg, "scanner_min_confidence", 0.0)),
         test_command=getattr(cfg, "test_command", None),
         lint_command=getattr(cfg, "lint_command", None),
         auto_apply=getattr(cfg, "scanner_auto_apply", True),
@@ -1133,172 +544,3 @@ def build_scanner_from_config(
         auto_push=getattr(cfg, "scanner_auto_push", True),
         on_report=on_report,
     )
-
-    async def _retry_with_line_numbers(
-        self,
-        *,
-        rel_path: str,
-        text: str,
-        rationale: str,
-        find_text: str,
-        replace_text: str,
-    ) -> dict[str, Any] | None:
-        """Give the critic a second chance with a numbered version of the file.
-
-        The previous attempt's `find` didn't match the file (hallucinated).
-        We send the file with line numbers and ask for `start_line` and
-        `end_line` (1-indexed, inclusive) instead of a free-form find.
-        Then we look up the actual lines in the file ourselves and build
-        the diff. This sidesteps the hallucination problem.
-        """
-        # Cap the file at ~12k chars so the prompt stays small.
-        max_chars = 12_000
-        truncated = text if len(text) <= max_chars else text[:max_chars] + "\n... (truncated)"
-        numbered = "\n".join(
-            f"{i+1:5d}  {ln}" for i, ln in enumerate(truncated.splitlines())
-        )
-        retry_tool = [
-            {
-                "type": "function",
-                "function": {
-                    "name": "specify_line_range",
-                    "description": (
-                        "Specify the EXACT line range in the file that you want to change. "
-                        "Return the start_line and end_line (both 1-indexed, inclusive) of the "
-                        "lines to be replaced, and the new text that should replace them."
-                    ),
-                    "parameters": {
-                        "type": "object",
-                        "properties": {
-                            "rationale": {
-                                "type": "string",
-                                "description": "One-sentence justification.",
-                            },
-                            "start_line": {
-                                "type": "integer",
-                                "description": (
-                                    "The 1-indexed line number of the first line to be replaced. "
-                                    "Must match a line number shown in the user message."
-                                ),
-                            },
-                            "end_line": {
-                                "type": "integer",
-                                "description": (
-                                    "The 1-indexed line number of the last line to be replaced "
-                                    "(inclusive). Must be >= start_line."
-                                ),
-                            },
-                            "replace": {
-                                "type": "string",
-                                "description": (
-                                    "The new text that should replace lines [start_line, end_line]. "
-                                    "Use exact indentation (4 spaces)."
-                                ),
-                            },
-                            "confidence": {
-                                "type": "number",
-                                "minimum": 0,
-                                "maximum": 1,
-                            },
-                        },
-                        "required": ["rationale", "start_line", "end_line", "replace", "confidence"],
-                    },
-                },
-            }
-        ]
-        messages = [
-            {
-                "role": "system",
-                "content": (
-                    "Your previous 'find' text didn't match the file. You probably hallucinated. "
-                    "Try again, but this time return EXACT line numbers from the numbered file "
-                    "below. Pick a small range (1-8 lines) and provide the new text for those "
-                    "lines. Do NOT invent code that isn't there — read the numbered lines carefully."
-                ),
-            },
-            {
-                "role": "user",
-                "content": (
-                    f"## File: {rel_path}\n\n```\n{numbered}\n```\n\n"
-                    f"Previous rationale: {rationale}\n"
-                    f"Previous find (didn't match): {find_text[:200]}\n\n"
-                    "Call specify_line_range with start_line, end_line, replace, confidence."
-                ),
-            },
-        ]
-        try:
-            response = await self.provider.chat_with_retry(
-                messages=messages,
-                tools=retry_tool,
-                model=self.critic_model,
-                max_tokens=4096,
-                temperature=0.0,
-                tool_choice={
-                    "type": "function",
-                    "function": {"name": "specify_line_range"},
-                },
-            )
-        except Exception:
-            logger.exception("RLAIF scanner: retry-with-lines call failed for {}", rel_path)
-            return None
-        if not response.has_tool_calls:
-            return None
-        args = response.tool_calls[0].arguments
-        if not isinstance(args, dict):
-            return None
-        try:
-            start = int(args.get("start_line", 0))
-            end = int(args.get("end_line", 0))
-        except (TypeError, ValueError):
-            return None
-        replace_text_retry = (args.get("replace") or "").rstrip("\n")
-        if not start or not end or end < start:
-            return None
-        if start < 1 or end > len(text.splitlines()):
-            logger.info(
-                "RLAIF scanner: retry line range out of bounds: {}-{} (file has {} lines)",
-                start, end, len(text.splitlines()),
-            )
-            return None
-
-        file_lines = text.replace("\r\n", "\n").splitlines()
-        # 1-indexed to 0-indexed.
-        find_lines = file_lines[start - 1 : end]
-        replace_lines = replace_text_retry.splitlines()
-        if not find_lines:
-            return None
-        patch = self._build_diff_from_lines(
-            rel_path=rel_path,
-            file_lines=file_lines,
-            start=start - 1,
-            find_lines=find_lines,
-            replace_lines=replace_lines,
-        )
-        # Sanity: the patch must apply with git apply --check.
-        import subprocess, tempfile
-        try:
-            with tempfile.NamedTemporaryFile(
-                mode="w", suffix=".patch", delete=False, encoding="utf-8"
-            ) as f:
-                f.write(patch)
-                pp = f.name
-            r = subprocess.run(
-                ["git", "apply", "--check", pp],
-                cwd=str(self.workspace),
-                capture_output=True, text=True, timeout=10,
-            )
-            if r.returncode != 0:
-                logger.warning(
-                    "RLAIF scanner: retry patch unapplyable for {} ({}-{}): {}",
-                    rel_path, start, end, r.stderr.strip()[:200],
-                )
-                return None
-        except Exception as exc:
-            logger.warning("RLAIF scanner: retry git apply check failed: {}", exc)
-            return None
-
-        return {
-            "rationale": args.get("rationale") or rationale,
-            "patch": patch,
-            "confidence": float(args.get("confidence", 0.5)),
-        }
