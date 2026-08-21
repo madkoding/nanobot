@@ -39,9 +39,12 @@ PROPOSE_TOOL = [
         "function": {
             "name": "propose_improvement",
             "description": (
-                "Propose ONE concrete, bounded improvement to the file as a "
-                "unified diff. The patch must apply cleanly to the current "
-                "contents. Only propose changes you can justify in one sentence."
+                "Propose ONE small improvement to the file using an anchor-based "
+                "find-and-replace. Specify a small block of EXISTING text (the "
+                "'find' field) and the new text that should replace it (the "
+                "'replace' field). The system will turn this into a unified "
+                "diff that applies with 'git apply'. DO NOT generate a unified "
+                "diff yourself — just give the find/replace pair."
             ),
             "parameters": {
                 "type": "object",
@@ -50,12 +53,21 @@ PROPOSE_TOOL = [
                         "type": "string",
                         "description": "One-sentence justification for the change.",
                     },
-                    "patch": {
+                    "find": {
                         "type": "string",
                         "description": (
-                            "Unified diff (--- a/path/to/file +++ b/path/to/file) "
-                            "that applies cleanly with 'git apply'. Empty string if "
-                            "the file is already clean and no improvement is worth making."
+                            "A small block of text that appears EXACTLY in the "
+                            "file as shown. Include 1-3 lines of context around "
+                            "the change to make the match unique. The text "
+                            "must match verbatim including indentation."
+                        ),
+                    },
+                    "replace": {
+                        "type": "string",
+                        "description": (
+                            "What the 'find' block should become after the "
+                            "change. Same length plus or minus a few lines. "
+                            "Keep the same indentation."
                         ),
                     },
                     "confidence": {
@@ -65,7 +77,7 @@ PROPOSE_TOOL = [
                         "description": "Confidence in the change being correct and useful.",
                     },
                 },
-                "required": ["rationale", "patch", "confidence"],
+                "required": ["rationale", "find", "replace", "confidence"],
             },
         },
     }
@@ -443,7 +455,13 @@ class RlaifProactiveScanner:
         return random.choice(candidates)
 
     async def _propose(self, rel_path: str, text: str) -> dict[str, Any] | None:
-        """Ask the critic LLM for a unified diff of one improvement."""
+        """Ask the critic LLM for a small find/replace improvement.
+
+        Returns a dict with 'patch' (a unified diff the system generated from
+        the anchor-based find/replace), 'rationale', and 'confidence'. The
+        model never has to produce a unified diff directly; it just gives
+        a small block of text that already exists and what it should become.
+        """
         # Truncate the file content so the prompt stays bounded.
         max_chars = 12_000
         truncated = text if len(text) <= max_chars else text[:max_chars] + "\n... (truncated)"
@@ -452,44 +470,44 @@ class RlaifProactiveScanner:
                 "role": "system",
                 "content": (
                     "You are a senior Python reviewer on the nanobot agent framework. "
-                    "Your job: propose ONE small, concrete improvement to the file as a "
-                    "unified diff.\n\n"
+                    "Your job: propose ONE small, concrete improvement to the file.\n\n"
+                    "Use the propose_improvement tool with `find` and `replace` fields. "
+                    "The `find` field is a small block of text that appears EXACTLY in "
+                    "the file (verbatim, including indentation and trailing whitespace). "
+                    "The `replace` field is what that block should become.\n\n"
                     "Allowed categories (pick whichever fits):\n"
-                    "  - Bug fix (off-by-one, missing None check, wrong exception type, "
-                    "    swallowed error, race condition, etc.)\n"
+                    "  - Bug fix (off-by-one, missing None check, wrong exception type).\n"
                     "  - Dead code removal (unused import, unreachable branch, redundant "
-                    "    None default, leftover TODO comment, etc.)\n"
-                    "  - Better error message (e.g. include the offending value, suggest "
-                    "    a fix, log the context).\n"
-                    "  - Type-hint fix (missing return type, Any that should be specific, "
-                    "    Optional that is always None, etc.)\n"
-                    "  - Docstring / comment fix (factual error, missing Args/Returns, "
-                    "    typo).\n"
-                    "  - Simplification (collapse nested if, use a guard, replace repeated "
-                    "    literal with constant).\n\n"
+                    "    default, leftover TODO comment).\n"
+                    "  - Better error message (include the offending value, log context).\n"
+                    "  - Type-hint fix (missing return type, Any that should be specific).\n"
+                    "  - Docstring / comment fix (factual error, missing Args/Returns, typo).\n"
+                    "  - Simplification (collapse nested if, use a guard, hoist literal).\n\n"
                     "Disallowed: new features, big rewrites, renaming across the file, "
                     "speculative changes. If you truly cannot find anything, return an "
-                    "empty patch and confidence 0.3 — but try hard first.\n\n"
-                    "CRITICAL FORMAT for the diff (otherwise the patch will be rejected):\n"
-                    "  1. The hunk header (e.g. @@ -10,6 +10,12 @@) must list the EXACT "
-                    "number of lines that follow in old and new context. Count them.\n"
-                    "  2. Every old line (with leading space) must appear verbatim in the "
-                    "file at the hunk's location.\n"
-                    "  3. Include 3 lines of unchanged context before and after the change.\n"
-                    "  4. The hunk must be COMPLETE: every open paren / bracket / quote "
-                    "must be closed. Never end a hunk in the middle of a line.\n"
-                    "  5. If you're not 100% sure the diff will apply, return empty patch."
+                    "empty 'find' field and confidence 0.2 — but try hard first.\n\n"
+                    "CRITICAL FORMAT RULES — the find text will be matched with "
+                    "string.find() against the file:\n"
+                    "  1. The 'find' text must be a literal copy from the file. "
+                    "Do NOT paraphrase, summarize, or 'improve' the existing text.\n"
+                    "  2. Each line of the 'find' text must appear in the file exactly "
+                    "as written, including leading whitespace, trailing whitespace, "
+                    "and line endings.\n"
+                    "  3. Copy lines verbatim from the file shown in the user message. "
+                    "If you can't copy them exactly, return an empty find.\n"
+                    "  4. Include 1-3 lines of surrounding context so the block is "
+                    "unique in the file. 3-8 lines total is ideal.\n"
+                    "  5. Indentation is 4 spaces (Python standard). Tabs are not used."
                 ),
             },
             {
                 "role": "user",
                 "content": (
                     f"## File: {rel_path}\n\n```python\n{truncated}\n```\n\n"
-                    "Look hard for ONE small improvement. The kinds of changes I want "
-                    "are tiny — fix a typo in a docstring, swap a bare `except:` for a "
-                    "specific exception, add a missing return type, remove a dead import, "
-                    "tighten an error message. Be conservative but DO propose something. "
-                    "Use the propose_improvement tool with a unified diff."
+                    "Find ONE small change. The 'find' field MUST be a verbatim copy "
+                    "of a small block from the file above. Copy the lines exactly as "
+                    "they appear, character for character. Then write the 'replace' "
+                    "field as what those lines should become. Call propose_improvement."
                 ),
             },
         ]
@@ -498,7 +516,7 @@ class RlaifProactiveScanner:
                 messages=messages,
                 tools=PROPOSE_TOOL,
                 model=self.critic_model,
-                max_tokens=8192,
+                max_tokens=4096,
                 temperature=0.0,
                 tool_choice={
                     "type": "function",
@@ -509,33 +527,124 @@ class RlaifProactiveScanner:
             logger.exception("RLAIF scanner: critic call failed for {}", rel_path)
             return None
         if not response.has_tool_calls:
-            # Fallback: try to extract a unified diff from the raw content.
-            # Some code-tuned models write diffs in plain text instead of
-            # using the tool-calling API.
-            content = response.content or ""
-            extracted = self._extract_diff_from_text(content)
-            if extracted:
-                logger.info(
-                    "RLAIF scanner: critic for {} returned no tool call, but "
-                    "extracted diff from raw content ({} chars).",
-                    rel_path, len(extracted),
-                )
-                return {
-                    "rationale": "extracted from raw content",
-                    "patch": extracted,
-                    "confidence": 0.5,
-                }
             logger.info(
                 "RLAIF scanner: critic for {} returned no tool call. content: {}",
                 rel_path,
-                content[:200],
+                (response.content or "")[:200],
             )
             return None
         args = response.tool_calls[0].arguments
         if not isinstance(args, dict):
             logger.warning("RLAIF scanner: critic returned non-dict args: {}", args)
             return None
-        return args
+
+        # Build a unified diff from the find/replace pair (if both present).
+        find_text = (args.get("find") or "").strip()
+        replace_text = (args.get("replace") or "").strip()
+        if not find_text:
+            return {
+                "rationale": args.get("rationale", ""),
+                "patch": "",
+                "confidence": float(args.get("confidence", 0.2)),
+            }
+        patch = self._anchor_to_unified_diff(
+            file_text=text,
+            rel_path=rel_path,
+            find_text=find_text,
+            replace_text=replace_text,
+        )
+        if not patch:
+            logger.warning(
+                "RLAIF scanner: critic's find text did not match the file {} "
+                "(rationale: {}, find was: {!r})",
+                rel_path, args.get("rationale", "")[:100], find_text[:200],
+            )
+            return None
+        return {
+            "rationale": args.get("rationale", ""),
+            "patch": patch,
+            "confidence": float(args.get("confidence", 0.5)),
+        }
+
+    @staticmethod
+    def _anchor_to_unified_diff(
+        *,
+        file_text: str,
+        rel_path: str,
+        find_text: str,
+        replace_text: str,
+    ) -> str:
+        """Build a unified diff from a find/replace pair.
+
+        The find text must appear exactly once in the file. The diff has
+        enough context for `git apply` to find the location without fuzz.
+        """
+        if not find_text:
+            return ""
+
+        # Normalize line endings.
+        find_norm = find_text.replace("\r\n", "\n").rstrip("\n") + "\n"
+        replace_norm = replace_text.replace("\r\n", "\n").rstrip("\n") + "\n"
+        file_norm = file_text.replace("\r\n", "\n")
+
+        # Look for an exact match.
+        if find_norm not in file_norm:
+            # Try matching with stripped trailing whitespace.
+            stripped = "\n".join(line.rstrip() for line in find_norm.splitlines()) + "\n"
+            if stripped not in file_norm:
+                return ""
+            find_norm = stripped
+            replace_norm = (
+                "\n".join(line.rstrip() for line in replace_norm.splitlines()) + "\n"
+            )
+
+        file_lines = file_norm.splitlines()
+        find_lines = find_norm.rstrip("\n").splitlines()
+        replace_lines = replace_norm.rstrip("\n").splitlines()
+
+        # Find the start line (0-indexed).
+        match_start = None
+        for i in range(len(file_lines) - len(find_lines) + 1):
+            if file_lines[i : i + len(find_lines)] == find_lines:
+                if match_start is not None:
+                    # Multiple matches — ambiguous.
+                    return ""
+                match_start = i
+        if match_start is None:
+            return ""
+
+        # Build the unified diff with 3 lines of context before and after.
+        ctx_before = 3
+        ctx_after = 3
+        hunk_start_old = max(0, match_start - ctx_before)
+        hunk_start_new = hunk_start_old  # context lines preserve alignment
+        old_lines = file_lines[hunk_start_old : match_start + len(find_lines) + ctx_after]
+        new_lines = (
+            file_lines[hunk_start_old : match_start]
+            + replace_lines
+            + file_lines[match_start + len(find_lines) : match_start + len(find_lines) + ctx_after]
+        )
+
+        # Trim context to actual file boundaries.
+        # We just truncate the lists; the hunk header counts what we actually
+        # emit.
+        old_count = len(old_lines)
+        new_count = len(new_lines)
+
+        out: list[str] = [
+            f"--- a/{rel_path}",
+            f"+++ b/{rel_path}",
+            f"@@ -{hunk_start_old + 1},{old_count} +{hunk_start_new + 1},{new_count} @@",
+        ]
+        for line in file_lines[hunk_start_old : match_start]:
+            out.append(" " + line)
+        for line in find_lines:
+            out.append("-" + line)
+        for line in replace_lines:
+            out.append("+" + line)
+        for line in file_lines[match_start + len(find_lines) : match_start + len(find_lines) + ctx_after]:
+            out.append(" " + line)
+        return "\n".join(out) + "\n"
 
     @staticmethod
     def _extract_diff_from_text(text: str) -> str:
