@@ -1514,3 +1514,60 @@ export async function fetchRlaifLog(
     API_READ_TIMEOUT_MS,
   );
 }
+
+export interface RlaifProposal {
+  id: number;
+  created_at: number;
+  file: string;
+  rationale: string;
+  patch: string;
+  confidence: number;
+  preview?: string;
+}
+
+export interface RlaifProposalsPayload {
+  scanner_active: boolean;
+  items: RlaifProposal[];
+}
+
+export async function fetchRlaifProposals(
+  token: string,
+  base: string = "",
+): Promise<RlaifProposalsPayload> {
+  return request<RlaifProposalsPayload>(
+    `${base}/api/rlaif/proposals`,
+    token,
+    undefined,
+    API_READ_TIMEOUT_MS,
+  );
+}
+
+export async function fetchRlaifProposal(
+  token: string,
+  proposalId: number,
+  base: string = "",
+): Promise<RlaifProposal> {
+  return request<RlaifProposal>(
+    `${base}/api/rlaif/proposals/${proposalId}/view`,
+    token,
+    undefined,
+    API_READ_TIMEOUT_MS,
+  );
+}
+
+export async function actOnRlaifProposal(
+  token: string,
+  proposalId: number,
+  action: "approve" | "reject",
+  base: string = "",
+): Promise<{ ok: boolean; result: string }> {
+  // GET is fine here: the WebUI HTTP layer doesn't do method routing
+  // (everything goes through one dispatcher) and the bearer token in the
+  // Authorization header is the only auth needed.
+  return request<{ ok: boolean; result: string }>(
+    `${base}/api/rlaif/proposals/${proposalId}/${action}`,
+    token,
+    undefined,
+    600_000,
+  );
+}

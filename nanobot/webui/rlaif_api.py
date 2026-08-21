@@ -140,3 +140,46 @@ def _count_nonempty_lines(path: Path) -> int:
 class RlaifApiPaths:
     preferences_path: Path
     log_path: Path
+
+
+# ponytail: the running scanner instance is stashed on the cli.commands
+# module by the gateway; we read it lazily on each call. This avoids
+# threading the instance through the WebUI HTTP plumbing.
+def _get_scanner() -> Any | None:
+    try:
+        from nanobot.cli import commands as _cmd_mod
+    except Exception:
+        return None
+    return getattr(_cmd_mod, "_rlaif_scanner", None)
+
+
+def list_proposals() -> dict[str, Any]:
+    """Return pending RLAIF scanner proposals awaiting user approval."""
+    scanner = _get_scanner()
+    if scanner is None:
+        return {"items": [], "scanner_active": False}
+    return {
+        "scanner_active": True,
+        "items": scanner.list_proposals(),
+    }
+
+
+def get_proposal(proposal_id: int) -> dict[str, Any] | None:
+    scanner = _get_scanner()
+    if scanner is None:
+        return None
+    return scanner.get_proposal(proposal_id)
+
+
+async def approve_proposal(proposal_id: int) -> str:
+    scanner = _get_scanner()
+    if scanner is None:
+        return "scanner not running"
+    return await scanner.approve_proposal(proposal_id)
+
+
+def reject_proposal(proposal_id: int) -> str:
+    scanner = _get_scanner()
+    if scanner is None:
+        return "scanner not running"
+    return scanner.reject_proposal(proposal_id)

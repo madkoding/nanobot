@@ -115,10 +115,22 @@ from nanobot.webui.projects import (
 )
 from nanobot.webui.research_api import share_research_article
 from nanobot.webui.rlaif_api import (
+    approve_proposal as _rlaif_approve_proposal,
+)
+from nanobot.webui.rlaif_api import (
+    get_proposal as _rlaif_get_proposal,
+)
+from nanobot.webui.rlaif_api import (
+    list_proposals as _rlaif_list_proposals,
+)
+from nanobot.webui.rlaif_api import (
     read_log as _rlaif_read_log,
 )
 from nanobot.webui.rlaif_api import (
     read_preferences as _rlaif_read_preferences,
+)
+from nanobot.webui.rlaif_api import (
+    reject_proposal as _rlaif_reject_proposal,
 )
 from nanobot.webui.session_automations import (
     all_automations_payload,
@@ -1045,6 +1057,10 @@ class GatewayHTTPHandler:
             return self._handle_rlaif_preferences(request)
         if got == "/api/rlaif/log":
             return self._handle_rlaif_log(request)
+        if got == "/api/rlaif/proposals":
+            return self._handle_rlaif_proposals_list(request)
+        if got.startswith("/api/rlaif/proposals/"):
+            return self._handle_rlaif_proposal_action(request, got)
         return None
 
     def _handle_rlaif_preferences(self, request: WsRequest) -> Response:
@@ -1081,6 +1097,51 @@ class GatewayHTTPHandler:
             max_lines=max(1, min(max_lines, 1000)),
         )
         return _http_json_response(payload)
+
+    def _handle_rlaif_proposals_list(self, request: WsRequest) -> Response:
+        if not self.check_api_token(request):
+            return _http_error(401, "Unauthorized")
+        return _http_json_response(_rlaif_list_proposals())
+
+    def _handle_rlaif_proposal_action(self, request: WsRequest, got: str) -> Response:
+        if not self.check_api_token(request):
+            return _http_error(401, "Unauthorized")
+        # /api/rlaif/proposals/<id>/<action>
+        rest = got[len("/api/rlaif/proposals/"):]
+        parts = rest.split("/", 1)
+        if len(parts) != 2:
+            return _http_error(400, "expected /api/rlaif/proposals/<id>/<approve|reject>")
+        try:
+            proposal_id = int(parts[0])
+        except ValueError:
+            return _http_error(400, "proposal id must be an integer")
+        action = parts[1]
+
+        if action == "view":
+            prop = _rlaif_get_proposal(proposal_id)
+            if prop is None:
+                return _http_error(404, "proposal not found")
+            return _http_json_response(prop)
+        if action == "approve":
+            try:
+                loop = asyncio.get_event_loop()
+                if loop.is_running():
+                    future = asyncio.run_coroutine_threadsafe(
+                        _rlaif_approve_proposal(proposal_id), loop
+                    )
+                    result = future.result(timeout=600)
+                else:
+                    result = loop.run_until_complete(
+                        _rlaif_approve_proposal(proposal_id)
+                    )
+            except RuntimeError:
+                result = asyncio.run(_rlaif_approve_proposal(proposal_id))
+            return _http_json_response({"ok": True, "result": result})
+        if action == "reject":
+            return _http_json_response(
+                {"ok": True, "result": _rlaif_reject_proposal(proposal_id)}
+            )
+        return _http_error(404, f"unknown action {action!r}")
 
     # -- Workspace browser routes ------------------------------------------
 

@@ -79,6 +79,8 @@ class ScannerState:
     last_run_at: float = 0.0
     files_seen: dict[str, float] = field(default_factory=dict)
     last_report: str = ""
+    pending_proposals: list[dict[str, Any]] = field(default_factory=list)
+    next_proposal_id: int = 1
 
 
 class RlaifProactiveScanner:
@@ -136,6 +138,8 @@ class RlaifProactiveScanner:
                 last_run_at=float(data.get("last_run_at", 0.0)),
                 files_seen={k: float(v) for k, v in (data.get("files_seen") or {}).items()},
                 last_report=str(data.get("last_report", "")),
+                pending_proposals=list(data.get("pending_proposals") or []),
+                next_proposal_id=int(data.get("next_proposal_id", 1)),
             )
         except Exception as exc:  # ponytail: never let a corrupt state file brick the scanner
             logger.warning("RLAIF scanner: cannot read state file: {}", exc)
@@ -148,6 +152,8 @@ class RlaifProactiveScanner:
             "last_run_at": self._state.last_run_at,
             "files_seen": self._state.files_seen,
             "last_report": self._state.last_report,
+            "pending_proposals": self._state.pending_proposals,
+            "next_proposal_id": self._state.next_proposal_id,
         }
         try:
             self._state_path().write_text(json.dumps(data), encoding="utf-8")
@@ -219,72 +225,81 @@ class RlaifProactiveScanner:
         # Normalize the patch header so it targets the file we just read.
         patch = self._normalize_patch_paths(patch, rel)
 
-        harness = PatchHarness(
+        # ponytail: by default we run a quick lint-only preflight so obvious
+        # garbage (e.g. malformed patches from a non-diff model) is rejected
+        # before we burn 30+ seconds on pytest. The full tests are only run
+        # once the patch is approved.
+        preflight_harness = PatchHarness(
             repo_root=self.workspace,
-            test_command=self.test_command,
+            test_command=["true"],  # skip pytest on the preflight
             lint_command=self.lint_command,
+            timeout=120.0,
         )
-        result = await harness.evaluate(patch, patch_summary=proposal.get("rationale", ""))
-        if not result.passed:
-            why = []
-            if not result.test_passed:
-                why.append("tests")
-            if not result.lint_passed:
-                why.append("lint")
-            report = (
-                f"RLAIF scanner: candidate for {rel} failed {','.join(why) or 'checks'}."
+        preflight = await preflight_harness.evaluate(
+            patch, patch_summary=proposal.get("rationale", "")
+        )
+        if not preflight.lint_passed:
+            logger.warning(
+                "RLAIF scanner: {} failed preflight lint:\n{}\n\nlint tail:\n{}",
+                rel, patch, preflight.lint_output[-300:],
             )
+            report = f"RLAIF scanner: candidate for {rel} failed lint preflight."
             self._state.last_report = report
             logger.info(report)
             return report
 
-        applied_status = "skipped (auto_apply off)"
-        if self.auto_apply:
-            from nanobot.agent.tools.rlaif_eval import RlaifEvalTool
-
-            applied = await RlaifEvalTool._apply_diff(patch, workspace=self.workspace)
-            applied_status = str(applied)
-            if self.auto_commit and applied.startswith("Patch applied"):
-                commit_msg = (
-                    f"rlaif(scanner): {rel}: {proposal.get('rationale', '')[:200]}\n\n"
-                    f"Auto-proposed by proactive scanner. Tests+lint passed."
-                )
-                commit_result = await asyncio.to_thread(
-                    _git_commit, self.workspace, commit_msg
-                )
-                applied_status = f"{applied_status}; {commit_result or '(commit failed)'}"
-                if self.auto_push and commit_result and commit_result != "no changes to commit":
-                    push_result = await asyncio.to_thread(_git_push, self.workspace)
-                    applied_status = f"{applied_status}; {push_result or '(push failed)'}"
-
-        # Record the preference so the dataset keeps growing even without an agent turn.
+        # Quick syntactic check: can `git apply` actually find where the diff
+        # goes? If it can't, the patch is malformed — don't bother the user.
         try:
-            RlaifDataset().append(
-                RlaifPreference(
-                    prompt=f"Proactive scan: {rel}",
-                    chosen={"patch": patch, "summary": proposal.get("rationale", "")},
-                    rejected={"patch": "", "summary": "no challenger (proactive)"},
-                    score_chosen=1.0,
-                    score_rejected=0.0,
-                    reason=f"tests+lint passed; {proposal.get('rationale', '')}",
-                    task=rel,
-                    metadata={
-                        "auto_apply": applied_status,
-                        "winner_tests": result.test_passed,
-                        "winner_lint": result.lint_passed,
-                        "winner_backend": result.backend,
-                        "scanner_proactive": True,
-                    },
-                )
+            import subprocess, tempfile
+            with tempfile.NamedTemporaryFile(
+                mode="w", suffix=".patch", delete=False, encoding="utf-8"
+            ) as f:
+                f.write(patch)
+                pp = f.name
+            r = subprocess.run(
+                ["git", "apply", "--check", pp],
+                cwd=str(self.workspace),
+                capture_output=True, text=True, timeout=10,
             )
-        except Exception:  # ponytail: dataset append is best-effort
-            logger.exception("RLAIF scanner: failed to record preference")
+            if r.returncode != 0:
+                logger.warning(
+                    "RLAIF scanner: {} has unapplyable diff (will be hidden):\n{}\n\ngit apply said: {}",
+                    rel, patch, r.stderr.strip()[:200],
+                )
+                report = f"RLAIF scanner: candidate for {rel} has unapplyable diff (skipped)."
+                self._state.last_report = report
+                logger.info(report)
+                return report
+        except Exception as exc:
+            logger.warning("RLAIF scanner: preflight git apply check failed: {}", exc)
+
+        # Patch is lint-clean and syntactically applyable. Save as a pending
+        # proposal. The user reviews it in the WebUI and either approves
+        # (which then runs the full tests + commit + push) or rejects.
+        proposal_id = self._state.next_proposal_id
+        self._state.next_proposal_id += 1
+        self._state.pending_proposals.append(
+            {
+                "id": proposal_id,
+                "created_at": time.time(),
+                "file": rel,
+                "rationale": proposal.get("rationale", ""),
+                "patch": patch,
+                "confidence": float(proposal.get("confidence", 0.0)),
+                "test_command": self.test_command,
+                "lint_command": self.lint_command,
+                "auto_commit": self.auto_commit,
+                "auto_push": self.auto_push,
+            }
+        )
+        # Cap to the most recent 50 to keep the state file small.
+        if len(self._state.pending_proposals) > 50:
+            self._state.pending_proposals = self._state.pending_proposals[-50:]
 
         report = (
-            f"RLAIF scanner: applied improvement to {rel}\n"
-            f"Rationale: {proposal.get('rationale', '')}\n"
-            f"Status: {applied_status}\n"
-            f"Confidence: {proposal['confidence']:.2f}"
+            f"RLAIF scanner: queued proposal #{proposal_id} for {rel} "
+            f"(confidence {proposal.get('confidence', 0):.2f}); awaiting approval."
         )
         self._state.last_report = report
         logger.info(report)
@@ -296,6 +311,104 @@ class RlaifProactiveScanner:
             except Exception:
                 logger.exception("RLAIF scanner: on_report callback failed")
         return report
+
+    def list_proposals(self) -> list[dict[str, Any]]:
+        """Return a copy of the pending proposals (without the patch body)."""
+        return [
+            {k: v for k, v in p.items() if k != "patch"}
+            | {"preview": p.get("patch", "")[:200]}
+            for p in self._state.pending_proposals
+        ]
+
+    def get_proposal(self, proposal_id: int) -> dict[str, Any] | None:
+        for p in self._state.pending_proposals:
+            if p.get("id") == proposal_id:
+                return p
+        return None
+
+    async def approve_proposal(self, proposal_id: int) -> str:
+        """Apply a pending proposal: run full tests, apply, commit, push."""
+        prop = self.get_proposal(proposal_id)
+        if prop is None:
+            return f"proposal #{proposal_id} not found"
+        rel = prop["file"]
+        patch = prop["patch"]
+
+        harness = PatchHarness(
+            repo_root=self.workspace,
+            test_command=prop.get("test_command") or self.test_command,
+            lint_command=prop.get("lint_command") or self.lint_command,
+            timeout=600.0,
+        )
+        result = await harness.evaluate(patch, patch_summary=prop.get("rationale", ""))
+        if not result.passed:
+            why = []
+            if not result.test_passed:
+                why.append("tests")
+            if not result.lint_passed:
+                why.append("lint")
+            return f"approval aborted: {','.join(why) or 'checks'} failed for {rel}"
+
+        from nanobot.agent.tools.rlaif_eval import RlaifEvalTool
+
+        applied = await RlaifEvalTool._apply_diff(patch, workspace=self.workspace)
+        status = str(applied)
+        if prop.get("auto_commit", True) and applied.startswith("Patch applied"):
+            commit_msg = (
+                f"rlaif(scanner): {rel}: {prop.get('rationale', '')[:200]}\n\n"
+                f"Approved by user (proposal #{proposal_id})."
+            )
+            commit_result = await asyncio.to_thread(_git_commit, self.workspace, commit_msg)
+            status = f"{status}; {commit_result or '(commit failed)'}"
+            if (
+                prop.get("auto_push", True)
+                and commit_result
+                and commit_result != "no changes to commit"
+            ):
+                push_result = await asyncio.to_thread(_git_push, self.workspace)
+                status = f"{status}; {push_result or '(push failed)'}"
+
+        # Record the preference in the dataset so it counts for offline DPO/GRPO.
+        try:
+            RlaifDataset().append(
+                RlaifPreference(
+                    prompt=f"Proactive scan approved: {rel}",
+                    chosen={"patch": patch, "summary": prop.get("rationale", "")},
+                    rejected={"patch": "", "summary": "no challenger (proactive)"},
+                    score_chosen=1.0,
+                    score_rejected=0.0,
+                    reason=f"user-approved proposal #{proposal_id}",
+                    task=rel,
+                    metadata={
+                        "auto_apply": status,
+                        "winner_tests": result.test_passed,
+                        "winner_lint": result.lint_passed,
+                        "winner_backend": result.backend,
+                        "scanner_proactive": True,
+                        "proposal_id": proposal_id,
+                    },
+                )
+            )
+        except Exception:
+            logger.exception("RLAIF scanner: failed to record preference")
+
+        # Remove the proposal from the pending list.
+        self._state.pending_proposals = [
+            p for p in self._state.pending_proposals if p.get("id") != proposal_id
+        ]
+        self._save_state()
+        return f"applied proposal #{proposal_id} for {rel}: {status}"
+
+    def reject_proposal(self, proposal_id: int) -> str:
+        """Drop a pending proposal without applying it."""
+        before = len(self._state.pending_proposals)
+        self._state.pending_proposals = [
+            p for p in self._state.pending_proposals if p.get("id") != proposal_id
+        ]
+        if len(self._state.pending_proposals) == before:
+            return f"proposal #{proposal_id} not found"
+        self._save_state()
+        return f"rejected proposal #{proposal_id}"
 
     def _pick_file(self) -> Path | None:
         """Pick a Python file under self.workspace, avoiding ones seen recently."""
@@ -338,20 +451,45 @@ class RlaifProactiveScanner:
             {
                 "role": "system",
                 "content": (
-                    "You are a senior Python reviewer working on the nanobot agent framework. "
-                    "Read the file and propose ONE concrete, bounded improvement as a unified "
-                    "diff. Allowed: bug fix, refactor, better error message, prompt tweak, "
-                    "dead-code removal, type-hint fix. Disallowed: new features, big rewrites, "
-                    "anything speculative. If the file is already clean, return an empty patch. "
-                    "The diff must apply with `git apply` against the file as shown."
+                    "You are a senior Python reviewer on the nanobot agent framework. "
+                    "Your job: propose ONE small, concrete improvement to the file as a "
+                    "unified diff.\n\n"
+                    "Allowed categories (pick whichever fits):\n"
+                    "  - Bug fix (off-by-one, missing None check, wrong exception type, "
+                    "    swallowed error, race condition, etc.)\n"
+                    "  - Dead code removal (unused import, unreachable branch, redundant "
+                    "    None default, leftover TODO comment, etc.)\n"
+                    "  - Better error message (e.g. include the offending value, suggest "
+                    "    a fix, log the context).\n"
+                    "  - Type-hint fix (missing return type, Any that should be specific, "
+                    "    Optional that is always None, etc.)\n"
+                    "  - Docstring / comment fix (factual error, missing Args/Returns, "
+                    "    typo).\n"
+                    "  - Simplification (collapse nested if, use a guard, replace repeated "
+                    "    literal with constant).\n\n"
+                    "Disallowed: new features, big rewrites, renaming across the file, "
+                    "speculative changes. If you truly cannot find anything, return an "
+                    "empty patch and confidence 0.3 — but try hard first.\n\n"
+                    "CRITICAL FORMAT for the diff (otherwise the patch will be rejected):\n"
+                    "  1. The hunk header (e.g. @@ -10,6 +10,12 @@) must list the EXACT "
+                    "number of lines that follow in old and new context. Count them.\n"
+                    "  2. Every old line (with leading space) must appear verbatim in the "
+                    "file at the hunk's location.\n"
+                    "  3. Include 3 lines of unchanged context before and after the change.\n"
+                    "  4. The hunk must be COMPLETE: every open paren / bracket / quote "
+                    "must be closed. Never end a hunk in the middle of a line.\n"
+                    "  5. If you're not 100% sure the diff will apply, return empty patch."
                 ),
             },
             {
                 "role": "user",
                 "content": (
                     f"## File: {rel_path}\n\n```python\n{truncated}\n```\n\n"
-                    "Propose a unified diff (--- a/<rel> +++ b/<rel>) using the "
-                    "propose_improvement tool."
+                    "Look hard for ONE small improvement. The kinds of changes I want "
+                    "are tiny — fix a typo in a docstring, swap a bare `except:` for a "
+                    "specific exception, add a missing return type, remove a dead import, "
+                    "tighten an error message. Be conservative but DO propose something. "
+                    "Use the propose_improvement tool with a unified diff."
                 ),
             },
         ]
@@ -360,6 +498,7 @@ class RlaifProactiveScanner:
                 messages=messages,
                 tools=PROPOSE_TOOL,
                 model=self.critic_model,
+                max_tokens=8192,
                 temperature=0.0,
                 tool_choice={
                     "type": "function",
@@ -370,11 +509,116 @@ class RlaifProactiveScanner:
             logger.exception("RLAIF scanner: critic call failed for {}", rel_path)
             return None
         if not response.has_tool_calls:
+            # Fallback: try to extract a unified diff from the raw content.
+            # Some code-tuned models write diffs in plain text instead of
+            # using the tool-calling API.
+            content = response.content or ""
+            extracted = self._extract_diff_from_text(content)
+            if extracted:
+                logger.info(
+                    "RLAIF scanner: critic for {} returned no tool call, but "
+                    "extracted diff from raw content ({} chars).",
+                    rel_path, len(extracted),
+                )
+                return {
+                    "rationale": "extracted from raw content",
+                    "patch": extracted,
+                    "confidence": 0.5,
+                }
+            logger.info(
+                "RLAIF scanner: critic for {} returned no tool call. content: {}",
+                rel_path,
+                content[:200],
+            )
             return None
         args = response.tool_calls[0].arguments
         if not isinstance(args, dict):
+            logger.warning("RLAIF scanner: critic returned non-dict args: {}", args)
             return None
         return args
+
+    @staticmethod
+    def _extract_diff_from_text(text: str) -> str:
+        """Pull a unified diff out of a free-form LLM response. Returns '' if none.
+
+        Supports three formats seen in the wild:
+          1. Standard unified diff (--- a/... +++ b/...)
+          2. OpenAI "*** Begin Patch / *** Update File: / *** End Patch" style
+          3. Raw `@@ -N,M +N,K @@` hunks without a header
+        """
+        if not text:
+            return ""
+        lines = text.splitlines()
+
+        # 1. Standard unified diff
+        for i, line in enumerate(lines):
+            if line.startswith("--- a/") and i + 1 < len(lines) and lines[i + 1].startswith("+++ b/"):
+                return "\n".join(lines[i:]).rstrip() + "\n"
+
+        # 2. OpenAI custom patch format
+        if any(l.startswith("*** Begin Patch") for l in lines):
+            return RlaifProactiveScanner._translate_openai_patch(lines)
+
+        # 3. Raw hunks — find first @@
+        for i, line in enumerate(lines):
+            if line.startswith("@@"):
+                return RlaifProactiveScanner._wrap_hunks_with_headers(lines[i:])
+
+        return ""
+
+    @staticmethod
+    def _translate_openai_patch(lines: list[str]) -> str:
+        """Convert OpenAI's *** Begin Patch format to a unified diff."""
+        out: list[str] = []
+        current_file: str | None = None
+        hunks: list[list[str]] = []
+        hunk: list[str] = []
+        for raw in lines:
+            line = raw.rstrip("\n")
+            if line.startswith("*** Begin Patch"):
+                continue
+            if line.startswith("*** End Patch"):
+                if hunk:
+                    hunks.append(hunk)
+                    hunk = []
+                break
+            if line.startswith("*** Update File:"):
+                if hunk:
+                    hunks.append(hunk)
+                    hunk = []
+                current_file = line.split(":", 1)[1].strip()
+                continue
+            if line.startswith("*** Add File:") or line.startswith("*** Delete File:"):
+                # Not supported yet
+                return ""
+            if line.startswith("@@"):
+                if hunk:
+                    hunks.append(hunk)
+                hunk = [line]
+                continue
+            if hunk is not None:
+                hunk.append(line)
+        if hunk:
+            hunks.append(hunk)
+        if not current_file or not hunks:
+            return ""
+        for h in hunks:
+            out.append(f"--- a/{current_file}")
+            out.append(f"+++ b/{current_file}")
+            for ln in h:
+                out.append(ln)
+        return "\n".join(out) + "\n"
+
+    @staticmethod
+    def _wrap_hunks_with_headers(hunk_lines: list[str]) -> str:
+        """If the model emitted hunks without `--- a/` headers, add a placeholder.
+
+        We don't know the file here; the caller (RlaifProactiveScanner) sets the
+        file path later via _normalize_patch_paths, so we use a placeholder.
+        """
+        out = ["--- a/_", "+++ b/_"]
+        out.extend(hunk_lines)
+        return "\n".join(out) + "\n"
 
     @staticmethod
     def _normalize_patch_paths(patch: str, rel_path: str) -> str:
@@ -397,6 +641,7 @@ def build_scanner_from_config(
     model: str,
     *,
     on_report: Callable[[str], Any] | None = None,
+    critic_model: str | None = None,
 ) -> RlaifProactiveScanner | None:
     """Construct a scanner from the rlaif config block, or None if disabled."""
     if not getattr(cfg, "enable", False):
@@ -407,7 +652,7 @@ def build_scanner_from_config(
         workspace=Path(getattr(cfg, "workspace", None) or workspace).expanduser().resolve(),
         provider=provider,
         model=model,
-        critic_model=getattr(cfg, "scanner_critic_model", None) or model,
+        critic_model=critic_model or getattr(cfg, "scanner_critic_model", None) or model,
         interval_s=float(getattr(cfg, "scanner_interval_s", 3600.0)),
         min_confidence=float(getattr(cfg, "scanner_min_confidence", 0.7)),
         test_command=getattr(cfg, "test_command", None),

@@ -1,20 +1,37 @@
-import { useEffect, useMemo, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { ChevronLeft, Loader2, RefreshCw, Sparkles } from "lucide-react";
+import { Check, ChevronLeft, Loader2, RefreshCw, Sparkles, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { useClient } from "@/providers/ClientProvider";
 import { useRlaifWatch } from "@/hooks/useRlaifWatch";
+import {
+  actOnRlaifProposal,
+  fetchRlaifProposal,
+  fetchRlaifProposals,
+  type RlaifProposal,
+} from "@/lib/api";
 
 interface Props {
   onBackToChat: () => void;
 }
 
+const POLL_INTERVAL_MS = 5000;
+
 export function RlaifSurface({ onBackToChat }: Props) {
   const { t } = useTranslation();
   const watch = useRlaifWatch();
+  const { token } = useClient();
   const logRef = useRef<HTMLDivElement | null>(null);
   const userScrolledRef = useRef(false);
 
-  // Auto-scroll only when the user is at the bottom; don't yank focus away.
+  const [proposals, setProposals] = useState<RlaifProposal[]>([]);
+  const [scannerActive, setScannerActive] = useState(false);
+  const [expandedId, setExpandedId] = useState<number | null>(null);
+  const [expandedPatch, setExpandedPatch] = useState<string | null>(null);
+  const [actionPending, setActionPending] = useState<number | null>(null);
+  const [actionResult, setActionResult] = useState<{ id: number; result: string; ok: boolean } | null>(null);
+
+  // Auto-scroll for the log card.
   useEffect(() => {
     const el = logRef.current;
     if (!el) return;
@@ -35,6 +52,85 @@ export function RlaifSurface({ onBackToChat }: Props) {
     return () => el.removeEventListener("scroll", onScroll);
   }, []);
 
+  const refreshProposals = useCallback(async () => {
+    try {
+      const payload = await fetchRlaifProposals(token);
+      setScannerActive(payload.scanner_active);
+      setProposals(payload.items);
+    } catch (e) {
+      // swallow; the rest of the surface still works
+    }
+  }, [token]);
+
+  useEffect(() => {
+    void refreshProposals();
+    const id = window.setInterval(() => {
+      void refreshProposals();
+    }, POLL_INTERVAL_MS);
+    return () => window.clearInterval(id);
+  }, [refreshProposals]);
+
+  const expandProposal = useCallback(
+    async (id: number) => {
+      if (expandedId === id) {
+        setExpandedId(null);
+        setExpandedPatch(null);
+        return;
+      }
+      setExpandedId(id);
+      setExpandedPatch(null);
+      try {
+        const full = await fetchRlaifProposal(token, id);
+        setExpandedPatch(full.patch);
+      } catch (e) {
+        setExpandedPatch(`# error: ${e instanceof Error ? e.message : String(e)}`);
+      }
+    },
+    [token, expandedId],
+  );
+
+  const onApprove = useCallback(
+    async (id: number) => {
+      setActionPending(id);
+      setActionResult(null);
+      try {
+        const r = await actOnRlaifProposal(token, id, "approve");
+        setActionResult({ id, result: r.result, ok: r.ok });
+        await refreshProposals();
+      } catch (e) {
+        setActionResult({
+          id,
+          result: e instanceof Error ? e.message : String(e),
+          ok: false,
+        });
+      } finally {
+        setActionPending(null);
+      }
+    },
+    [token, refreshProposals],
+  );
+
+  const onReject = useCallback(
+    async (id: number) => {
+      setActionPending(id);
+      setActionResult(null);
+      try {
+        const r = await actOnRlaifProposal(token, id, "reject");
+        setActionResult({ id, result: r.result, ok: r.ok });
+        await refreshProposals();
+      } catch (e) {
+        setActionResult({
+          id,
+          result: e instanceof Error ? e.message : String(e),
+          ok: false,
+        });
+      } finally {
+        setActionPending(null);
+      }
+    },
+    [token, refreshProposals],
+  );
+
   const prefsReversed = useMemo(() => [...watch.preferences].reverse(), [watch.preferences]);
   const lastLog = useMemo(() => watch.log.slice(-150), [watch.log]);
 
@@ -45,7 +141,7 @@ export function RlaifSurface({ onBackToChat }: Props) {
           <button
             type="button"
             onClick={onBackToChat}
-            className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-sm text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+            className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-sm text-muted-foreground hover:bg-accent hover:text-foreground"
           >
             <ChevronLeft className="h-4 w-4" />
             {t("rlaif.backToChats", { defaultValue: "Back to chats" })}
@@ -59,7 +155,8 @@ export function RlaifSurface({ onBackToChat }: Props) {
 
         <p className="mb-4 text-sm text-muted-foreground">
           {t("rlaif.subtitle", {
-            defaultValue: "Live preferences and gateway log lines from the RLAIF self-improvement loop.",
+            defaultValue:
+              "Scanner proposes improvements; you review and approve before they touch the repo.",
           })}
         </p>
 
@@ -68,6 +165,121 @@ export function RlaifSurface({ onBackToChat }: Props) {
             {watch.error}
           </div>
         ) : null}
+
+        {/* Pending proposals */}
+        <section
+          className="mb-6 rounded-xl border border-border bg-card p-4"
+          data-testid="rlaif-proposals"
+        >
+          <header className="mb-3 flex items-center justify-between gap-2">
+            <div>
+              <h2 className="text-sm font-semibold text-foreground">
+                {t("rlaif.proposalsTitle", { defaultValue: "Pending proposals" })}
+              </h2>
+              <p className="text-xs text-muted-foreground">
+                {scannerActive
+                  ? t("rlaif.proposalsScannerActive", {
+                      defaultValue: "Scanner is running. {{count}} pending review.",
+                    }).replace("{{count}}", String(proposals.length))
+                  : t("rlaif.proposalsScannerInactive", {
+                      defaultValue: "Scanner is not running.",
+                    })}
+              </p>
+            </div>
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => void refreshProposals()}
+              aria-label={t("rlaif.refresh", { defaultValue: "Refresh" })}
+            >
+              <RefreshCw className="h-4 w-4" />
+            </Button>
+          </header>
+
+          {proposals.length === 0 ? (
+            <p className="text-xs text-muted-foreground">
+              {t("rlaif.noProposals", {
+                defaultValue:
+                  "No pending proposals. The scanner queues a patch when the critic proposes one that passes a preflight lint check.",
+              })}
+            </p>
+          ) : (
+            <ul className="space-y-2">
+              {proposals.map((p) => {
+                const isExpanded = expandedId === p.id;
+                const isPending = actionPending === p.id;
+                return (
+                  <li
+                    key={p.id}
+                    className="rounded-lg border border-border/60 bg-background p-3"
+                    data-testid="rlaif-proposal-row"
+                  >
+                    <div className="mb-1 flex flex-wrap items-center justify-between gap-2">
+                      <button
+                        type="button"
+                        onClick={() => void expandProposal(p.id)}
+                        className="min-w-0 flex-1 text-left"
+                      >
+                        <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground/70">
+                          #{p.id} · {p.file}
+                        </div>
+                        <div className="mt-0.5 line-clamp-2 text-sm text-foreground">
+                          {p.rationale || t("rlaif.noRationale", { defaultValue: "(no rationale)" })}
+                        </div>
+                      </button>
+                      <div className="flex shrink-0 items-center gap-1.5">
+                        <span className="font-mono text-[11px] text-muted-foreground">
+                          {p.confidence.toFixed(2)}
+                        </span>
+                        <Button
+                          size="sm"
+                          variant="default"
+                          disabled={isPending}
+                          onClick={() => void onApprove(p.id)}
+                          data-testid="rlaif-approve"
+                        >
+                          {isPending ? (
+                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                          ) : (
+                            <Check className="h-3.5 w-3.5" />
+                          )}
+                          {t("rlaif.approve", { defaultValue: "Approve" })}
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          disabled={isPending}
+                          onClick={() => void onReject(p.id)}
+                          data-testid="rlaif-reject"
+                        >
+                          <X className="h-3.5 w-3.5" />
+                          {t("rlaif.reject", { defaultValue: "Reject" })}
+                        </Button>
+                      </div>
+                    </div>
+                    {isExpanded ? (
+                      <pre className="mt-2 max-h-72 overflow-auto rounded-md border border-border/60 bg-muted/30 p-2 text-[11px] leading-5">
+                        {expandedPatch ?? "loading…"}
+                      </pre>
+                    ) : null}
+                    {actionResult && actionResult.id === p.id ? (
+                      <div
+                        className={
+                          "mt-2 rounded-md border px-2 py-1.5 text-[11.5px] " +
+                          (actionResult.ok
+                            ? "border-emerald-500/30 bg-emerald-500/5 text-emerald-700 dark:text-emerald-300"
+                            : "border-destructive/30 bg-destructive/5 text-destructive")
+                        }
+                      >
+                        {actionResult.result}
+                      </div>
+                    ) : null}
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </section>
 
         <div className="mb-6 grid gap-4 md:grid-cols-2">
           <section className="rounded-xl border border-border bg-card p-4">
@@ -95,7 +307,7 @@ export function RlaifSurface({ onBackToChat }: Props) {
             {prefsReversed.length === 0 ? (
               <p className="text-xs text-muted-foreground">
                 {t("rlaif.noPreferences", {
-                  defaultValue: "No preference pairs yet. Run rlaif_eval or enable the observer.",
+                  defaultValue: "No preference pairs yet. Approve a scanner proposal to start the dataset.",
                 })}
               </p>
             ) : (
