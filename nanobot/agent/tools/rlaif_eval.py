@@ -66,6 +66,11 @@ class RlaifToolConfig(Base):
     scanner_auto_apply: bool = True
     scanner_auto_commit: bool = True
     scanner_auto_push: bool = True
+    # When set, the scanner auto-approves proposals whose confidence is
+    # >= this threshold. Auto-approve runs the full tests + lint, then
+    # commits+pushes if everything passes. Below the threshold, the
+    # proposal is queued for manual review in the WebUI.
+    scanner_auto_approve_min_confidence: float = 0.0
     # Workspace root where candidate patches are evaluated. Falls back to the
     # agent's default workspace when omitted.
     workspace: str | None = None

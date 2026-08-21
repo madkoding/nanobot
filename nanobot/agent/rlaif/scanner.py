@@ -59,7 +59,7 @@ class RlaifProactiveScanner:
     STATE_FILE = ".rlaif_scanner_state.json"
 
     def __init__(
-        self,
+         self,
         workspace: Path,
         provider: LLMProvider,
         model: str,
@@ -67,6 +67,7 @@ class RlaifProactiveScanner:
         critic_model: str | None = None,
         interval_s: float = 3600.0,
         min_confidence: float = 0.0,
+        auto_approve_min_confidence: float = 0.0,
         test_command: list[str] | None = None,
         lint_command: list[str] | None = None,
         auto_apply: bool = True,
@@ -82,6 +83,7 @@ class RlaifProactiveScanner:
         self.critic_model = critic_model or model
         self.interval_s = max(60.0, interval_s)
         self.min_confidence = min_confidence
+        self.auto_approve_min_confidence = auto_approve_min_confidence
         self.test_command = test_command
         self.lint_command = lint_command
         self.auto_apply = auto_apply
@@ -223,6 +225,35 @@ class RlaifProactiveScanner:
             if len(self._state.pending_proposals) > 50:
                 self._state.pending_proposals = self._state.pending_proposals[-50:]
             self._save_state()
+
+            # ponytail: if confidence is high enough, auto-approve
+            # the proposal. The full tests + lint run in the
+            # approve_proposal step, so a bad patch still gets caught
+            # (and the proposal is removed from the list with an
+            # "approval aborted" log line). Below the threshold, the
+            # proposal is queued for manual review.
+            if (
+                self.auto_apply
+                and proposal.get("confidence", 0.0) >= self.auto_approve_min_confidence
+                and self.auto_approve_min_confidence > 0
+            ):
+                logger.info(
+                    "RLAIF scanner: auto-approving proposal #{} for {} (confidence {:.2f} >= {:.2f})",
+                    proposal_id, rel,
+                    proposal.get("confidence", 0.0),
+                    self.auto_approve_min_confidence,
+                )
+                try:
+                    result = await self.approve_proposal(proposal_id)
+                    report = (
+                        f"RLAIF scanner: auto-approved proposal #{proposal_id} for {rel}: {result}"
+                    )
+                    self._state.last_report = report
+                    logger.info(report)
+                except Exception:
+                    logger.exception("RLAIF scanner: auto-approve failed for #{}", proposal_id)
+                return report
+
             report = (
                 f"RLAIF scanner: queued proposal #{proposal_id} for {rel} "
                 f"(confidence {proposal.get('confidence', 0):.2f}); awaiting approval."
@@ -662,6 +693,9 @@ def build_scanner_from_config(
         critic_model=critic_model or getattr(cfg, "scanner_critic_model", None) or model,
         interval_s=float(getattr(cfg, "scanner_interval_s", 3600.0)),
         min_confidence=float(getattr(cfg, "scanner_min_confidence", 0.0)),
+        auto_approve_min_confidence=float(
+            getattr(cfg, "scanner_auto_approve_min_confidence", 0.0)
+        ),
         test_command=getattr(cfg, "test_command", None),
         lint_command=getattr(cfg, "lint_command", None),
         auto_apply=getattr(cfg, "scanner_auto_apply", True),
