@@ -19,6 +19,60 @@ from nanobot.agent.rlaif.critic import RlaifCritic
 from nanobot.agent.rlaif.dataset import RlaifDataset, RlaifPreference
 from nanobot.agent.rlaif.harness import PatchHarness
 from nanobot.agent.rlaif.trajectory import Trajectory, TurnStep
+
+
+def _git_commit(workspace: Path, message: str) -> str | None:
+    """Stage all changes in ``workspace`` and commit. Returns a short status string."""
+    import subprocess
+
+    try:
+        add = subprocess.run(
+            ["git", "add", "-A"],
+            cwd=str(workspace),
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        if add.returncode != 0:
+            logger.warning("RLAIF auto-commit: git add failed: {}", add.stderr.strip())
+            return None
+        diff = subprocess.run(
+            ["git", "diff", "--cached", "--name-only"],
+            cwd=str(workspace),
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        if not diff.stdout.strip():
+            return "no changes to commit"
+        commit = subprocess.run(
+            [
+                "git",
+                "-c", "user.name=nanobot-rlaif",
+                "-c", "user.email=nanobot-rlaif@localhost",
+                "commit",
+                "-m", message,
+            ],
+            cwd=str(workspace),
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        if commit.returncode != 0:
+            logger.warning("RLAIF auto-commit: git commit failed: {}", commit.stderr.strip())
+            return None
+        sha = subprocess.run(
+            ["git", "rev-parse", "--short", "HEAD"],
+            cwd=str(workspace),
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        short = sha.stdout.strip() if sha.returncode == 0 else "?"
+        return f"committed {short}"
+    except Exception as exc:  # ponytail: keep commit best-effort, never break the eval
+        logger.warning("RLAIF auto-commit raised: {}", exc)
+        return None
 from nanobot.bus.events import OutboundMessage
 
 if TYPE_CHECKING:
@@ -180,6 +234,7 @@ class RlaifBackgroundEvaluator:
         schedule_background: Callable[[asyncio.coroutine], Any] | None = None,
         dataset: RlaifDataset | None = None,
         auto_apply: bool = False,
+        auto_commit: bool = False,
     ) -> None:
         self.workspace = workspace
         self.provider = provider
@@ -191,6 +246,7 @@ class RlaifBackgroundEvaluator:
         self.schedule_background = schedule_background
         self.dataset = dataset or RlaifDataset()
         self.auto_apply = auto_apply
+        self.auto_commit = auto_commit
 
     async def run(self, task: str) -> str:
         """Generate candidates, evaluate, score, save preferences, return report."""
@@ -235,6 +291,18 @@ class RlaifBackgroundEvaluator:
                 from nanobot.agent.tools.rlaif_eval import RlaifEvalTool
 
                 applied = await RlaifEvalTool._apply_diff(winner.patch, workspace=self.workspace)
+                if self.auto_commit and isinstance(applied, str) and applied.startswith("Patch applied"):
+                    commit_msg = (
+                        f"rlaif(observer): {task[:200]}\n\n"
+                        f"Auto-committed by RLAIF observer. Tests+lint passed."
+                    )
+                    commit_result = await asyncio.to_thread(
+                        _git_commit, self.workspace, commit_msg
+                    )
+                    if commit_result:
+                        applied = f"{applied}; {commit_result}"
+                    else:
+                        applied = f"{applied}; (commit failed: see gateway log)"
 
         for loser, loser_score in scored[1:]:
             self.dataset.append(
@@ -328,6 +396,7 @@ class RlaifObserverHook(AgentHook):
         channel: str = "cli",
         chat_id: str = "direct",
         auto_apply: bool = False,
+        auto_commit: bool = False,
     ) -> None:
         super().__init__()
         self.workspace = workspace
@@ -339,6 +408,7 @@ class RlaifObserverHook(AgentHook):
         self.lint_command = lint_command
         self.min_confidence = min_confidence
         self.auto_apply = auto_apply
+        self.auto_commit = auto_commit
         self.schedule_background = schedule_background
         self._publish_outbound = publish_outbound
         self._channel = channel
@@ -379,6 +449,7 @@ class RlaifObserverHook(AgentHook):
             channel=channel,
             chat_id=chat_id,
             auto_apply=getattr(cfg, "observer_auto_apply", False),
+            auto_commit=getattr(cfg, "observer_auto_commit", False),
         )
 
     async def before_run(self, context: AgentRunHookContext) -> None:
@@ -448,6 +519,7 @@ class RlaifObserverHook(AgentHook):
                 lint_command=self.lint_command,
                 schedule_background=self.schedule_background,
                 auto_apply=self.auto_apply,
+                auto_commit=self.auto_commit,
             )
 
         task = observation.task

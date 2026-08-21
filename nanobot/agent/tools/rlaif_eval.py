@@ -46,6 +46,9 @@ class RlaifToolConfig(Base):
     # If true, the background observer applies the winning patch to the real
     # repo when it passes tests + lint (instead of only announcing it).
     observer_auto_apply: bool = False
+    # If true, the observer also stages and commits the applied patch to the
+    # repo's current branch after a successful auto-apply. No push.
+    observer_auto_commit: bool = False
     # Workspace root where candidate patches are evaluated. Falls back to the
     # agent's default workspace when omitted.
     workspace: str | None = None
