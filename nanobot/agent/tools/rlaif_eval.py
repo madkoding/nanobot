@@ -43,6 +43,9 @@ class RlaifToolConfig(Base):
     observer: bool = False
     observer_critic_model: str | None = None
     observer_min_confidence: float = 0.6
+    # If true, the background observer applies the winning patch to the real
+    # repo when it passes tests + lint (instead of only announcing it).
+    observer_auto_apply: bool = False
     # Workspace root where candidate patches are evaluated. Falls back to the
     # agent's default workspace when omitted.
     workspace: str | None = None
@@ -223,7 +226,7 @@ class RlaifEvalTool(Tool):
         report = self._build_report(task, candidates, evaluated, scored, winner, winner_score)
 
         if auto_apply:
-            apply_result = await self._apply_diff(winner.patch)
+            apply_result = await self._apply_diff(winner.patch, workspace=self.workspace)
             report += f"\n\n## Applied patch\n\n{apply_result}"
 
         return report
@@ -426,10 +429,16 @@ class RlaifEvalTool(Tool):
             return getattr(request_ctx.runtime, "provider", None)
         return None
 
-    async def _apply_diff(self, patch: str) -> str:
+    @staticmethod
+    async def _apply_diff(patch: str, *, workspace: Path | None = None) -> str:
         import subprocess
         import tempfile
 
+        target = workspace or getattr(
+            RlaifEvalTool, "_default_apply_workspace", None
+        )
+        if target is None:
+            return "Patch apply error: no workspace available"
         try:
             with tempfile.NamedTemporaryFile(
                 mode="w", suffix=".patch", delete=False, encoding="utf-8"
@@ -442,12 +451,12 @@ class RlaifEvalTool(Tool):
                     continue
                 proc = subprocess.run(
                     cmd,
-                    cwd=self.workspace,
+                    cwd=str(target),
                     capture_output=True,
                     text=True,
                 )
                 if proc.returncode == 0:
-                    return f"Patch applied to {self.workspace}"
+                    return f"Patch applied to {target}"
             return f"Patch apply failed: {proc.stderr}"
         except Exception as exc:
             return f"Patch apply error: {exc}"

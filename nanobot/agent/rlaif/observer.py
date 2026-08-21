@@ -179,6 +179,7 @@ class RlaifBackgroundEvaluator:
         lint_command: list[str] | None = None,
         schedule_background: Callable[[asyncio.coroutine], Any] | None = None,
         dataset: RlaifDataset | None = None,
+        auto_apply: bool = False,
     ) -> None:
         self.workspace = workspace
         self.provider = provider
@@ -189,6 +190,7 @@ class RlaifBackgroundEvaluator:
         self.lint_command = lint_command
         self.schedule_background = schedule_background
         self.dataset = dataset or RlaifDataset()
+        self.auto_apply = auto_apply
 
     async def run(self, task: str) -> str:
         """Generate candidates, evaluate, score, save preferences, return report."""
@@ -219,6 +221,21 @@ class RlaifBackgroundEvaluator:
 
         scored.sort(key=lambda x: x[1], reverse=True)
         winner, winner_score = scored[0]
+
+        applied = None
+        if self.auto_apply:
+            if not (winner.test_passed and winner.lint_passed):
+                logger.info(
+                    "RLAIF auto-apply skipped: winner did not pass tests+lint "
+                    "(tests={}, lint={}) for task {!r}",
+                    winner.test_passed, winner.lint_passed, task,
+                )
+                applied = "skipped (winner did not pass tests+lint)"
+            else:
+                from nanobot.agent.tools.rlaif_eval import RlaifEvalTool
+
+                applied = await RlaifEvalTool._apply_diff(winner.patch, workspace=self.workspace)
+
         for loser, loser_score in scored[1:]:
             self.dataset.append(
                 RlaifPreference(
@@ -233,6 +250,7 @@ class RlaifBackgroundEvaluator:
                         "winner_tests": winner.test_passed,
                         "winner_lint": winner.lint_passed,
                         "winner_backend": winner.backend,
+                        "auto_apply": applied if isinstance(applied, str) else bool(applied),
                         "loser_tests": loser.test_passed,
                         "loser_lint": loser.lint_passed,
                         "loser_backend": loser.backend,
@@ -246,6 +264,7 @@ class RlaifBackgroundEvaluator:
             f"Winner score: {winner_score:.1f}",
             f"Winner tests: {winner.test_passed}, lint: {winner.lint_passed}",
             f"Winner summary: {winner.summary}",
+            f"Auto-applied: {applied}",
             f"Dataset total: {self.dataset.count()}",
             "",
             "## Winning patch",
@@ -308,6 +327,7 @@ class RlaifObserverHook(AgentHook):
         publish_outbound: Callable[[OutboundMessage], Any] | None = None,
         channel: str = "cli",
         chat_id: str = "direct",
+        auto_apply: bool = False,
     ) -> None:
         super().__init__()
         self.workspace = workspace
@@ -318,6 +338,7 @@ class RlaifObserverHook(AgentHook):
         self.test_command = test_command
         self.lint_command = lint_command
         self.min_confidence = min_confidence
+        self.auto_apply = auto_apply
         self.schedule_background = schedule_background
         self._publish_outbound = publish_outbound
         self._channel = channel
@@ -357,6 +378,7 @@ class RlaifObserverHook(AgentHook):
             publish_outbound=publish_outbound,
             channel=channel,
             chat_id=chat_id,
+            auto_apply=getattr(cfg, "observer_auto_apply", False),
         )
 
     async def before_run(self, context: AgentRunHookContext) -> None:
@@ -425,6 +447,7 @@ class RlaifObserverHook(AgentHook):
                 test_command=self.test_command,
                 lint_command=self.lint_command,
                 schedule_background=self.schedule_background,
+                auto_apply=self.auto_apply,
             )
 
         task = observation.task
