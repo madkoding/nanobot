@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import shutil
 import subprocess
+import sys
 import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -229,6 +230,10 @@ class PatchHarness:
         command: list[str],
         cwd: Path | None = None,
     ) -> subprocess.CompletedProcess[str]:
+        # ponytail: `python` on the PATH may not be the interpreter that has
+        # the tools installed (esp. on Windows runners). Resolve module-style
+        # commands through the current interpreter so pytest/ruff actually run.
+        command = self._resolve_interpreter(command)
         loop = asyncio.get_event_loop()
         return await loop.run_in_executor(
             None,
@@ -240,3 +245,9 @@ class PatchHarness:
                 timeout=self.timeout,
             ),
         )
+
+    @staticmethod
+    def _resolve_interpreter(command: list[str]) -> list[str]:
+        if command and command[0] == "python" and command[1:2] == ["-m"]:
+            return [sys.executable, *command[1:]]
+        return command
