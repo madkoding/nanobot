@@ -70,6 +70,7 @@ TELEGRAM_REPLY_CONTEXT_MAX_LEN = TELEGRAM_MAX_MESSAGE_LEN  # Max length for repl
 _SEND_MAX_RETRIES = 3
 _SEND_RETRY_BASE_DELAY = 0.5  # seconds, doubled each retry
 _STREAM_EDIT_INTERVAL_DEFAULT = 0.6  # min seconds between edit_message_text calls
+_STREAM_BUFFER_TTL_SECONDS = 120.0  # max lifetime for an orphan streaming buffer
 
 
 @dataclass
@@ -84,6 +85,15 @@ class _StreamBuf:
     using_draft: bool = False  # el stream vive en un sendRichMessageDraft
     draft_expires_at: float = 0.0  # monotonic deadline; pasado → fallback legacy
     reasoning_open: bool = False  # segmento de reasoning activo
+    created_at: float = 0.0
+    last_activity: float = 0.0
+
+    def __post_init__(self) -> None:
+        now = time.monotonic()
+        if self.created_at == 0.0:
+            self.created_at = now
+        if self.last_activity == 0.0:
+            self.last_activity = now
 
 
 @dataclass
@@ -223,6 +233,7 @@ class TelegramChannel(BaseChannel):
         self._task_lists: dict[str, int] = {}
         # Polls nativos: poll_id -> {chat_id, options} para resolver poll_answer.
         self._polls_cache: dict[str, dict] = {}
+        self._stream_sweep_task: asyncio.Task | None = None
 
     def is_allowed(self, sender_id: str) -> bool:
         """Preserve Telegram's legacy id|username allowlist matching."""
@@ -385,6 +396,8 @@ class TelegramChannel(BaseChannel):
         except Exception as e:
             self.logger.warning("Failed to register bot commands: {}", e)
 
+        self._stream_sweep_task = asyncio.create_task(self._stream_sweep_loop())
+
         if self.config.mode == "webhook":
             # ``url_path`` is the local HTTP route. ``webhook_url`` is the
             # public HTTPS URL Telegram calls; reverse proxies may rewrite it.
@@ -426,6 +439,10 @@ class TelegramChannel(BaseChannel):
             task.cancel()
         self._inbound_workers.clear()
         self._inbound_buffers.clear()
+
+        if self._stream_sweep_task is not None:
+            self._stream_sweep_task.cancel()
+            self._stream_sweep_task = None
 
         if self._app:
             self.logger.info("Stopping bot...")
@@ -1025,6 +1042,67 @@ class TelegramChannel(BaseChannel):
         self._draft_counter += 1
         return self._draft_counter
 
+    @staticmethod
+    def _stream_buf_key(chat_id: str, stream_id: str | None) -> str:
+        """Key for the streaming accumulator.
+
+        We keep ``chat_id`` as the dict key for backwards compatibility, but
+        each buffer stores its ``stream_id``.  A new ``stream_id`` replaces
+        any previous buffer for the same chat so aborted turns can never
+        resume editing an older message.
+        """
+        return chat_id
+
+    def _sweep_stream_buffers(self, now: float | None = None) -> None:
+        """Discard streaming buffers that have been idle beyond the TTL."""
+        if now is None:
+            now = time.monotonic()
+        stale = [
+            key
+            for key, buf in list(self._stream_bufs.items())
+            if now - buf.last_activity > _STREAM_BUFFER_TTL_SECONDS
+        ]
+        for key in stale:
+            self.logger.debug("Sweeping stale stream buffer for {}", key)
+            self._stream_bufs.pop(key, None)
+
+    def _reset_stream_buffer(
+        self,
+        chat_id: str,
+        stream_id: str | None,
+        *,
+        reason: str = "new stream",
+    ) -> _StreamBuf:
+        """Start a fresh stream buffer for ``chat_id``.
+
+        Any leftover buffer from a previous turn is discarded; the previous
+        Telegram message simply stays frozen at whatever partial state it had.
+        """
+        key = self._stream_buf_key(chat_id, stream_id)
+        old = self._stream_bufs.pop(key, None)
+        if old is not None:
+            self.logger.debug(
+                "Resetting stream buffer for {} ({} → {}): {}",
+                chat_id,
+                old.stream_id,
+                stream_id,
+                reason,
+            )
+        buf = _StreamBuf(stream_id=stream_id)
+        self._stream_bufs[key] = buf
+        return buf
+
+    async def _stream_sweep_loop(self) -> None:
+        """Background task that periodically discards orphan stream buffers."""
+        try:
+            while self._running:
+                await asyncio.sleep(30.0)
+                self._sweep_stream_buffers()
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:
+            self.logger.warning("Stream buffer sweep failed: {}", e)
+
     async def send_reasoning_delta(
         self,
         chat_id: str,
@@ -1044,10 +1122,11 @@ class TelegramChannel(BaseChannel):
             return
         meta = metadata or {}
         int_chat_id = int(chat_id)
-        buf = self._stream_bufs.get(chat_id)
+        key = self._stream_buf_key(chat_id, stream_id)
+        self._sweep_stream_buffers()
+        buf = self._stream_bufs.get(key)
         if buf is None or (stream_id is not None and buf.stream_id is not None and buf.stream_id != stream_id):
-            buf = _StreamBuf(stream_id=stream_id)
-            self._stream_bufs[chat_id] = buf
+            buf = self._reset_stream_buffer(chat_id, stream_id, reason="new reasoning stream")
         elif buf.stream_id is None:
             buf.stream_id = stream_id
         # Protect the accumulator against non-string deltas (e.g. a provider
@@ -1060,6 +1139,7 @@ class TelegramChannel(BaseChannel):
         buf.reasoning_open = True
 
         now = time.monotonic()
+        buf.last_activity = now
         rich_ok = (
             self.config.rich_messages
             and not getattr(self, "_rich_send_disabled", False)
@@ -1130,9 +1210,11 @@ class TelegramChannel(BaseChannel):
         The draft/legacy preview keeps the accumulated thinking; the final
         message (stream_end) renders it as <details>.
         """
-        buf = self._stream_bufs.get(chat_id)
+        key = self._stream_buf_key(chat_id, stream_id)
+        buf = self._stream_bufs.get(key)
         if buf is not None:
             buf.reasoning_open = False
+            buf.last_activity = time.monotonic()
 
     def _reasoning_blockquote(self, reasoning: str) -> str:
         """Render accumulated reasoning as an expandable blockquote (legacy)."""
@@ -1392,8 +1474,11 @@ class TelegramChannel(BaseChannel):
         meta = metadata or {}
         int_chat_id = int(chat_id)
 
+        key = self._stream_buf_key(chat_id, stream_id)
+        self._sweep_stream_buffers()
+
         if stream_end:
-            buf = self._stream_bufs.get(chat_id)
+            buf = self._stream_bufs.get(key)
             if not buf or not buf.text:
                 return
             if buf.message_id is None and buf.draft_id is None:
@@ -1419,10 +1504,9 @@ class TelegramChannel(BaseChannel):
             )
             return
 
-        buf = self._stream_bufs.get(chat_id)
+        buf = self._stream_bufs.get(key)
         if buf is None or (stream_id is not None and buf.stream_id is not None and buf.stream_id != stream_id):
-            buf = _StreamBuf(stream_id=stream_id)
-            self._stream_bufs[chat_id] = buf
+            buf = self._reset_stream_buffer(chat_id, stream_id, reason="new text stream")
         elif buf.stream_id is None:
             buf.stream_id = stream_id
         buf.text += delta
@@ -1431,6 +1515,7 @@ class TelegramChannel(BaseChannel):
             return
 
         now = time.monotonic()
+        buf.last_activity = now
         thread_kwargs = {}
         if message_thread_id := meta.get("message_thread_id"):
             thread_kwargs["message_thread_id"] = message_thread_id

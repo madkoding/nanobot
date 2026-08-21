@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import time
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -19,6 +20,7 @@ from nanobot.channels.discord.runtime import (
     DiscordBotClient,
     DiscordChannel,
     DiscordConfig,
+    _StreamBuf,
 )
 from nanobot.command.builtin import build_help_text
 
@@ -778,8 +780,8 @@ async def test_send_delta_stream_end_splits_oversized_reply(monkeypatch) -> None
     chunks = DiscordBotClient._build_chunks(full_text, [], False)
     assert len(chunks) == 2
 
-    times = iter([1.0, 3.0])
-    monkeypatch.setattr("nanobot.channels.discord.runtime.time.monotonic", lambda: next(times, 3.0))
+    times = iter([1.0, 3.0, 5.0])
+    monkeypatch.setattr("nanobot.channels.discord.runtime.time.monotonic", lambda: next(times, 5.0))
 
     await owner.send_delta("123", prefix, stream_id="s1")
     await owner.send_delta("123", suffix, stream_id="s1")
@@ -1650,3 +1652,46 @@ async def test_display_name_prefers_global_name() -> None:
 
     author = SimpleNamespace(id=2, global_name=None, display_name="Display", name="user", nick="Nick")
     assert channel._display_name(author) == "Nick"
+
+
+@pytest.mark.asyncio
+async def test_new_stream_id_discards_previous_buffer(monkeypatch) -> None:
+    """A new turn with a different stream_id must never inherit a stale
+    streaming buffer; the previous Discord message stays frozen and a fresh
+    message is started for the new stream."""
+    owner = DiscordChannel(DiscordConfig(enabled=True, allow_from=["*"]), MessageBus())
+    client = _FakeDiscordClient(owner, intents=None)
+    owner._client = client
+    owner._running = True
+    target = _FakeChannel(channel_id=123)
+    client.channels[123] = target
+
+    times = iter([1.0, 2.0, 3.0, 4.0])
+    monkeypatch.setattr("nanobot.channels.discord.runtime.time.monotonic", lambda: next(times, 4.0))
+
+    await owner.send_delta("123", "aborted ", stream_id="s:0")
+    assert len(target.sent_messages) == 1
+    old_message = target.sent_messages[0]
+
+    await owner.send_delta("123", "fresh ", stream_id="s:1")
+
+    assert len(target.sent_messages) == 2
+    buf = owner._stream_bufs["123"]
+    assert buf.text == "fresh "
+    assert buf.stream_id == "s:1"
+    assert buf.message is target.sent_messages[1]
+    # Previous message was left untouched (frozen at partial state).
+    assert old_message.edits == []
+
+
+@pytest.mark.asyncio
+async def test_stream_buffers_swept_after_ttl() -> None:
+    """Orphan streaming buffers are discarded after the TTL expires."""
+    channel = DiscordChannel(DiscordConfig(enabled=True, allow_from=["*"]), MessageBus())
+    stale = _StreamBuf(text="orphan")
+    stale.last_activity = time.monotonic() - 200.0
+    channel._stream_bufs["123"] = stale
+
+    channel._sweep_stream_buffers()
+
+    assert "123" not in channel._stream_bufs

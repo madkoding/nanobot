@@ -1,4 +1,5 @@
 import asyncio
+import time
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
@@ -3623,3 +3624,49 @@ async def test_reasoning_delta_non_string_is_ignored() -> None:
     # no-string se ignoró y el siguiente delta siguió acumulando sin crash.
     assert len(channel._app.bot.sent_messages) == 1
     assert "<blockquote expandable>" in channel._app.bot.sent_messages[0]["text"]
+
+
+@pytest.mark.asyncio
+async def test_new_stream_id_discards_previous_buffer() -> None:
+    """A new turn with a different stream_id must never inherit a stale
+    streaming buffer; the previous message stays frozen and a fresh message
+    is started for the new stream."""
+    channel = TelegramChannel(
+        TelegramConfig(enabled=True, token="123:abc", allow_from=["*"]),
+        MessageBus(),
+    )
+    channel._app = _FakeApp(lambda: None)
+    channel._app.bot.send_message = AsyncMock(return_value=SimpleNamespace(message_id=1))
+    channel._app.bot.edit_message_text = AsyncMock()
+    channel._stream_bufs["123"] = _StreamBuf(
+        text="aborted partial",
+        message_id=7,
+        last_edit=0.0,
+        stream_id="s:0",
+    )
+
+    await channel.send_delta("123", "fresh ", stream_id="s:1")
+
+    buf = channel._stream_bufs["123"]
+    assert buf.text == "fresh "
+    assert buf.stream_id == "s:1"
+    # The new turn starts a brand-new Telegram message (id 1), not the
+    # message_id (7) left behind by the aborted previous turn.
+    assert buf.message_id == 1
+    assert channel._app.bot.send_message.await_count == 1
+
+
+@pytest.mark.asyncio
+async def test_stream_buffers_swept_after_ttl() -> None:
+    """Orphan streaming buffers are discarded after the TTL expires."""
+    channel = TelegramChannel(
+        TelegramConfig(enabled=True, token="123:abc", allow_from=["*"]),
+        MessageBus(),
+    )
+    stale = _StreamBuf(text="orphan", message_id=7, stream_id="s:0")
+    stale.last_activity = time.monotonic() - 200.0
+    channel._stream_bufs["123"] = stale
+
+    channel._sweep_stream_buffers()
+
+    assert "123" not in channel._stream_bufs
