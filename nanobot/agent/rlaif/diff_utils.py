@@ -40,8 +40,19 @@ def _normalize_unified_diff(patch: str, context_lines: int = 3) -> str:
                 break
             hunk_end += 1
         hunk_body = lines[hunk_start:hunk_end]
-        old_count = sum(1 for hunk_line in hunk_body if not hunk_line.startswith("+"))
-        new_count = sum(1 for hunk_line in hunk_body if not hunk_line.startswith("-"))
+        # A line like ``\ No newline at end of file`` belongs to neither side;
+        # counting it inflates old_count/new_count and makes git apply reject
+        # the patch. Exclude any line starting with a backslash.
+        old_count = sum(
+            1
+            for hunk_line in hunk_body
+            if not hunk_line.startswith("+") and not hunk_line.startswith("\\")
+        )
+        new_count = sum(
+            1
+            for hunk_line in hunk_body
+            if not hunk_line.startswith("-") and not hunk_line.startswith("\\")
+        )
         # Extract old/new start lines from header.
         header_match = re.match(
             r"@@\s+-(\d+)(?:,\d+)?\s+\+(\d+)(?:,\d+)?\s+@@",
