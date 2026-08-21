@@ -467,6 +467,12 @@ class Config(BaseSettings):
         validation_alias=AliasChoices("ownerId", "owner_id"),
         serialization_alias="ownerId",
     )
+    owner_name: str | None = Field(
+        default=None,
+        description="Operator display name used in channel greetings and identity blocks.",
+        validation_alias=AliasChoices("ownerName", "owner_name"),
+        serialization_alias="ownerName",
+    )
 
     def __init__(self, **values: Any) -> None:
         if not type(self).__pydantic_complete__:
@@ -697,6 +703,7 @@ def _resolve_tool_config_refs() -> None:
     from nanobot.agent.tools.cli_apps import CliAppsToolConfig
     from nanobot.agent.tools.filesystem import FileToolsConfig
     from nanobot.agent.tools.image_generation import ImageGenerationToolConfig
+    from nanobot.agent.tools.rlaif_eval import RlaifToolConfig
     from nanobot.agent.tools.self import MyToolConfig
     from nanobot.agent.tools.shell import ExecToolConfig
     from nanobot.agent.tools.web import WebFetchConfig, WebSearchConfig, WebToolsConfig
@@ -711,6 +718,7 @@ def _resolve_tool_config_refs() -> None:
     mod.WebFetchConfig = WebFetchConfig  # type: ignore[attr-defined]
     mod.MyToolConfig = MyToolConfig  # type: ignore[attr-defined]
     mod.ImageGenerationToolConfig = ImageGenerationToolConfig  # type: ignore[attr-defined]
+    mod.RlaifToolConfig = RlaifToolConfig  # type: ignore[attr-defined]
 
     ToolsConfig.model_rebuild()
     Config.model_rebuild()
