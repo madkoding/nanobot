@@ -3556,6 +3556,38 @@ async def test_stop_cancels_typing_indicator_and_shuts_down_app() -> None:
     app.updater.stop.assert_awaited_once()
     assert channel._app is None
 
+
+@pytest.mark.asyncio
+async def test_start_failure_cleans_state_and_stop_is_safe(monkeypatch) -> None:
+    """Regression (2026-08-19 incident): when start() fails during initialize()
+    (e.g. telegram.error.TimedOut in getMe), the channel must not stay
+    'running' and a later stop() must not raise
+    RuntimeError('This Updater is not running!')."""
+    _FakeHTTPXRequest.clear()
+    config = TelegramConfig(
+        enabled=True,
+        token="123:abc",
+        allow_from=["*"],
+    )
+    channel = TelegramChannel(config, MessageBus())
+    app = _FakeApp(lambda: None)
+    app.initialize = AsyncMock(side_effect=RuntimeError("simulated getMe timeout"))
+    builder = _FakeBuilder(app)
+
+    monkeypatch.setattr("nanobot.channels.telegram.runtime.HTTPXRequest", _FakeHTTPXRequest)
+    monkeypatch.setattr(
+        "nanobot.channels.telegram.runtime.Application",
+        SimpleNamespace(builder=lambda: builder),
+    )
+
+    with pytest.raises(RuntimeError, match="simulated getMe timeout"):
+        await channel.start()
+
+    # is_running must reflect reality and stop() must be a safe no-op.
+    assert channel.is_running is False
+    assert channel._app is None
+    await channel.stop()
+
 @pytest.mark.asyncio
 async def test_reasoning_delta_non_string_is_ignored() -> None:
     """Regression: a non-string reasoning delta (e.g. datetime from the

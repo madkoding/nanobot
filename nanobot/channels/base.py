@@ -58,6 +58,14 @@ class BaseChannel(ABC):
         self.bus = bus
         self._owner_id = owner_id
         self._running = False
+        # ponytail: last_activity_at lets the manager watchdog detect a "live
+        # but silent" channel (idle() blocked on a dead socket, group queue
+        # task died, etc.) and force a restart. Subclasses should bump this
+        # whenever they receive any inbound event or successfully publish a
+        # message; BaseChannel bumps it on every publish_inbound. Default 0
+        # means "never had activity" so the watchdog never fires during the
+        # login grace window.
+        self.last_activity_at: float = 0.0
 
     def owner_chat_id(self) -> str | None:
         """Return the operator's DM chat id for this channel, or None.
@@ -68,14 +76,6 @@ class BaseChannel(ABC):
         DM chat format (e.g. WhatsApp ``<phone>@s.whatsapp.net``).
         """
         return None
-        # ponytail: last_activity_at lets the manager watchdog detect a "live
-        # but silent" channel (idle() blocked on a dead socket, group queue
-        # task died, etc.) and force a restart. Subclasses should bump this
-        # whenever they receive any inbound event or successfully publish a
-        # message; BaseChannel bumps it on every publish_inbound. Default 0
-        # means "never had activity" so the watchdog never fires during the
-        # login grace window.
-        self.last_activity_at: float = 0.0
 
     def _touch_activity(self) -> None:
         """Record that this channel just did work, for the manager watchdog."""

@@ -55,6 +55,10 @@ _RESTART_NOTICE_START_POLL_S = 0.25
 WATCHDOG_INTERVAL_S = 60.0
 WATCHDOG_IDLE_S = 600.0
 WATCHDOG_GRACE_S = 120.0  # never trip before this many seconds since channel start
+# Reintento de canales cuyo start() falló (p.ej. timeout de red en getMe):
+# el watchdog los vuelve a intentar cada WATCHDOG_RETRY_INTERVAL_S hasta que
+# conectan, en vez de dejarlos muertos hasta un restart manual.
+WATCHDOG_RETRY_INTERVAL_S = 60.0
 
 
 def _is_non_retriable_send_error(exc: BaseException) -> bool:
@@ -140,6 +144,9 @@ class ChannelManager:
         self._channel_runtime_specs: dict[str, tuple[str, str]] = {}
         self._channel_errors: dict[str, str] = {}
         self._channel_tasks: dict[str, asyncio.Task] = {}
+        # Próximo instante (monotonic) en que el watchdog puede reintentar un
+        # canal cuyo start() falló (throttle de WATCHDOG_RETRY_INTERVAL_S).
+        self._channel_retry_at: dict[str, float] = {}
         self._dispatch_task: asyncio.Task | None = None
         self._watchdog_task: asyncio.Task | None = None
         self._started = False
@@ -380,6 +387,10 @@ class ChannelManager:
         if errors is None:
             errors = self._channel_errors = {}
         errors.pop(name, None)
+        # Reset del timer de liveness: un canal sano pero inactivo no debe
+        # quedar "silent" para siempre tras un restart del watchdog (loop de
+        # reinicios cada 60s). El canal arranca con 600s de gracia completos.
+        channel.last_activity_at = 0.0
         try:
             await channel.start()
         except asyncio.CancelledError:
@@ -627,6 +638,18 @@ class ChannelManager:
             for name, channel in list(self.channels.items()):
                 task = self._channel_tasks.get(name)
                 if task is None or task.done():
+                    # El start() anterior terminó (p.ej. falló con timeout de
+                    # red). Reintentar automáticamente en vez de dejar el
+                    # canal muerto hasta un restart manual del gateway.
+                    last_retry = self._channel_retry_at.get(name, 0.0)
+                    if now < last_retry:
+                        continue
+                    self._channel_retry_at[name] = now + WATCHDOG_RETRY_INTERVAL_S
+                    logger.warning(
+                        "Channel {} start task ended; retrying in {:.0f}s.",
+                        name, WATCHDOG_RETRY_INTERVAL_S,
+                    )
+                    self._start_channel_task(name, channel)
                     continue
                 if not channel.is_running:
                     continue

@@ -360,8 +360,18 @@ class TelegramChannel(BaseChannel):
             self.logger.info("Starting bot (polling mode)...")
 
         # Initialize and start receiving updates
-        await self._app.initialize()
-        await self._app.start()
+        try:
+            await self._app.initialize()
+            await self._app.start()
+        except BaseException:
+            # Limpiar estado: un start() fallido (p.ej. TimedOut en getMe
+            # durante initialize) no debe dejar el canal reportando
+            # is_running=True ni un _app a medio inicializar — el watchdog
+            # reintentaría sobre un objeto roto y stop() lanzaría
+            # RuntimeError("This Updater is not running!").
+            self._running = False
+            self._app = None
+            raise
 
         # Get bot info and register command menu
         bot_info = await self._app.bot.get_me()
@@ -419,7 +429,13 @@ class TelegramChannel(BaseChannel):
 
         if self._app:
             self.logger.info("Stopping bot...")
-            await self._app.updater.stop()
+            # El updater puede no haber arrancado si initialize() falló a
+            # mitad de camino; PTB lanza RuntimeError("This Updater is not
+            # running!") en ese caso. stop() debe ser un no-op seguro.
+            try:
+                await self._app.updater.stop()
+            except RuntimeError:
+                self.logger.debug("Updater was not running; skipping updater.stop()")
             await self._app.stop()
             await self._app.shutdown()
             self._app = None
