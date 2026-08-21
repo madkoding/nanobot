@@ -21,19 +21,30 @@ _TOOLS_TOKEN_CACHE_MAX_ENTRIES = 64
 _TOOLS_TOKEN_CACHE: dict[int, tuple[tuple[int, ...], dict[bool, int]]] = {}
 
 
+_KNOWN_CHANNEL_PREFIXES = ("whatsapp:", "discord:", "telegram:", "cli:")
+
+
 def normalize_owner_match(value: str | None) -> str:
     """Return a bare owner/sender identity suitable for cross-channel matching.
 
-    Strips WhatsApp-style server suffixes (``@s.whatsapp.net``, ``@g.us``,
-    ``@lid``), leading ``+`` signs, and whitespace so that a phone number
-    owner configured as ``15551234567`` matches inbound sender IDs like
-    ``15551234567@s.whatsapp.net`` or ``+15551234567``.
+    Strips channel prefixes (``whatsapp:``, ``discord:``, ``telegram:``,
+    ``cli:``), WhatsApp-style server suffixes (``@s.whatsapp.net``, ``@g.us``,
+    ``@lid``), device-id suffixes (``15551234567:42``), leading ``+`` signs,
+    and whitespace so a phone number owner configured as ``15551234567``,
+    ``+15551234567``, or ``whatsapp:+15551234567`` all match an inbound
+    sender ID like ``15551234567``, ``+15551234567``, or
+    ``15551234567@s.whatsapp.net``.
     """
     if not value:
         return ""
     if not isinstance(value, str):
         return str(value)
-    normalized = value.strip().lstrip("+")
+    normalized = value.strip()
+    for prefix in _KNOWN_CHANNEL_PREFIXES:
+        if normalized.lower().startswith(prefix):
+            normalized = normalized[len(prefix):]
+            break
+    normalized = normalized.lstrip("+")
     if "@" in normalized:
         normalized = normalized.split("@", 1)[0]
     if ":" in normalized:

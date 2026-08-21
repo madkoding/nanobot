@@ -25,6 +25,7 @@ from nanobot.channels.whatsapp.group_workspace import ChatWorkspaceRegistry
 from nanobot.config.paths import get_media_dir, get_runtime_subdir
 from nanobot.config.schema import Base
 from nanobot.runtime_context import RUNTIME_CONTEXT_INPUT_META, RuntimeContextBlock
+from nanobot.utils.helpers import is_owner_match
 
 
 class WhatsAppConfig(Base):
@@ -909,19 +910,10 @@ class WhatsAppChannel(BaseChannel):
         """Return True when the sender is the owner or in the known contacts list."""
         if not sender_id:
             return False
+        if self._owner_id and is_owner_match(sender_id, self._owner_id):
+            return True
         normalized = _normalize_jid(sender_id)
         bare = _bare_jid(sender_id)
-        owner_ids = self._owner_id if isinstance(self._owner_id, (list, tuple, set)) else [self._owner_id]
-        for owner in owner_ids:
-            owner_text = str(owner or "")
-            if not owner_text:
-                continue
-            if owner_text == sender_id or owner_text == normalized or owner_text == bare:
-                return True
-            # Owner may be configured as bare phone; match either phone form.
-            owner_bare = _bare_jid(owner_text)
-            if owner_bare and (owner_bare == bare or owner_bare == normalized):
-                return True
         for contact in self.config.known_contacts:
             contact_text = str(contact or "").strip()
             if not contact_text:

@@ -187,3 +187,28 @@ async def test_no_owner_configured_skips_tool_filter(_loop: AgentLoop) -> None:
     )
 
     assert set(captured["tools"].tool_names) == {"read_file", "write_file", "todos"}
+
+
+@pytest.mark.parametrize(
+    "sender_id,owner_id",
+    [
+        ("15551234567", "whatsapp:+15551234567"),
+        ("15551234567", "whatsapp:15551234567"),
+        ("15551234567", "+15551234567"),
+        ("15551234567", "15551234567"),
+        ("15551234567", "whatsapp:15551234567@s.whatsapp.net"),
+        ("123456789012345678", "discord:123456789012345678"),
+    ],
+)
+def test_is_owner_match_channel_prefixed_form(sender_id: str, owner_id: str) -> None:
+    """Channel-prefixed owner ids must match their bare sender counterpart."""
+    from nanobot.utils.helpers import is_owner_match
+    assert is_owner_match(sender_id, owner_id)
+
+
+def test_is_owner_match_channel_prefixed_in_list() -> None:
+    """Mixed list with channel-prefixed WhatsApp owner must match bare phone sender."""
+    from nanobot.utils.helpers import is_owner_match
+    owner_list = ["cli:user", "discord:123456789012345678", "whatsapp:+15551234567"]
+    assert is_owner_match("15551234567", owner_list)
+    assert not is_owner_match("56999999999", owner_list)
