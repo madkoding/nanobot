@@ -241,6 +241,14 @@ class RlaifProactiveScanner:
         # garbage (e.g. malformed patches from a non-diff model) is rejected
         # before we burn 30+ seconds on pytest. The full tests are only run
         # once the patch is approved.
+        #
+        # We compare lint output BEFORE and AFTER the patch: if the patch
+        # only keeps pre-existing errors, we let it through (the user
+        # already had those). Only NEW errors (introduced by the patch)
+        # cause rejection.
+        lint_pre = await asyncio.to_thread(
+            _run_lint_for_preflight, self.workspace, self.lint_command
+        )
         preflight_harness = PatchHarness(
             repo_root=self.workspace,
             test_command=["true"],  # skip pytest on the preflight
@@ -250,15 +258,20 @@ class RlaifProactiveScanner:
         preflight = await preflight_harness.evaluate(
             patch, patch_summary=proposal.get("rationale", "")
         )
-        if not preflight.lint_passed:
-            logger.warning(
-                "RLAIF scanner: {} failed preflight lint:\n{}\n\nlint tail:\n{}",
-                rel, patch, preflight.lint_output[-300:],
-            )
-            report = f"RLAIF scanner: candidate for {rel} failed lint preflight."
-            self._state.last_report = report
-            logger.info(report)
-            return report
+        if preflight.lint_passed:
+            lint_delta_ok = True
+        else:
+            lint_post = preflight.lint_output
+            lint_delta_ok = _lint_only_introduced(lint_pre, lint_post, rel)
+            if not lint_delta_ok:
+                logger.warning(
+                    "RLAIF scanner: {} failed preflight lint (new errors):\n{}\n\nlint tail:\n{}",
+                    rel, patch, preflight.lint_output[-300:],
+                )
+                report = f"RLAIF scanner: candidate for {rel} failed lint preflight."
+                self._state.last_report = report
+                logger.info(report)
+                return report
 
         # Quick syntactic check: can `git apply` actually find where the diff
         # goes? If it can't, the patch is malformed — don't bother the user.
@@ -944,6 +957,67 @@ class RlaifProactiveScanner:
             else:
                 out.append(line)
         return "\n".join(out) + ("\n" if patch.endswith("\n") else "")
+
+
+def _run_lint_for_preflight(workspace: Path, lint_command: list[str]) -> str:
+    """Run the lint command in `workspace` and return its output. Used to
+    capture the pre-existing lint state before applying a candidate patch."""
+    import subprocess
+
+    try:
+        proc = subprocess.run(
+            lint_command,
+            cwd=str(workspace),
+            capture_output=True,
+            text=True,
+            timeout=120,
+        )
+    except (subprocess.TimeoutExpired, OSError) as exc:
+        logger.warning("RLAIF scanner: pre-patch lint run failed: {}", exc)
+        return ""
+    return (proc.stdout or "") + (proc.stderr or "")
+
+
+def _lint_only_introduced(
+    lint_pre: str,
+    lint_post: str,
+    rel_path: str,
+) -> bool:
+    """True if every new error in lint_post is also a pre-existing error in lint_pre.
+
+    We compare the set of (code, message) tuples from each output. Line
+    numbers are ignored because the patch may have shifted them. If we
+    can't parse the output, fall back to permissive: pass.
+    """
+    import re
+
+    def _extract(s: str) -> set[str]:
+        out: set[str] = set()
+        for raw in s.splitlines():
+            line = raw.replace("\r", "").strip()
+            if not line:
+                continue
+            # ruff format: `path:line:col: CODE message`
+            m = re.match(r"^.*?:(\d+):(\d+):\s*([A-Z]+\d+)\s+(.*)$", line)
+            if not m:
+                continue
+            code, msg = m.group(3), m.group(4)
+            out.add(f"{code}:{msg}")
+        return out
+
+    pre = _extract(lint_pre)
+    post = _extract(lint_post)
+    if not post:
+        # No structured errors; can't compare. Trust the test_command
+        # to catch real issues later.
+        return True
+    new = post - pre
+    if new:
+        logger.info(
+            "RLAIF scanner: patch for {} introduced {} new lint errors: {}",
+            rel_path, len(new), sorted(new)[:5],
+        )
+    return not new
 
 
 def build_scanner_from_config(
