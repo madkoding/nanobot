@@ -94,8 +94,34 @@ export function RlaifSurface({ onBackToChat }: Props) {
       setActionPending(id);
       setActionResult(null);
       try {
+        // Approve runs as a background job in the gateway (so the WS
+        // event loop doesn't block). Backend returns 202 with a
+        // job_id; we poll the proposal list every 2s to see when the
+        // proposal disappears (success) or shows an error.
         const r = await actOnRlaifProposal(token, id, "approve");
-        setActionResult({ id, result: r.result, ok: r.ok });
+        if (r.status === "running") {
+          setActionResult({
+            id,
+            result: "running on gateway; this can take a minute or two...",
+            ok: true,
+          });
+          // Poll until the proposal is gone.
+          for (let i = 0; i < 60; i++) {
+            await new Promise((res) => setTimeout(res, 2000));
+            const proposals = await fetchRlaifProposals(token);
+            const stillThere = proposals.items.some((p) => p.id === id);
+            if (!stillThere) {
+              setActionResult({
+                id,
+                result: "applied (proposal removed)",
+                ok: true,
+              });
+              break;
+            }
+          }
+        } else {
+          setActionResult({ id, result: r.result ?? "done", ok: r.ok });
+        }
         await refreshProposals();
       } catch (e) {
         setActionResult({
@@ -116,7 +142,7 @@ export function RlaifSurface({ onBackToChat }: Props) {
       setActionResult(null);
       try {
         const r = await actOnRlaifProposal(token, id, "reject");
-        setActionResult({ id, result: r.result, ok: r.ok });
+        setActionResult({ id, result: r.result ?? r.message ?? "done", ok: r.ok });
         await refreshProposals();
       } catch (e) {
         setActionResult({

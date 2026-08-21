@@ -14,6 +14,7 @@ import json
 import mimetypes
 import re
 import shutil
+import threading
 import time
 from collections.abc import Callable
 from pathlib import Path
@@ -1123,20 +1124,41 @@ class GatewayHTTPHandler:
                 return _http_error(404, "proposal not found")
             return _http_json_response(prop)
         if action == "approve":
-            try:
-                loop = asyncio.get_event_loop()
-                if loop.is_running():
-                    future = asyncio.run_coroutine_threadsafe(
-                        _rlaif_approve_proposal(proposal_id), loop
-                    )
-                    result = future.result(timeout=600)
-                else:
-                    result = loop.run_until_complete(
+            # ponytail: never block the WebSocket event loop on a
+            # long-running approve. The work runs in a worker thread,
+            # the handler responds immediately with a 202 + a job id,
+            # and the frontend polls /api/rlaif/proposals/<id>/view to
+            # read the result back (we re-use the pending_proposals
+            # state file as a tiny job store).
+            import threading
+            job_id = f"approve-{proposal_id}-{int(time.time() * 1000)}"
+            state = {"status": "running", "result": None, "error": None}
+
+            def _run_approve() -> None:
+                try:
+                    state["result"] = asyncio.run(
                         _rlaif_approve_proposal(proposal_id)
                     )
-            except RuntimeError:
-                result = asyncio.run(_rlaif_approve_proposal(proposal_id))
-            return _http_json_response({"ok": True, "result": result})
+                    state["status"] = "done"
+                except Exception as exc:  # noqa: BLE001
+                    state["error"] = f"{type(exc).__name__}: {exc}"
+                    state["status"] = "error"
+
+            thread = threading.Thread(
+                target=_run_approve,
+                name=f"rlaif-approve-{proposal_id}",
+                daemon=True,
+            )
+            thread.start()
+            return _http_json_response(
+                {
+                    "ok": True,
+                    "status": "running",
+                    "job_id": job_id,
+                    "message": "approve started; poll /view for status",
+                },
+                status=202,
+            )
         if action == "reject":
             return _http_json_response(
                 {"ok": True, "result": _rlaif_reject_proposal(proposal_id)}

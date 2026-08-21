@@ -1560,14 +1560,17 @@ export async function actOnRlaifProposal(
   proposalId: number,
   action: "approve" | "reject",
   base: string = "",
-): Promise<{ ok: boolean; result: string }> {
+): Promise<{ ok: boolean; result?: string; status?: string; job_id?: string; message?: string }> {
   // GET is fine here: the WebUI HTTP layer doesn't do method routing
   // (everything goes through one dispatcher) and the bearer token in the
   // Authorization header is the only auth needed.
-  return request<{ ok: boolean; result: string }>(
+  // For approve, the backend returns 202 immediately with a job_id
+  // and runs the work in a worker thread; the frontend polls
+  // /api/rlaif/proposals to detect completion.
+  return request<{ ok: boolean; result?: string; status?: string; job_id?: string; message?: string }>(
     `${base}/api/rlaif/proposals/${proposalId}/${action}`,
     token,
     undefined,
-    600_000,
+    30_000,
   );
 }
