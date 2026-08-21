@@ -240,6 +240,11 @@ export function useShellBootstrap({
     navigate({ view: "research", activeKey, settingsSection: "overview" });
   }, [navigate, activeKey, setMobileSidebarOpen]);
 
+  const onOpenRlaif = useCallback(() => {
+    setMobileSidebarOpen(false);
+    navigate({ view: "rlaif", activeKey, settingsSection: "overview" });
+  }, [navigate, activeKey, setMobileSidebarOpen]);
+
   useShellShortcuts({ onNewChat, onOpenSessionSearch, onOpenAgenda });
 
   const onTurnEnd = useDeferredTitleRefresh(activeSession, refresh);
@@ -274,6 +279,7 @@ export function useShellBootstrap({
     onOpenTodos,
     onOpenAgenda,
     onOpenResearch,
+    onOpenRlaif,
     projects: projectsState.projects,
     onOpenProject,
     token,
@@ -344,6 +350,7 @@ export function useShellBootstrap({
     onOpenTodos,
     onOpenAgenda,
     onOpenResearch,
+    onOpenRlaif,
     onOpenProject,
   };
 }

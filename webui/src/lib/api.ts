@@ -1448,3 +1448,69 @@ export async function fetchWorkspaceFileBlob(
   }
   return res.blob();
 }
+
+export interface RlaifPreferenceItem {
+  prompt: string;
+  chosen: unknown;
+  rejected: unknown;
+  score_chosen: number;
+  score_rejected: number;
+  reason: string;
+  task: string;
+  timestamp: string;
+  metadata: Record<string, unknown>;
+  _index: number;
+}
+
+export interface RlaifPreferencesPayload {
+  path: string;
+  total: number;
+  items: RlaifPreferenceItem[];
+  next_index: number;
+}
+
+export interface RlaifLogItem {
+  line_no: number;
+  text: string;
+}
+
+export interface RlaifLogPayload {
+  path: string;
+  total: number;
+  items: RlaifLogItem[];
+  next_line: number;
+  error?: string;
+}
+
+export async function fetchRlaifPreferences(
+  token: string,
+  params: { sinceIndex?: number; limit?: number; offset?: number } = {},
+  base: string = "",
+): Promise<RlaifPreferencesPayload> {
+  const query = new URLSearchParams();
+  if (params.sinceIndex !== undefined) query.set("since_index", String(params.sinceIndex));
+  if (params.limit !== undefined) query.set("limit", String(params.limit));
+  if (params.offset !== undefined) query.set("offset", String(params.offset));
+  return request<RlaifPreferencesPayload>(
+    `${base}/api/rlaif/preferences?${query}`,
+    token,
+    undefined,
+    API_READ_TIMEOUT_MS,
+  );
+}
+
+export async function fetchRlaifLog(
+  token: string,
+  params: { sinceLine?: number; maxLines?: number } = {},
+  base: string = "",
+): Promise<RlaifLogPayload> {
+  const query = new URLSearchParams();
+  if (params.sinceLine !== undefined) query.set("since_line", String(params.sinceLine));
+  if (params.maxLines !== undefined) query.set("max_lines", String(params.maxLines));
+  return request<RlaifLogPayload>(
+    `${base}/api/rlaif/log?${query}`,
+    token,
+    undefined,
+    API_READ_TIMEOUT_MS,
+  );
+}

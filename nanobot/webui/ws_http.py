@@ -114,6 +114,12 @@ from nanobot.webui.projects import (
     projects_list_payload,
 )
 from nanobot.webui.research_api import share_research_article
+from nanobot.webui.rlaif_api import (
+    read_log as _rlaif_read_log,
+)
+from nanobot.webui.rlaif_api import (
+    read_preferences as _rlaif_read_preferences,
+)
 from nanobot.webui.session_automations import (
     all_automations_payload,
     serialize_automation_jobs,
@@ -367,6 +373,11 @@ class GatewayHTTPHandler:
 
         # Research routes
         response = self._dispatch_research_routes(request, got)
+        if response is not None:
+            return response
+
+        # RLAIF watch routes (preferences + filtered gateway log)
+        response = self._dispatch_rlaif_routes(request, got)
         if response is not None:
             return response
 
@@ -1025,6 +1036,50 @@ class GatewayHTTPHandler:
         payload = share_research_article(path, scope)
         if not payload.get("ok"):
             return _http_error(400, payload.get("error") or "Failed to share")
+        return _http_json_response(payload)
+
+    # -- RLAIF watch routes --------------------------------------------------
+
+    def _dispatch_rlaif_routes(self, request: WsRequest, got: str) -> Response | None:
+        if got == "/api/rlaif/preferences":
+            return self._handle_rlaif_preferences(request)
+        if got == "/api/rlaif/log":
+            return self._handle_rlaif_log(request)
+        return None
+
+    def _handle_rlaif_preferences(self, request: WsRequest) -> Response:
+        if not self.check_api_token(request):
+            return _http_error(401, "Unauthorized")
+        query = _parse_query(request.path)
+        try:
+            offset = int(_query_first(query, "offset") or 0)
+            limit_raw = _query_first(query, "limit")
+            limit = int(limit_raw) if limit_raw else None
+            since_raw = _query_first(query, "since_index")
+            since_index = int(since_raw) if since_raw is not None else None
+        except ValueError:
+            return _http_error(400, "invalid query parameter")
+        payload = _rlaif_read_preferences(
+            offset=max(0, offset),
+            limit=limit,
+            since_index=since_index,
+        )
+        return _http_json_response(payload)
+
+    def _handle_rlaif_log(self, request: WsRequest) -> Response:
+        if not self.check_api_token(request):
+            return _http_error(401, "Unauthorized")
+        query = _parse_query(request.path)
+        try:
+            since_raw = _query_first(query, "since_line")
+            since_line = int(since_raw) if since_raw is not None else None
+            max_lines = int(_query_first(query, "max_lines") or 200)
+        except ValueError:
+            return _http_error(400, "invalid query parameter")
+        payload = _rlaif_read_log(
+            since_line=since_line,
+            max_lines=max(1, min(max_lines, 1000)),
+        )
         return _http_json_response(payload)
 
     # -- Workspace browser routes ------------------------------------------
