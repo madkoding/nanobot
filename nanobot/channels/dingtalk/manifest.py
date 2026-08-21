@@ -22,8 +22,8 @@ PLUGIN = ChannelPlugin(
     dependencies=(
         "dingtalk-stream>=0.24.0,<1.0.0",
         # dingtalk-stream only requires websockets>=11.0.2, so pip may resolve
-        # an old 15.x that conflicts with nanobot's >=16.0,<17.0.
-        "websockets>=16.0,<17.0",
+        # an old 15.x that conflicts with nanobot's >=15.0,<17.0.
+        "websockets>=15.0,<17.0",
     ),
     webui="webui/index.ts",
 )

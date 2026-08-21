@@ -1809,7 +1809,7 @@ wheels = [
 
 [[package]]
 name = "nanobot-ai"
-version = "0.3.12"
+version = "0.7.0"
 source = { editable = "." }
 dependencies = [
     { name = "anthropic" },
@@ -1943,7 +1943,7 @@ requires-dist = [
     { name = "typer", specifier = ">=0.20.0,<1.0.0" },
     { name = "tzdata", marker = "sys_platform == 'win32'", specifier = ">=2025.2" },
     { name = "watchfiles", specifier = ">=1.1.1,<2.0.0" },
-    { name = "websockets", specifier = ">=16.0,<17.0" },
+    { name = "websockets", specifier = ">=15.0,<17.0" },
 ]
 provides-extras = ["api", "azure", "bedrock", "documents", "langfuse", "pdf", "olostep", "dev"]
 

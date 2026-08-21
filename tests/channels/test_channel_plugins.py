@@ -2423,7 +2423,7 @@ def test_optional_dependency_metadata_for_enable():
     expected_channel_dependencies = {
         "dingtalk": (
             "dingtalk-stream>=0.24.0,<1.0.0",
-            "websockets>=16.0,<17.0",
+            "websockets>=15.0,<17.0",
         ),
         "discord": ("discord.py>=2.5.2,<3.0.0",),
         "feishu": ("lark-oapi>=1.5.0,<2.0.0",),
@@ -2456,7 +2456,7 @@ def test_optional_dependency_metadata_for_enable():
         ),
         "wecom": (
             "wecom-aibot-sdk-python>=0.1.5",
-            "websockets>=16.0,<17.0",
+            "websockets>=15.0,<17.0",
         ),
         "weixin": ("qrcode[pil]>=8.0", "pycryptodome>=3.20.0"),
         "whatsapp": (
