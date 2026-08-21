@@ -73,6 +73,46 @@ def _git_commit(workspace: Path, message: str) -> str | None:
     except Exception as exc:  # ponytail: keep commit best-effort, never break the eval
         logger.warning("RLAIF auto-commit raised: {}", exc)
         return None
+
+
+def _git_push(workspace: Path, remote: str = "origin") -> str | None:
+    """Push the current branch to ``remote``. Returns a short status string.
+
+    Pushes whatever the current branch is. Assumes SSH auth works (key in
+    ~/.ssh/ or agent). On failure returns None and logs — never raises.
+    """
+    import subprocess
+
+    try:
+        branch = subprocess.run(
+            ["git", "rev-parse", "--abbrev-ref", "HEAD"],
+            cwd=str(workspace),
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        if branch.returncode != 0:
+            logger.warning("RLAIF auto-push: cannot determine branch: {}", branch.stderr.strip())
+            return None
+        branch_name = branch.stdout.strip()
+        if not branch_name or branch_name == "HEAD":
+            return "skip: detached HEAD"
+        push = subprocess.run(
+            ["git", "push", remote, branch_name],
+            cwd=str(workspace),
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+        if push.returncode != 0:
+            logger.warning("RLAIF auto-push: git push failed: {}", push.stderr.strip())
+            return None
+        # push stdout has the new commit summary on success, e.g. "abc1234..def5678"
+        out = push.stdout.strip().splitlines()[-1] if push.stdout.strip() else "pushed"
+        return f"pushed {branch_name} -> {remote} ({out})"
+    except Exception as exc:  # ponytail: best-effort, never break the eval
+        logger.warning("RLAIF auto-push raised: {}", exc)
+        return None
 from nanobot.bus.events import OutboundMessage
 
 if TYPE_CHECKING:
@@ -235,6 +275,7 @@ class RlaifBackgroundEvaluator:
         dataset: RlaifDataset | None = None,
         auto_apply: bool = False,
         auto_commit: bool = False,
+        auto_push: bool = False,
     ) -> None:
         self.workspace = workspace
         self.provider = provider
@@ -247,6 +288,7 @@ class RlaifBackgroundEvaluator:
         self.dataset = dataset or RlaifDataset()
         self.auto_apply = auto_apply
         self.auto_commit = auto_commit
+        self.auto_push = auto_push
 
     async def run(self, task: str) -> str:
         """Generate candidates, evaluate, score, save preferences, return report."""
@@ -303,6 +345,14 @@ class RlaifBackgroundEvaluator:
                         applied = f"{applied}; {commit_result}"
                     else:
                         applied = f"{applied}; (commit failed: see gateway log)"
+                    if self.auto_push and commit_result and commit_result != "no changes to commit":
+                        push_result = await asyncio.to_thread(
+                            _git_push, self.workspace
+                        )
+                        if push_result:
+                            applied = f"{applied}; {push_result}"
+                        else:
+                            applied = f"{applied}; (push failed: see gateway log)"
 
         for loser, loser_score in scored[1:]:
             self.dataset.append(
@@ -397,6 +447,7 @@ class RlaifObserverHook(AgentHook):
         chat_id: str = "direct",
         auto_apply: bool = False,
         auto_commit: bool = False,
+        auto_push: bool = False,
     ) -> None:
         super().__init__()
         self.workspace = workspace
@@ -409,6 +460,7 @@ class RlaifObserverHook(AgentHook):
         self.min_confidence = min_confidence
         self.auto_apply = auto_apply
         self.auto_commit = auto_commit
+        self.auto_push = auto_push
         self.schedule_background = schedule_background
         self._publish_outbound = publish_outbound
         self._channel = channel
@@ -450,6 +502,7 @@ class RlaifObserverHook(AgentHook):
             chat_id=chat_id,
             auto_apply=getattr(cfg, "observer_auto_apply", False),
             auto_commit=getattr(cfg, "observer_auto_commit", False),
+            auto_push=getattr(cfg, "observer_auto_push", False),
         )
 
     async def before_run(self, context: AgentRunHookContext) -> None:
@@ -520,6 +573,7 @@ class RlaifObserverHook(AgentHook):
                 schedule_background=self.schedule_background,
                 auto_apply=self.auto_apply,
                 auto_commit=self.auto_commit,
+                auto_push=self.auto_push,
             )
 
         task = observation.task

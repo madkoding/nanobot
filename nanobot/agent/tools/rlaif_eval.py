@@ -49,6 +49,10 @@ class RlaifToolConfig(Base):
     # If true, the observer also stages and commits the applied patch to the
     # repo's current branch after a successful auto-apply. No push.
     observer_auto_commit: bool = False
+    # If true, the observer also pushes the auto-commit to the remote
+    # (``origin``, current branch). Requires SSH auth available in the
+    # gateway process (default ~/.ssh/id_ed25519 works).
+    observer_auto_push: bool = False
     # Workspace root where candidate patches are evaluated. Falls back to the
     # agent's default workspace when omitted.
     workspace: str | None = None
