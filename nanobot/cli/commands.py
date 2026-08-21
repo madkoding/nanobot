@@ -62,8 +62,11 @@ from rich.text import Text  # noqa: E402
 
 from nanobot import __logo__, __version__  # noqa: E402
 from nanobot import optional_features as feature_support  # noqa: E402
-from nanobot.agent.hooks import create_file_edit_activity_hook  # noqa: E402
+from nanobot.agent.hooks import (  # noqa: E402
+    create_file_edit_activity_hook,
+)
 from nanobot.agent.loop import AgentLoop  # noqa: E402
+from nanobot.agent.rlaif.observer import make_rlaif_observer_factory  # noqa: E402
 from nanobot.agent.subagent import SubagentManager  # noqa: E402
 from nanobot.bus.outbound_events import (  # noqa: E402
     ProgressEvent,
@@ -1741,7 +1744,7 @@ def _run_gateway(
     from nanobot.providers.fallback_provider import FallbackProvider
     from nanobot.providers.image_generation import image_gen_provider_configs
     from nanobot.session.manager import SessionManager
-    from nanobot.session.webui_turns import (
+    from nanobot.session.webui_turns import (  # noqa: F401
         WebuiTurnCoordinator,
         WebuiTurnRoutePolicy,
         build_webui_fallback_model_observer,
@@ -1836,35 +1839,6 @@ def _run_gateway(
         route_policy=WebuiTurnRoutePolicy(session_manager),
     )
 
-    # Create agent with cron service
-    agent = AgentLoop.from_config(
-        config, bus,
-        provider=provider_snapshot.provider,
-        model=provider_snapshot.model,
-        context_window_tokens=provider_snapshot.context_window_tokens,
-        cron_service=cron,
-        session_manager=session_manager,
-        image_generation_provider_configs=image_gen_provider_configs(config),
-        provider_snapshot_loader=_load_gateway_provider_snapshot,
-        preset_catalog_loader=load_model_preset_catalog,
-        runtime_events=runtime_events,
-        turn_delivery_factory=turn_delivery_factory,
-        provider_signature=provider_snapshot.signature,
-        hooks=[TokenUsageHook(
-            timezone_name=config.agents.defaults.timezone,
-            provider_name_provider=lambda: getattr(
-                provider_snapshot.provider, "provider_name", None
-            ),
-        )],
-        local_trigger_store=trigger_store,
-        hook_factories=[create_file_edit_activity_hook],
-    )
-    webui_turn_coordinator = WebuiTurnCoordinator(
-        bus=bus,
-        sessions=session_manager,
-        schedule_background=lambda coro: agent._schedule_background(coro),
-    )
-    webui_turn_coordinator.subscribe(runtime_events)
     from nanobot.bus.events import OutboundMessage
     from nanobot.session.keys import session_key_for_channel
 
@@ -1906,6 +1880,38 @@ def _run_gateway(
             session.add_message("assistant", msg.content, **extra)
             session_manager.save(session)
         await bus.publish_outbound(msg)
+
+    # Create agent with cron service
+    rlaif_factory = make_rlaif_observer_factory(
+        cfg=config.tools.rlaif,
+        workspace=config.workspace_path,
+        provider=provider_snapshot.provider,
+        model=provider_snapshot.model,
+        schedule_background=lambda coro: agent._schedule_background(coro),
+        publish_outbound=_deliver_to_channel,
+    )
+    agent = AgentLoop.from_config(
+        config, bus,
+        provider=provider_snapshot.provider,
+        model=provider_snapshot.model,
+        context_window_tokens=provider_snapshot.context_window_tokens,
+        cron_service=cron,
+        session_manager=session_manager,
+        image_generation_provider_configs=image_gen_provider_configs(config),
+        provider_snapshot_loader=_load_gateway_provider_snapshot,
+        preset_catalog_loader=load_model_preset_catalog,
+        runtime_events=runtime_events,
+        turn_delivery_factory=turn_delivery_factory,
+        provider_signature=provider_snapshot.signature,
+        hooks=[TokenUsageHook(
+            timezone_name=config.agents.defaults.timezone,
+            provider_name_provider=lambda: getattr(
+                provider_snapshot.provider, "provider_name", None
+            ),
+        )],
+        local_trigger_store=trigger_store,
+        hook_factories=[create_file_edit_activity_hook, rlaif_factory],
+    )
 
     message_tool = getattr(agent, "tools", {}).get("message")
     if isinstance(message_tool, MessageTool):

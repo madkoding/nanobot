@@ -199,16 +199,16 @@ class WorkspaceScopeResolver:
         session_metadata: Any,
         sender_id: str | None = None,
     ) -> WorkspaceScope:
-        if channel != self.scoped_channel:
-            return self.default()
-        # Owner bypasses workspace restriction: treat every WebUI turn as full
-        # access so the operator is never sandboxed by the global policy.
+        # Owner bypasses workspace restriction on any channel (not only WebUI)
+        # so the operator is never sandboxed by the global policy.
         if _sender_is_owner(channel, sender_id):
             return build_workspace_scope(
                 self.default_workspace,
                 "full",
                 source_channel=channel,
             )
+        if channel != self.scoped_channel:
+            return self.default()
         scope = resolve_effective_workspace_scope(
             message_metadata=message_metadata,
             session_metadata=session_metadata,
@@ -438,9 +438,10 @@ def current_tool_workspace(
         else Path(default_workspace).expanduser() if default_workspace is not None else None
     )
     # A bound full-access scope (e.g. owner bypass) wins over tool-level defaults
-    # so that the operator is never sandboxed by a tool's restrict_to_workspace.
+    # and the sandbox so the operator is never sandboxed by a tool's
+    # restrict_to_workspace or the bwrap sandbox.
     if scope is not None and scope.access_mode == "full":
-        restrict = bool(sandbox_restricts_workspace)
+        restrict = False
     elif scope is not None and scope.access_mode == "restricted":
         restrict = scope.restrict_to_workspace or sandbox_restricts_workspace
     else:
