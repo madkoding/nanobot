@@ -6,6 +6,7 @@ import { useClient } from "@/providers/ClientProvider";
 import { useRlaifWatch } from "@/hooks/useRlaifWatch";
 import {
   actOnRlaifProposal,
+  fetchRlaifJob,
   fetchRlaifProposal,
   fetchRlaifProposals,
   type RlaifProposal,
@@ -108,6 +109,64 @@ export function RlaifSurface({ onBackToChat }: Props) {
     return () => window.clearInterval(id);
   }, [actionState]);
 
+  // On mount: resume any in-flight approve jobs that the backend
+  // remembers. This makes refresh-during-approve work: the page can
+  // show the live progress again within ~1s of coming back.
+  useEffect(() => {
+    let cancelled = false;
+    const jobIds = readPersistedJobs();
+    if (jobIds.length === 0) return;
+    (async () => {
+      for (const jobId of jobIds) {
+        try {
+          const job = await fetchRlaifJob(token, jobId);
+          if (cancelled) return;
+          const startedAt = job.started_at * 1000;
+          if (job.status === "running") {
+            setActionState({
+              kind: "running",
+              id: job.proposal_id,
+              startedAt,
+              jobId: job.job_id,
+              lastMessage: "running on gateway (resumed after refresh)...",
+            });
+          } else if (job.status === "done") {
+            const durationMs = job.finished_at
+              ? Math.round((job.finished_at - job.started_at) * 1000)
+              : 0;
+            setActionState({
+              kind: "done",
+              id: job.proposal_id,
+              ok: true,
+              message: job.result ?? "done",
+              durationMs,
+            });
+            forgetPersistedJob(jobId);
+          } else if (job.status === "error") {
+            const durationMs = job.finished_at
+              ? Math.round((job.finished_at - job.started_at) * 1000)
+              : 0;
+            setActionState({
+              kind: "done",
+              id: job.proposal_id,
+              ok: false,
+              message: job.error ?? "unknown error",
+              durationMs,
+            });
+            forgetPersistedJob(jobId);
+          }
+        } catch {
+          // Job not found (probably old); drop it from localStorage.
+          forgetPersistedJob(jobId);
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   // Auto-scroll for the log card.
   useEffect(() => {
     const el = logRef.current;
@@ -172,33 +231,63 @@ export function RlaifSurface({ onBackToChat }: Props) {
       try {
         // Approve runs as a background job in the gateway (so the WS
         // event loop doesn't block). Backend returns 202 with a
-        // job_id; we poll the proposal list every 2s to see when the
-        // proposal disappears (success) or shows an error.
+        // job_id; we poll the job's status until it's done.
         const r = await actOnRlaifProposal(token, id, "approve");
-        if (r.status === "running") {
+        if (r.status === "running" && r.job_id) {
+          persistJob(r.job_id);
           setActionState({
             kind: "running",
             id,
             startedAt,
-            jobId: r.job_id ?? "(no id)",
+            jobId: r.job_id,
             lastMessage: r.message ?? "running on gateway...",
           });
-          // Poll until the proposal is gone (success) or 5 minutes elapse.
+          // Poll the job status every 2s for up to 5 minutes. Using
+          // the dedicated /api/rlaif/jobs/<id> endpoint is more
+          // accurate than checking the proposals list (which only
+          // changes on success, not on partial-failure paths).
           for (let i = 0; i < 150; i++) {
             await new Promise((res) => setTimeout(res, 2000));
-            const proposals = await fetchRlaifProposals(token);
-            const stillThere = proposals.items.some((p) => p.id === id);
-            if (!stillThere) {
-              setActionState({
-                kind: "done",
-                id,
-                ok: true,
-                message: "applied (proposal removed)",
-                durationMs: Date.now() - startedAt,
-              });
-              break;
+            try {
+              const job = await fetchRlaifJob(token, r.job_id);
+              if (job.status === "done") {
+                setActionState({
+                  kind: "done",
+                  id,
+                  ok: true,
+                  message: job.result ?? "applied",
+                  durationMs:
+                    (job.finished_at ?? job.started_at) * 1000 - startedAt,
+                });
+                forgetPersistedJob(r.job_id);
+                await refreshProposals();
+                return;
+              }
+              if (job.status === "error") {
+                setActionState({
+                  kind: "done",
+                  id,
+                  ok: false,
+                  message: job.error ?? "unknown error",
+                  durationMs:
+                    (job.finished_at ?? job.started_at) * 1000 - startedAt,
+                });
+                forgetPersistedJob(r.job_id);
+                return;
+              }
+            } catch {
+              // transient; keep polling
             }
           }
+          // 5-minute timeout
+          setActionState({
+            kind: "done",
+            id,
+            ok: false,
+            message: "timed out waiting for gateway to finish",
+            durationMs: Date.now() - startedAt,
+          });
+          forgetPersistedJob(r.job_id);
         } else {
           setActionState({
             kind: "done",
@@ -550,4 +639,39 @@ export function RlaifSurface({ onBackToChat }: Props) {
       </div>
     </div>
   );
+}
+
+const PERSISTED_JOBS_KEY = "nanobot.rlaif.approveJobs";
+
+function readPersistedJobs(): string[] {
+  try {
+    const raw = window.localStorage.getItem(PERSISTED_JOBS_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter((x): x is string => typeof x === "string");
+  } catch {
+    return [];
+  }
+}
+
+function persistJob(jobId: string): void {
+  try {
+    const current = readPersistedJobs();
+    if (!current.includes(jobId)) {
+      current.push(jobId);
+      window.localStorage.setItem(PERSISTED_JOBS_KEY, JSON.stringify(current));
+    }
+  } catch {
+    // ignore
+  }
+}
+
+function forgetPersistedJob(jobId: string): void {
+  try {
+    const current = readPersistedJobs().filter((id) => id !== jobId);
+    window.localStorage.setItem(PERSISTED_JOBS_KEY, JSON.stringify(current));
+  } catch {
+    // ignore
+  }
 }

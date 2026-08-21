@@ -1566,11 +1566,34 @@ export async function actOnRlaifProposal(
   // Authorization header is the only auth needed.
   // For approve, the backend returns 202 immediately with a job_id
   // and runs the work in a worker thread; the frontend polls
-  // /api/rlaif/proposals to detect completion.
+  // /api/rlaif/jobs/<job_id> to detect completion.
   return request<{ ok: boolean; result?: string; status?: string; job_id?: string; message?: string }>(
     `${base}/api/rlaif/proposals/${proposalId}/${action}`,
     token,
     undefined,
     30_000,
+  );
+}
+
+export interface RlaifJobState {
+  job_id: string;
+  status: "running" | "done" | "error";
+  proposal_id: number;
+  started_at: number;
+  finished_at?: number;
+  result?: string | null;
+  error?: string | null;
+}
+
+export async function fetchRlaifJob(
+  token: string,
+  jobId: string,
+  base: string = "",
+): Promise<RlaifJobState> {
+  return request<RlaifJobState>(
+    `${base}/api/rlaif/jobs/${jobId}`,
+    token,
+    undefined,
+    API_READ_TIMEOUT_MS,
   );
 }

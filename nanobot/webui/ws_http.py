@@ -25,6 +25,12 @@ from loguru import logger
 from websockets.http11 import Request as WsRequest
 from websockets.http11 import Response
 
+
+# ponytail: module-level store for in-flight RLAIF approve jobs. The
+# state persists across HTTP requests and across WebUI page reloads,
+# so the frontend can resume a progress view after a refresh.
+_RLAIF_APPROVE_JOBS: dict[str, dict] = {}
+
 from nanobot.command.builtin import builtin_command_palette
 from nanobot.cron.session_turns import is_bound_cron_job
 from nanobot.cron.types import CronJob, CronSchedule
@@ -1060,6 +1066,8 @@ class GatewayHTTPHandler:
             return self._handle_rlaif_log(request)
         if got == "/api/rlaif/proposals":
             return self._handle_rlaif_proposals_list(request)
+        if got.startswith("/api/rlaif/jobs/"):
+            return self._handle_rlaif_job_status(request, got)
         if got.startswith("/api/rlaif/proposals/"):
             return self._handle_rlaif_proposal_action(request, got)
         return None
@@ -1099,6 +1107,15 @@ class GatewayHTTPHandler:
         )
         return _http_json_response(payload)
 
+    def _handle_rlaif_job_status(self, request: WsRequest, got: str) -> Response:
+        if not self.check_api_token(request):
+            return _http_error(401, "Unauthorized")
+        job_id = got[len("/api/rlaif/jobs/"):]
+        state = _RLAIF_APPROVE_JOBS.get(job_id)
+        if state is None:
+            return _http_error(404, "job not found")
+        return _http_json_response({"job_id": job_id, **state})
+
     def _handle_rlaif_proposals_list(self, request: WsRequest) -> Response:
         if not self.check_api_token(request):
             return _http_error(401, "Unauthorized")
@@ -1127,22 +1144,34 @@ class GatewayHTTPHandler:
             # ponytail: never block the WebSocket event loop on a
             # long-running approve. The work runs in a worker thread,
             # the handler responds immediately with a 202 + a job id,
-            # and the frontend polls /api/rlaif/proposals/<id>/view to
-            # read the result back (we re-use the pending_proposals
-            # state file as a tiny job store).
+            # and the frontend polls /api/rlaif/jobs/<job_id> to read
+            # the result back. The state lives on a module-level dict
+            # so it survives across HTTP requests and across WebUI
+            # page reloads.
             import threading
             job_id = f"approve-{proposal_id}-{int(time.time() * 1000)}"
-            state = {"status": "running", "result": None, "error": None}
+            _RLAIF_APPROVE_JOBS[job_id] = {
+                "status": "running",
+                "proposal_id": proposal_id,
+                "started_at": time.time(),
+                "result": None,
+                "error": None,
+            }
 
             def _run_approve() -> None:
                 try:
-                    state["result"] = asyncio.run(
+                    result = asyncio.run(
                         _rlaif_approve_proposal(proposal_id)
                     )
-                    state["status"] = "done"
+                    _RLAIF_APPROVE_JOBS[job_id]["result"] = result
+                    _RLAIF_APPROVE_JOBS[job_id]["status"] = "done"
                 except Exception as exc:  # noqa: BLE001
-                    state["error"] = f"{type(exc).__name__}: {exc}"
-                    state["status"] = "error"
+                    _RLAIF_APPROVE_JOBS[job_id]["error"] = (
+                        f"{type(exc).__name__}: {exc}"
+                    )
+                    _RLAIF_APPROVE_JOBS[job_id]["status"] = "error"
+                finally:
+                    _RLAIF_APPROVE_JOBS[job_id]["finished_at"] = time.time()
 
             thread = threading.Thread(
                 target=_run_approve,
@@ -1155,7 +1184,7 @@ class GatewayHTTPHandler:
                     "ok": True,
                     "status": "running",
                     "job_id": job_id,
-                    "message": "approve started; poll /view for status",
+                    "message": "approve started; poll /api/rlaif/jobs/<id>",
                 },
                 status=202,
             )
