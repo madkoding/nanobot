@@ -76,6 +76,7 @@ class RlaifProactiveScanner:
         max_file_size_kb: int = 80,
         sample_pool: int = 30,
         on_report: Callable[[str], Any] | None = None,
+        code_only: bool = True,
     ) -> None:
         self.workspace = workspace.resolve(strict=False)
         self.provider = provider
@@ -92,6 +93,7 @@ class RlaifProactiveScanner:
         self.max_file_size_kb = max_file_size_kb
         self.sample_pool = max(1, sample_pool)
         self.on_report = on_report
+        self.code_only = code_only
         self._state = self._load_state()
         self._stop = asyncio.Event()
 
@@ -389,16 +391,24 @@ class RlaifProactiveScanner:
             ".git", "__pycache__", "node_modules", "dist", "build",
             ".venv", "venv", ".mypy_cache", ".pytest_cache",
         }
+        # ponytail: by default, only scan production code (nanobot/*)
+        # — test files get touched by humans, not the scanner. Set
+        # scanner_code_only=False in the config to opt back in.
+        skip_path_prefixes: tuple[str, ...] = ()
+        if self.code_only:
+            skip_path_prefixes = ("tests/", "test/", "conftest.py")
         try:
             for path in self.workspace.rglob("*.py"):
                 if any(part in skip_dirs for part in path.parts):
+                    continue
+                rel = str(path.relative_to(self.workspace))
+                if any(rel.startswith(p) or f"/{p}" in f"/{rel}" for p in skip_path_prefixes):
                     continue
                 try:
                     if path.stat().st_size > max_bytes:
                         continue
                 except OSError:
                     continue
-                rel = str(path.relative_to(self.workspace))
                 last_seen = self._state.files_seen.get(rel, 0.0)
                 if time.time() - last_seen < 6 * 3600:
                     continue
@@ -701,5 +711,6 @@ def build_scanner_from_config(
         auto_apply=getattr(cfg, "scanner_auto_apply", True),
         auto_commit=getattr(cfg, "scanner_auto_commit", True),
         auto_push=getattr(cfg, "scanner_auto_push", True),
+        code_only=getattr(cfg, "scanner_code_only", True),
         on_report=on_report,
     )

@@ -71,6 +71,9 @@ class RlaifToolConfig(Base):
     # commits+pushes if everything passes. Below the threshold, the
     # proposal is queued for manual review in the WebUI.
     scanner_auto_approve_min_confidence: float = 0.0
+    # When true (default), the scanner only proposes changes to
+    # production code (nanobot/*). Test files are humans-only.
+    scanner_code_only: bool = True
     # Workspace root where candidate patches are evaluated. Falls back to the
     # agent's default workspace when omitted.
     workspace: str | None = None
