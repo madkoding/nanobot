@@ -63,6 +63,7 @@ from rich.text import Text  # noqa: E402
 from nanobot import __logo__, __version__  # noqa: E402
 from nanobot.agent.hooks import create_file_edit_activity_hook  # noqa: E402
 from nanobot.agent.loop import AgentLoop  # noqa: E402
+from nanobot.agent.rlaif.observer import make_rlaif_observer_factory  # noqa: E402
 from nanobot.agent.subagent import SubagentManager  # noqa: E402
 from nanobot.bus.outbound_events import (  # noqa: E402
     ProgressEvent,
@@ -1855,6 +1856,14 @@ def _run_gateway(
     )
 
     # Create agent with cron service
+    rlaif_factory = make_rlaif_observer_factory(
+        cfg=config.tools.rlaif,
+        workspace=config.workspace_path,
+        provider=provider_snapshot.provider,
+        model=provider_snapshot.model,
+        schedule_background=lambda coro: agent._schedule_background(coro),
+        publish_outbound=lambda msg: _deliver_to_channel(msg),
+    )
     agent = AgentLoop.from_config(
         config, bus,
         provider=provider_snapshot.provider,
@@ -1875,7 +1884,7 @@ def _run_gateway(
             ),
         )],
         local_trigger_store=trigger_store,
-        hook_factories=[create_file_edit_activity_hook],
+        hook_factories=[create_file_edit_activity_hook, rlaif_factory],
     )
     webui_turn_coordinator = WebuiTurnCoordinator(
         bus=bus,
