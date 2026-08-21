@@ -277,6 +277,15 @@ class RlaifProactiveScanner:
             timeout=600.0,
         )
         result = await harness.evaluate(patch, patch_summary=prop.get("rationale", ""))
+        # ponytail: remove the proposal from the pending list BEFORE
+        # any return — whether the approval succeeded or failed, the
+        # user already saw the result and shouldn't see the same
+        # proposal forever. A failure just means "we tried, it
+        # didn't work, the proposal is gone".
+        self._state.pending_proposals = [
+            p for p in self._state.pending_proposals if p.get("id") != proposal_id
+        ]
+        self._save_state()
         if not result.passed:
             why = []
             if not result.test_passed:
@@ -327,10 +336,6 @@ class RlaifProactiveScanner:
         except Exception:
             logger.exception("RLAIF scanner: failed to record preference")
 
-        self._state.pending_proposals = [
-            p for p in self._state.pending_proposals if p.get("id") != proposal_id
-        ]
-        self._save_state()
         return f"applied proposal #{proposal_id} for {rel}: {status}"
 
     def reject_proposal(self, proposal_id: int) -> str:
