@@ -274,30 +274,19 @@ class RlaifProactiveScanner:
                 return report
 
         # Quick syntactic check: can `git apply` actually find where the diff
-        # goes? If it can't, the patch is malformed — don't bother the user.
-        try:
-            import subprocess, tempfile
-            with tempfile.NamedTemporaryFile(
-                mode="w", suffix=".patch", delete=False, encoding="utf-8"
-            ) as f:
-                f.write(patch)
-                pp = f.name
-            r = subprocess.run(
-                ["git", "apply", "--check", pp],
-                cwd=str(self.workspace),
-                capture_output=True, text=True, timeout=10,
+        # goes? If not, try a few recovery strategies before giving up:
+        #   1. `git apply --check --recount` (recomputes hunk line counts).
+        #   2. `patch -p1 --fuzz=3 --dry-run` (tolerates small context drifts).
+        #   3. Manually re-indent the diff so leading whitespace matches.
+        if not _patch_applies(self.workspace, patch):
+            logger.warning(
+                "RLAIF scanner: {} has unapplyable diff (will be hidden):\n{}\n",
+                rel, patch,
             )
-            if r.returncode != 0:
-                logger.warning(
-                    "RLAIF scanner: {} has unapplyable diff (will be hidden):\n{}\n\ngit apply said: {}",
-                    rel, patch, r.stderr.strip()[:200],
-                )
-                report = f"RLAIF scanner: candidate for {rel} has unapplyable diff (skipped)."
-                self._state.last_report = report
-                logger.info(report)
-                return report
-        except Exception as exc:
-            logger.warning("RLAIF scanner: preflight git apply check failed: {}", exc)
+            report = f"RLAIF scanner: candidate for {rel} has unapplyable diff (skipped)."
+            self._state.last_report = report
+            logger.info(report)
+            return report
 
         # Patch is lint-clean and syntactically applyable. Save as a pending
         # proposal. The user reviews it in the WebUI and either approves
@@ -1018,6 +1007,102 @@ def _lint_only_introduced(
             rel_path, len(new), sorted(new)[:5],
         )
     return not new
+
+
+def _patch_applies(workspace: Path, patch: str) -> bool:
+    """Return True if `git apply` (or a tolerant fallback) can apply the patch.
+
+    Tries, in order:
+      1. `git apply --check` — strict, requires exact hunk line counts.
+      2. `git apply --check --recount` — recomputes the hunk counts from
+         the actual context lines; tolerates a critic that wrote wrong
+         numbers in the @@ header.
+      3. `patch -p1 --fuzz=3 --dry-run` — ignores up to 3 lines of
+         context drift; can rescue patches where the critic's context
+         lines are off-by-one.
+      4. A manual whitespace-recovery: strips trailing whitespace on
+         every line, retries `git apply --check --recount`. The fuzzy
+         re-indenter sometimes pads or trims trailing spaces; this
+         normalizes them.
+    """
+    import subprocess
+    import tempfile
+    import shutil
+
+    def _write() -> str:
+        with tempfile.NamedTemporaryFile(
+            mode="w", suffix=".patch", delete=False, encoding="utf-8"
+        ) as f:
+            f.write(patch)
+            return f.name
+
+    path = _write()
+    try:
+        # 1. Strict.
+        r = subprocess.run(
+            ["git", "apply", "--check", path],
+            cwd=str(workspace),
+            capture_output=True, text=True, timeout=10,
+        )
+        if r.returncode == 0:
+            return True
+
+        # 2. Recount the hunk line counts.
+        r = subprocess.run(
+            ["git", "apply", "--check", "--recount", path],
+            cwd=str(workspace),
+            capture_output=True, text=True, timeout=10,
+        )
+        if r.returncode == 0:
+            logger.info("RLAIF scanner: patch recovered via git apply --recount")
+            return True
+
+        # 3. patch(1) with --fuzz=3.
+        if shutil.which("patch"):
+            r = subprocess.run(
+                ["patch", "-p1", "--fuzz=3", "--dry-run", "-i", path],
+                cwd=str(workspace),
+                capture_output=True, text=True, timeout=10,
+            )
+            if r.returncode == 0:
+                logger.info("RLAIF scanner: patch recovered via patch -p1 --fuzz=3")
+                return True
+
+        # 4. Strip trailing whitespace and try --recount again.
+        normalized = "\n".join(ln.rstrip() for ln in patch.splitlines()) + "\n"
+        if normalized != patch:
+            with tempfile.NamedTemporaryFile(
+                mode="w", suffix=".patch", delete=False, encoding="utf-8"
+            ) as f:
+                f.write(normalized)
+                path2 = f.name
+            try:
+                r = subprocess.run(
+                    ["git", "apply", "--check", "--recount", path2],
+                    cwd=str(workspace),
+                    capture_output=True, text=True, timeout=10,
+                )
+                if r.returncode == 0:
+                    logger.info(
+                        "RLAIF scanner: patch recovered after stripping trailing whitespace"
+                    )
+                    return True
+            finally:
+                try:
+                    import os
+                    os.unlink(path2)
+                except OSError:
+                    pass
+    except Exception as exc:
+        logger.warning("RLAIF scanner: preflight git apply check failed: {}", exc)
+        return False
+    finally:
+        try:
+            import os
+            os.unlink(path)
+        except OSError:
+            pass
+    return False
 
 
 def build_scanner_from_config(
