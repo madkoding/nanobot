@@ -44,7 +44,10 @@ class TestWorkspaceIndexer:
 
         assert indexer.search("bar")["files"] == []
 
-        target.write_text("def bar(): pass\n", encoding="utf-8")
+        # Different length than the original so the size changes even on
+        # filesystems with coarse mtime resolution (e.g. Windows CI runners),
+        # guaranteeing the incremental reindex picks up the change.
+        target.write_text("def bar(): return 42\n", encoding="utf-8")
         indexed, _ = indexer.index_workspace()
         assert indexed == 1
 

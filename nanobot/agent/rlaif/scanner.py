@@ -441,9 +441,6 @@ class RlaifProactiveScanner:
         write replacement text, but they can't reliably produce
         correctly-formatted diffs with exact context lines.
         """
-        import json
-        import re
-
         # Number the file so the LLM can refer to specific lines.
         numbered = "\n".join(
             f"{i+1:5d}  {ln}" for i, ln in enumerate(text.splitlines())

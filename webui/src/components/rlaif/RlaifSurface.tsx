@@ -193,7 +193,7 @@ export function RlaifSurface({ onBackToChat }: Props) {
       const payload = await fetchRlaifProposals(token);
       setScannerActive(payload.scanner_active);
       setProposals(payload.items);
-    } catch (e) {
+    } catch {
       // swallow; the rest of the surface still works
     }
   }, [token]);

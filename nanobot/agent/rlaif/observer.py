@@ -19,6 +19,7 @@ from nanobot.agent.rlaif.critic import RlaifCritic
 from nanobot.agent.rlaif.dataset import RlaifDataset, RlaifPreference
 from nanobot.agent.rlaif.harness import PatchHarness
 from nanobot.agent.rlaif.trajectory import Trajectory, TurnStep
+from nanobot.bus.events import OutboundMessage
 
 
 def _git_commit(workspace: Path, message: str) -> str | None:
@@ -113,7 +114,6 @@ def _git_push(workspace: Path, remote: str = "origin") -> str | None:
     except Exception as exc:  # ponytail: best-effort, never break the eval
         logger.warning("RLAIF auto-push raised: {}", exc)
         return None
-from nanobot.bus.events import OutboundMessage
 
 if TYPE_CHECKING:
     from nanobot.providers.base import LLMProvider
