@@ -58,6 +58,21 @@
         "label": "DM workspaces",
         "placeholder": "56912345678=/path/to/dm-workspace",
         "help": "Map a sender (phone number, LID, or WhatsApp JID) to an absolute workspace path."
+      },
+      "dmWorkspaceModelPreset": {
+        "label": "DM workspace model preset",
+        "placeholder": "nemotron3",
+        "help": "Model preset name applied to sessions whose first inbound falls in the default DM workspace."
+      },
+      "groupWorkspacePresets": {
+        "label": "Group workspace model presets",
+        "placeholder": "120363000@g.us=nemotron3",
+        "help": "Map a group JID to a model preset name; sessions starting in that group use that preset."
+      },
+      "dmWorkspacePresets": {
+        "label": "DM workspace model presets",
+        "placeholder": "56912345678=ejecutor-deepseek",
+        "help": "Map a sender id to a model preset name; per-sender override of dmWorkspaceModelPreset."
       }
     }
   }

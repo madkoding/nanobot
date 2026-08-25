@@ -1961,3 +1961,64 @@ async def test_outbound_allowlist_allows_group(monkeypatch) -> None:
 
     await ch.send(OutboundMessage(channel="whatsapp", chat_id="120363422292889459@g.us", content="hi"))
     client.send_message.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_group_sender_lid_resolves_to_phone_via_lid_mappings() -> None:
+    """Group messages where SenderAlt is absent leave only the LID; the
+    runtime must resolve that LID through ``lidMappings`` so the agent loop's
+    owner check sees the canonical phone instead of an opaque LID string.
+    """
+    ch = WhatsAppChannel(
+        {
+            "enabled": True,
+            "allowFrom": ["*"],
+            "lidMappings": {"230343776985329": "56975746099"},
+        },
+        MagicMock(),
+    )
+    ch._started_at = 0
+    ch._handle_message = AsyncMock()
+
+    await ch._handle_neonize_message(
+        SimpleNamespace(download_any=AsyncMock()),
+        _event(
+            message=_Proto(conversation="@bot hola"),
+            chat=_jid("120363422292889459", "g.us"),
+            sender=_jid("230343776985329", "lid"),
+            is_group=True,
+        ),
+    )
+    await ch._drain_group_queue("120363422292889459@g.us")
+
+    kwargs = ch._handle_message.await_args.kwargs
+    assert kwargs["sender_id"] == "56975746099"
+    assert kwargs["metadata"]["lid"] == "230343776985329"
+    assert kwargs["metadata"]["phone"] == "56975746099"
+
+
+@pytest.mark.asyncio
+async def test_group_sender_lid_resolves_to_phone_via_runtime_learned_mapping() -> None:
+    """Mappings persisted at runtime (``_lid_to_phone``) must also resolve
+    group senders whose SenderAlt is absent. The runtime learns LID<->phone
+    pairs whenever they arrive together in any message; that knowledge must
+    apply retroactively to subsequent LID-only group messages.
+    """
+    ch = WhatsAppChannel({"enabled": True, "allowFrom": ["*"]}, MagicMock())
+    ch._started_at = 0
+    ch._lid_to_phone = {"230343776985329": "56975746099"}
+    ch._handle_message = AsyncMock()
+
+    await ch._handle_neonize_message(
+        SimpleNamespace(download_any=AsyncMock()),
+        _event(
+            message=_Proto(conversation="@bot hola"),
+            chat=_jid("120363422292889459", "g.us"),
+            sender=_jid("230343776985329", "lid"),
+            is_group=True,
+        ),
+    )
+    await ch._drain_group_queue("120363422292889459@g.us")
+
+    kwargs = ch._handle_message.await_args.kwargs
+    assert kwargs["sender_id"] == "56975746099"

@@ -71,6 +71,15 @@ class WhatsAppConfig(Base):
     # Per-sender DM workspace override. The key can be a bare phone number,
     # a WhatsApp "lid", or a full "56912345678@s.whatsapp.net" JID.
     dm_workspaces: dict[str, str] = Field(default_factory=dict)
+    # ponytail: per-workspace model preset overrides. Sessions whose first
+    # inbound arrives in a configured workspace get their session metadata
+    # preset stamped with this name so the loop runs that turn (and only
+    # that turn, until the user changes it with /model) on the chosen
+    # model. Empty string / missing key = no override, falls back to the
+    # global default preset. Keys must match a configured workspace path.
+    dm_workspace_model_preset: str = ""
+    group_workspace_presets: dict[str, str] = Field(default_factory=dict)
+    dm_workspace_presets: dict[str, str] = Field(default_factory=dict)
     # Number of recent messages to keep per group as conversation context.
     group_context_buffer_size: int = 20
     # DM policy for messages from numbers not in known_contacts.
@@ -269,6 +278,9 @@ class WhatsAppChannel(BaseChannel):
             group_workspaces=self.config.group_workspaces,
             dm_workspace=self.config.dm_workspace,
             dm_workspaces=self.config.dm_workspaces,
+            dm_workspace_model_preset=self.config.dm_workspace_model_preset,
+            group_workspace_presets=self.config.group_workspace_presets,
+            dm_workspace_presets=self.config.dm_workspace_presets,
             log=self.logger,
         )
         # Rolling buffer of recent messages per WhatsApp group (chat_jid -> deque).
@@ -1248,6 +1260,11 @@ class WhatsAppChannel(BaseChannel):
             if self._lid_to_phone.get(lid_id) != phone_id:
                 self._lid_to_phone[lid_id] = phone_id
                 self._touch_message_state()
+
+        if not phone_id and lid_id:
+            mapped = self._lid_to_phone.get(lid_id) or self.config.lid_mappings.get(lid_id, "")
+            if mapped:
+                phone_id = mapped
 
         sender_id = phone_id or self._lid_to_phone.get(lid_id, "") or lid_id
         if not sender_id:

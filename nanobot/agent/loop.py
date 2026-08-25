@@ -655,6 +655,84 @@ class AgentLoop(CheckpointMixin, TurnStateMixin, RunLoopMixin):
             return None
         return root if isinstance(root, Path) else None
 
+    def _workspace_model_preset_for(
+        self,
+        channel: str | None,
+        chat_id: str | None,
+        sender_id: str | None = None,
+    ) -> str | None:
+        """Resolve the model preset bound to the inbound chat's workspace.
+
+        Iterates every channel's workspace registry (currently only WhatsApp
+        installs one) and returns the first preset hit. ``None`` means "no
+        override configured; let the global default stand."
+        """
+        if not channel or not chat_id:
+            return None
+        registries = getattr(self, "_group_workspace_registries", None) or {}
+        registry = registries.get(channel)
+        if registry is None:
+            return None
+        resolve_preset = getattr(registry, "resolve_model_preset", None)
+        if not callable(resolve_preset):
+            return None
+        try:
+            preset = resolve_preset(chat_id, sender_id=sender_id)
+        except Exception:
+            logger.debug(
+                "workspace registry preset lookup failed for channel={} chat={}",
+                channel, chat_id, exc_info=True,
+            )
+            return None
+        return preset if isinstance(preset, str) and preset.strip() else None
+
+    def _apply_workspace_preset_if_new(
+        self,
+        msg: InboundMessage,
+        session_key: str,
+    ) -> None:
+        """Stamp a fresh session's preset from the workspace override.
+
+        Only acts on the first inbound for a session — once the metadata has
+        a preset key (whether set here or by the user via /model) we leave
+        it alone. Validation errors fall back to the global default so a
+        typo in config never blocks a turn.
+        """
+        if not session_key:
+            return
+        try:
+            session = self.sessions.get_or_create(session_key)
+        except Exception:
+            logger.debug(
+                "could not load session {} for preset override",
+                session_key, exc_info=True,
+            )
+            return
+        if session.metadata.get(SESSION_MODEL_PRESET_METADATA_KEY):
+            return
+        preset = self._workspace_model_preset_for(
+            msg.channel, msg.chat_id, sender_id=msg.sender_id,
+        )
+        if not preset:
+            return
+        try:
+            self.set_session_model_preset(session_key, preset)
+            logger.info(
+                "Applied workspace preset '{}' to new session {} (channel={} chat={})",
+                preset, session_key, msg.channel, msg.chat_id,
+            )
+        except KeyError:
+            logger.warning(
+                "Workspace preset '{}' is not configured in this build; "
+                "falling back to default preset for session {}",
+                preset, session_key,
+            )
+        except Exception:
+            logger.exception(
+                "Failed to apply workspace preset '%s' to session %s",
+                preset, session_key,
+            )
+
     def _runtime_events(self) -> RuntimeEventPublisher:
         return ensure_runtime_event_publisher(self)
 
@@ -1060,6 +1138,11 @@ class AgentLoop(CheckpointMixin, TurnStateMixin, RunLoopMixin):
         session_key = self._effective_session_key(msg)
         if session_key != msg.session_key:
             msg = dataclasses.replace(msg, session_key_override=session_key)
+        # ponytail: stamp the workspace's preset on a fresh session before
+        # the lock is taken so the very first turn (and any reentry via
+        # mid-turn injection below) sees the right model. Idempotent:
+        # subsequent calls on a session with an existing preset are a no-op.
+        self._apply_workspace_preset_if_new(msg, session_key)
         lock = self._get_session_lock(session_key)
         gate = self._concurrency_gate or nullcontext()
 
