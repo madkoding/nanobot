@@ -425,7 +425,13 @@ class ToolsConfig(Base):
         default_factory=lambda: _lazy_default("nanobot.agent.tools.image_generation", "ImageGenerationToolConfig"),
     )
     rlaif: RlaifToolConfig = Field(default_factory=lambda: _lazy_default("nanobot.agent.tools.rlaif_eval", "RlaifToolConfig"))
-    restrict_to_workspace: bool = False  # policy intent: keep tool access inside workspace when possible
+    # Single source of truth for default workspace access mode. The
+    # WebUI's ``workspace-state.json::default_access_mode`` is a derived
+    # cache initialized from this field; if they ever disagree, the
+    # WebUI prefers this value and syncs the cache. Hot-reload: yes
+    # for the WebUI cache; runtime tool scope reads this snapshot once
+    # at loop construction.
+    restrict_to_workspace: bool = False
     webui_allow_local_service_access: bool = Field(
         default=True,
         validation_alias=AliasChoices(

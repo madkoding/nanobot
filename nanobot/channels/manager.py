@@ -151,6 +151,9 @@ class ChannelManager:
         self._watchdog_task: asyncio.Task | None = None
         self._started = False
         self._origin_reply_fingerprints: dict[tuple[str, str, str], str] = {}
+        # Serializes concurrent persist_config_change calls so two channels
+        # writing back at the same time don't tear the config file.
+        self._config_persist_lock = asyncio.Lock()
         # Streams currently active per (channel, chat_id). A stream is added
         # on the first delta and removed on stream_end. Used to detect
         # duplicate sends: if a stream is active for a chat, the runner also
@@ -194,6 +197,9 @@ class ChannelManager:
         kwargs = cls.build_kwargs(self)
         channel = cls(section, self.bus, **kwargs)
         channel._owner_id = getattr(self.config, "owner_id", None)
+        # Expose the manager so channels can persist runtime config changes
+        # (e.g. newly learned LID->phone pairs) back to the canonical config.
+        channel._manager = self
         if cls.accepts_outbound and self._subagent_manager is not None:
             if hasattr(channel, "send_subagent_update"):
                 self._wire_subagent_broadcast(channel)
@@ -1107,6 +1113,26 @@ class ChannelManager:
         if callable(resolver):
             return resolver(session_key)
         return None
+
+    async def persist_config_change(self) -> bool:
+        """Persist the current in-memory ``self.config`` to disk.
+
+        Single source of truth for config on disk. Channels call this after
+        mutating ``self.config`` (e.g. WhatsApp learning a new LID->phone
+        pair and adding it to ``channels.whatsapp.lidMappings``). The
+        call is serialized by an asyncio lock so concurrent channel writes
+        can't tear the file. Returns True on a successful write, False if
+        persistence raised (logged but not propagated).
+        """
+        from nanobot.config.loader import save_config
+
+        async with self._config_persist_lock:
+            try:
+                save_config(self.config)
+                return True
+            except Exception:
+                logger.exception("Failed to persist config change from channel")
+                return False
 
     def get_status(self) -> dict[str, Any]:
         """Return actual runtime state, including enabled runtimes that failed."""

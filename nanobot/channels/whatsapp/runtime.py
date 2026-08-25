@@ -29,12 +29,29 @@ from nanobot.utils.helpers import is_owner_match
 
 
 class WhatsAppConfig(Base):
-    """WhatsApp channel configuration."""
+    """WhatsApp channel configuration.
+
+    All non-hot-reloadable fields require a channel rebuild (WebUI
+    disable → enable) to take effect. ``lidMappings`` is the only
+    hot-reloadable runtime field — the channel writes newly observed
+    LID→phone pairs back to the canonical config and reads them on
+    every inbound without a restart.
+    """
 
     enabled: bool = False
+    # Hot-reload: no. Sender IDs allowed to send messages to the bot.
+    # Star ("*") allows everyone; pairing store approves the rest.
     allow_from: list[str] = Field(default_factory=list)
+    # Hot-reload: no. Whether group messages trigger the bot without a
+    # mention.
     group_policy: Literal["open", "mention"] = "open"
+    # Hot-reload: no. Path to the neonize sqlite session file.
     database_path: str = ""
+    # Hot-reload: yes. Single source of truth for LID→phone resolution.
+    # Runtime observations of new (lid, phone) pairs are written back
+    # here automatically by the channel. Static entries (declared by
+    # the user) are authoritative — runtime observations that conflict
+    # with a declared entry are logged and dropped.
     lid_mappings: dict[str, str] = Field(default_factory=dict)
     # Outbound allowlist: if non-empty, only messages to these chat IDs
     # (bare phone numbers or group JIDs) are sent. Prevents the bot from
@@ -230,17 +247,39 @@ class WhatsAppChannel(BaseChannel):
     def default_config(cls) -> dict[str, Any]:
         return WhatsAppConfig().model_dump(by_alias=True)
 
+    @classmethod
+    def build_kwargs(cls, manager: Any) -> dict[str, Any]:
+        # Pass the manager so the channel can persist runtime config changes
+        # (learned LID->phone pairs) back to the canonical config.json.
+        return {"manager": manager}
+
     def __init__(
         self,
         config: Any,
         bus: MessageBus,
         *,
         owner_id: str | list[str] | None = None,
+        manager: Any | None = None,
     ):
         legacy_bridge_fields = _legacy_bridge_config_fields(config) if isinstance(config, dict) else []
+        # ponytail: if the caller handed us a raw dict from the channel
+        # manager (which holds the live config), capture a reference to its
+        # ``lidMappings`` dict so any mutation we make flows straight back
+        # to the manager's config and gets persisted on
+        # ``manager.persist_config_change``. Without this the WhatsAppConfig
+        # below would be a fresh object with its own dict, disconnected
+        # from the manager's view.
+        raw_lid_mappings: dict | None = None
         if isinstance(config, dict):
+            raw = config.get("lidMappings")
+            if isinstance(raw, dict):
+                raw_lid_mappings = raw
             config = WhatsAppConfig.model_validate(config)
+        if raw_lid_mappings is not None:
+            # Re-point our config view at the manager's dict.
+            config.lid_mappings = raw_lid_mappings
         super().__init__(config, bus, owner_id=owner_id)
+        self._mgr = manager
         if legacy_bridge_fields:
             self.logger.warning(
                 "Ignoring deprecated WhatsApp bridge config fields: {}. "
@@ -250,12 +289,24 @@ class WhatsAppChannel(BaseChannel):
         self._client: Any | None = None
         self._connected = False
         self._processed_message_ids = self._bounded_set(1000)
-        self._lid_to_phone: dict[str, str] = self._load_lid_mappings()
-        # ponytail: debounced persistence for _processed_message_ids and
-        # _lid_to_phone. Saves happen on a background task so the hot path
-        # (every inbound message) stays sync-cheap. The cap below is the
-        # last-seen monotonic count; we write when it doubles OR every 5
-        # minutes, whichever comes first.
+        # ponytail: single source of truth for LID->phone is now
+        # self.config.lid_mappings (see the _lid_to_phone property). The
+        # legacy message_state.json::lid_to_phone migration runs at
+        # start() (when the display-name path is initialized); we just
+        # initialize the property here for direct-construction callers
+        # (tests, headless scenarios). NOTE: we do NOT assign to
+        # ``self._lid_to_phone`` here — that triggers the legacy setter
+        # which would replace ``self.config.lid_mappings`` with a clone,
+        # breaking the reference we just wired to the manager's dict.
+        # The property getter reads from ``self.config.lid_mappings`` so
+        # no eager assignment is needed.
+        # ponytail: debounced persistence for _processed_message_ids.
+        # LID->phone pairs are no longer written here; they go straight
+        # to config.json via _persist_lid_mapping. Saves happen on a
+        # background task so the hot path (every inbound message) stays
+        # sync-cheap. The cap below is the last-seen monotonic count;
+        # we write when it doubles OR every 5 minutes, whichever comes
+        # first.
         self._state_dirty_count: int = 0
         self._state_last_save_at: float = 0.0
         self._self_jids: set[str] = set()
@@ -326,42 +377,43 @@ class WhatsAppChannel(BaseChannel):
     def _message_state_path(self) -> Path:
         return self._display_names_path.parent / "message_state.json"
 
-    def _load_message_state(self) -> tuple[BoundedSet, dict[str, str]]:
-        """Load persisted dedup cache and LID->phone map. Missing file → empty."""
+    def _load_message_state(self) -> BoundedSet:
+        """Load persisted dedup cache. Missing file → empty.
+
+        LID->phone pairs are loaded from ``config.lidMappings``; legacy
+        entries in ``message_state.json::lid_to_phone`` are migrated to
+        ``config.lidMappings`` at __init__ and dropped from this file.
+        """
         path = self._message_state_path()
+        ids = self._bounded_set(1000)
         if not path.exists():
-            return self._bounded_set(1000), {}
+            return ids
         try:
             data = json.loads(path.read_text(encoding="utf-8"))
         except Exception:
             self.logger.exception("Failed to load WhatsApp message state; resetting")
-            return self._bounded_set(1000), {}
+            return ids
         ids_raw = data.get("processed_ids") if isinstance(data, dict) else None
-        lid_raw = data.get("lid_to_phone") if isinstance(data, dict) else None
-        ids = self._bounded_set(1000)
         if isinstance(ids_raw, list):
             for mid in ids_raw[-1000:]:
                 if isinstance(mid, str) and mid:
                     ids.add(mid)
-        lid: dict[str, str] = {}
-        if isinstance(lid_raw, dict):
-            for k, v in lid_raw.items():
-                if isinstance(k, str) and isinstance(v, str) and k and v:
-                    lid[k] = v
-        return ids, lid
+        return ids
 
     def _save_message_state(self) -> None:
-        """Persist the dedup LRU and LID->phone map atomically."""
+        """Persist the dedup LRU atomically.
+
+        LID->phone pairs are no longer written here; they live in
+        ``config.json::lidMappings`` as the single source of truth and are
+        flushed via ``_persist_lid_mapping``.
+        """
         path = self._message_state_path()
         path.parent.mkdir(parents=True, exist_ok=True)
         tmp = path.with_suffix(".tmp")
         try:
             tmp.write_text(
                 json.dumps(
-                    {
-                        "processed_ids": self._processed_message_ids.keys(),
-                        "lid_to_phone": dict(self._lid_to_phone),
-                    },
+                    {"processed_ids": self._processed_message_ids.keys()},
                     ensure_ascii=False,
                     sort_keys=True,
                 ),
@@ -374,9 +426,9 @@ class WhatsAppChannel(BaseChannel):
     def _touch_message_state(self) -> None:
         """Mark state dirty and persist on the debounced cadence.
 
-        Called on every inbound message and on every LID->phone mapping
-        learned. Keeps the hot path cheap: we only hit the disk when the
-        dirty count doubles or 5 minutes have passed.
+        Called on every inbound message. Keeps the hot path cheap: we
+        only hit the disk when the dirty count doubles or 5 minutes
+        have passed.
         """
         import time as _time
         self._state_dirty_count += 1
@@ -501,12 +553,117 @@ class WhatsAppChannel(BaseChannel):
         return self._display_names.get(chat_id, {}).get(sender_key)
 
     def _load_lid_mappings(self) -> dict[str, str]:
-        mapping: dict[str, str] = {}
-        for lid, phone in self.config.lid_mappings.items():
-            phone_text = str(phone).strip()
-            if phone_text:
-                mapping[str(lid).strip()] = phone_text
-        return mapping
+        # Deprecated: lidMappings now live directly in config and are read via
+        # the _lid_to_phone derived property. Kept as a no-op for callers
+        # that still construct the channel the old way (tests, direct
+        # instantiation without a manager).
+        return dict(self.config.lid_mappings)
+
+    @property
+    def _lid_to_phone(self) -> dict[str, str]:
+        """Single source of truth for LID->phone resolution.
+
+        Returns the live ``config.lid_mappings`` dict so every reader sees
+        the same values. Mutating callers (the inbound handler when it
+        learns a new pair) write to ``self.config.lid_mappings`` and
+        trigger ``self._persist_lid_mapping`` to flush to disk.
+        """
+        return self.config.lid_mappings
+
+    @_lid_to_phone.setter
+    def _lid_to_phone(self, value: dict[str, str]) -> None:
+        # Compatibility shim: legacy code that assigned ``self._lid_to_phone
+        # = {lid: phone}`` now redirects into the canonical config dict.
+        self.config.lid_mappings = dict(value)
+
+    async def _persist_lid_mapping(self, lid: str, phone: str) -> bool:
+        """Add ``lid -> phone`` to the canonical config and flush to disk.
+
+        Returns True if a new mapping was actually persisted (caller can
+        skip logging when False). The runtime is the only writer here so
+        concurrent channels don't race; the manager's
+        ``persist_config_change`` re-serializes the whole config object.
+        """
+        if not lid or not phone:
+            return False
+        existing = self.config.lid_mappings.get(lid, "")
+        if existing == phone:
+            return False
+        self.config.lid_mappings[lid] = phone
+        if self._mgr is not None and hasattr(self._mgr, "persist_config_change"):
+            return await self._mgr.persist_config_change()
+        self.logger.debug(
+            "LID mapping {} -> {} updated in-memory only (no manager wired)",
+            lid, phone,
+        )
+        return True
+
+    def _learned_lid_phone_pair(self, lid: str, phone: str) -> None:
+        """In-memory + scheduled-on-event-loop persistence for a new LID pair.
+
+        Used from the sync inbound handler. Updates the config dict
+        immediately so subsequent resolution sees it, and schedules the
+        async disk flush so the caller doesn't block on I/O. If a loop
+        is not running, falls back to a sync persist (best-effort).
+        """
+        if not lid or not phone:
+            return
+        if self.config.lid_mappings.get(lid) == phone:
+            return
+        self.config.lid_mappings[lid] = phone
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            loop = None
+        if loop is None:
+            # No event loop (tests, sync callers). Persist synchronously.
+            if self._mgr is not None and hasattr(self._mgr, "persist_config_change"):
+                try:
+                    import asyncio as _asyncio
+                    _asyncio.run(self._mgr.persist_config_change())
+                except Exception:
+                    self.logger.exception("Sync LID->phone persist failed for {} -> {}", lid, phone)
+            return
+        loop.create_task(self._persist_lid_mapping(lid, phone))
+
+    def _migrate_legacy_lid_cache(self) -> bool:
+        """One-shot migration of legacy ``message_state.json::lid_to_phone``.
+
+        Pre-single-source-of-truth builds persisted learned LID->phone
+        pairs to ``message_state.json``. Migrate those into the canonical
+        ``config.lid_mappings`` and drop the legacy field. Idempotent.
+        """
+        path = self._message_state_path()
+        if not path.exists():
+            return False
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except Exception:
+            return False
+        if not isinstance(data, dict):
+            return False
+        lid_raw = data.get("lid_to_phone")
+        if not isinstance(lid_raw, dict) or not lid_raw:
+            return False
+        added = 0
+        for lid, phone in lid_raw.items():
+            if not isinstance(lid, str) or not isinstance(phone, str):
+                continue
+            lid = lid.strip()
+            phone = phone.strip()
+            if not lid or not phone:
+                continue
+            if self.config.lid_mappings.get(lid) == phone:
+                continue
+            self.config.lid_mappings[lid] = phone
+            added += 1
+        if added == 0:
+            return False
+        self.logger.info(
+            "Migrated {} legacy LID->phone mappings from message_state.json to lidMappings",
+            added,
+        )
+        return True
 
     def _new_client(self) -> Any:
         api = _load_neonize()
@@ -560,21 +717,22 @@ class WhatsAppChannel(BaseChannel):
         self._running = True
         self._started_at = time.time()
         self._display_names = self._load_display_names()
-        # ponytail: restore dedup LRU and LID->phone map from disk so a
-        # restart doesn't re-process buffered messages and doesn't lose
-        # LID routing for DMs.
-        loaded_ids, loaded_lid = self._load_message_state()
+        # One-shot migration of any legacy LID->phone cache left in
+        # message_state.json by an earlier build. Migrates into
+        # config.lidMappings (the single source of truth) and flushes
+        # to disk if anything was added.
+        migrated = self._migrate_legacy_lid_cache()
+        if migrated and self._mgr is not None and hasattr(self._mgr, "persist_config_change"):
+            await self._mgr.persist_config_change()
+        # ponytail: restore dedup LRU so a restart doesn't re-process
+        # buffered messages. LID->phone routing now lives in
+        # config.lidMappings and is the single source of truth.
+        loaded_ids = self._load_message_state()
         if loaded_ids:
             self._processed_message_ids = loaded_ids
             self.logger.info(
                 "Restored {} processed message ids from message_state.json",
                 len(loaded_ids),
-            )
-        if loaded_lid:
-            self._lid_to_phone.update(loaded_lid)
-            self.logger.info(
-                "Restored {} LID->phone mappings from message_state.json",
-                len(loaded_lid),
             )
         self._state_dirty_count = 0
         self._state_last_save_at = 0.0
@@ -1257,16 +1415,22 @@ class WhatsAppChannel(BaseChannel):
 
         phone_id, lid_id = _classify_sender_ids(sender_candidates)
         if phone_id and lid_id:
-            if self._lid_to_phone.get(lid_id) != phone_id:
-                self._lid_to_phone[lid_id] = phone_id
-                self._touch_message_state()
+            static_phone = self.config.lid_mappings.get(lid_id, "")
+            if static_phone:
+                if static_phone != phone_id:
+                    self.logger.warning(
+                        "Runtime LID {} -> {} differs from static lidMappings {}; keeping static",
+                        lid_id, phone_id, static_phone,
+                    )
+            else:
+                self._learned_lid_phone_pair(lid_id, phone_id)
 
         if not phone_id and lid_id:
-            mapped = self._lid_to_phone.get(lid_id) or self.config.lid_mappings.get(lid_id, "")
+            mapped = self.config.lid_mappings.get(lid_id, "")
             if mapped:
                 phone_id = mapped
 
-        sender_id = phone_id or self._lid_to_phone.get(lid_id, "") or lid_id
+        sender_id = phone_id or self.config.lid_mappings.get(lid_id, "") or lid_id
         if not sender_id:
             raise ValueError("WhatsApp message has no resolvable sender ID")
 

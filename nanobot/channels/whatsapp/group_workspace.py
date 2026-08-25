@@ -68,6 +68,15 @@ class ChatWorkspaceRegistry:
                 self._dm_paths[sender] = path
         if dm_workspace:
             self._default_dm_path = self._resolve_path(dm_workspace, "dm_workspace")
+        # Model preset precedence (highest wins first):
+        #   1. Per-session metadata (set by /model on an existing session;
+        #      handled in agent/loop.py, not here).
+        #   2. group_workspace_presets[jid] / dm_workspace_presets[phone|lid].
+        #   3. dm_workspace_presets["*"] — wildcard rebinds the default DM
+        #      workspace's preset.
+        #   4. dm_workspace_model_preset — only fills the default DM path
+        #      when (3) did not already set a preset for it.
+        #   5. agents.defaults.model_preset (global default; not in this file).
         self._apply_preset_map(
             (group_workspace_presets or {}),
             scope="group_workspace_presets",

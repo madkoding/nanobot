@@ -1857,9 +1857,13 @@ async def test_send_pairing_code_failure_does_not_propagate(monkeypatch) -> None
 
 
 def test_message_state_round_trip(tmp_path, monkeypatch) -> None:
-    """Processed message ids and LID->phone map survive a reload from
-    message_state.json — so a restart doesn't re-process buffered messages
-    and doesn't lose LID routing for DMs."""
+    """Processed message ids survive a reload from message_state.json — so
+    a restart doesn't re-process buffered messages.
+
+    LID->phone pairs no longer live in message_state.json; they live in
+    config.lidMappings as the single source of truth. The legacy field
+    is migrated on first start() (covered separately).
+    """
     state_path = tmp_path / "message_state.json"
     monkeypatch.setattr(
         whatsapp_module.WhatsAppChannel,
@@ -1870,16 +1874,17 @@ def test_message_state_round_trip(tmp_path, monkeypatch) -> None:
     ch = _make_channel()
     ch._processed_message_ids["m1"] = None
     ch._processed_message_ids["m2"] = None
-    ch._lid_to_phone["123"] = "456"
     ch._save_message_state()
 
     assert state_path.exists()
 
-    # Reload into a fresh channel and confirm both maps survived.
+    # Reload into a fresh channel and confirm the processed ids survived.
     ch2 = _make_channel()
-    ids, lid = ch2._load_message_state()
+    ids = ch2._load_message_state()
     assert list(ids.keys()) == ["m1", "m2"]
-    assert lid == {"123": "456"}
+    # message_state.json no longer carries LID->phone.
+    raw = json.loads(state_path.read_text(encoding="utf-8"))
+    assert "lid_to_phone" not in raw
 
 
 async def test_drop_silently_logs_no_parseable_content(monkeypatch) -> None:
