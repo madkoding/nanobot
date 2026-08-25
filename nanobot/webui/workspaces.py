@@ -115,14 +115,32 @@ def default_scope_for_webui(
     default_workspace: Path,
     default_restrict_to_workspace: bool,
 ) -> WorkspaceScope:
-    mode = read_webui_default_access_mode()
-    if mode == "default":
+    # ponytail: tools.restrictToWorkspace is the single source of truth.
+    # The webui/workspace-state.json cache is a derived snapshot. If the
+    # cache disagrees with the config, prefer the config and sync the
+    # cache so subsequent reads are consistent.
+    cache_mode = read_webui_default_access_mode()
+    config_mode = _to_access_mode(default_restrict_to_workspace)
+    if cache_mode != config_mode:
+        logger.info(
+            "webui default_access_mode cache ({}) differs from config ({}); using config",
+            cache_mode, config_mode,
+        )
+        write_webui_default_access_mode(config_mode)
+        cache_mode = config_mode
+    if cache_mode == "default":
         return default_workspace_scope(
             default_workspace,
             default_restrict_to_workspace,
             source_channel=_WEBUI_SCOPE_CHANNEL,
         )
-    return build_workspace_scope(default_workspace, mode, source_channel=_WEBUI_SCOPE_CHANNEL)
+    return build_workspace_scope(default_workspace, cache_mode, source_channel=_WEBUI_SCOPE_CHANNEL)
+
+
+def _to_access_mode(restrict_to_workspace: bool) -> str:
+    # True (restrict) → "default" (use the restrictive default scope).
+    # False (allow full fs) → "full".
+    return "default" if restrict_to_workspace else "full"
 
 
 def workspaces_payload(

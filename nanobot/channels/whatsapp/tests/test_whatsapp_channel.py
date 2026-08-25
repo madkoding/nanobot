@@ -1857,9 +1857,13 @@ async def test_send_pairing_code_failure_does_not_propagate(monkeypatch) -> None
 
 
 def test_message_state_round_trip(tmp_path, monkeypatch) -> None:
-    """Processed message ids and LID->phone map survive a reload from
-    message_state.json — so a restart doesn't re-process buffered messages
-    and doesn't lose LID routing for DMs."""
+    """Processed message ids survive a reload from message_state.json — so
+    a restart doesn't re-process buffered messages.
+
+    LID->phone pairs no longer live in message_state.json; they live in
+    config.lidMappings as the single source of truth. The legacy field
+    is migrated on first start() (covered separately).
+    """
     state_path = tmp_path / "message_state.json"
     monkeypatch.setattr(
         whatsapp_module.WhatsAppChannel,
@@ -1870,16 +1874,17 @@ def test_message_state_round_trip(tmp_path, monkeypatch) -> None:
     ch = _make_channel()
     ch._processed_message_ids["m1"] = None
     ch._processed_message_ids["m2"] = None
-    ch._lid_to_phone["123"] = "456"
     ch._save_message_state()
 
     assert state_path.exists()
 
-    # Reload into a fresh channel and confirm both maps survived.
+    # Reload into a fresh channel and confirm the processed ids survived.
     ch2 = _make_channel()
-    ids, lid = ch2._load_message_state()
+    ids = ch2._load_message_state()
     assert list(ids.keys()) == ["m1", "m2"]
-    assert lid == {"123": "456"}
+    # message_state.json no longer carries LID->phone.
+    raw = json.loads(state_path.read_text(encoding="utf-8"))
+    assert "lid_to_phone" not in raw
 
 
 async def test_drop_silently_logs_no_parseable_content(monkeypatch) -> None:
@@ -1961,3 +1966,64 @@ async def test_outbound_allowlist_allows_group(monkeypatch) -> None:
 
     await ch.send(OutboundMessage(channel="whatsapp", chat_id="120363422292889459@g.us", content="hi"))
     client.send_message.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_group_sender_lid_resolves_to_phone_via_lid_mappings() -> None:
+    """Group messages where SenderAlt is absent leave only the LID; the
+    runtime must resolve that LID through ``lidMappings`` so the agent loop's
+    owner check sees the canonical phone instead of an opaque LID string.
+    """
+    ch = WhatsAppChannel(
+        {
+            "enabled": True,
+            "allowFrom": ["*"],
+            "lidMappings": {"230343776985329": "56975746099"},
+        },
+        MagicMock(),
+    )
+    ch._started_at = 0
+    ch._handle_message = AsyncMock()
+
+    await ch._handle_neonize_message(
+        SimpleNamespace(download_any=AsyncMock()),
+        _event(
+            message=_Proto(conversation="@bot hola"),
+            chat=_jid("120363422292889459", "g.us"),
+            sender=_jid("230343776985329", "lid"),
+            is_group=True,
+        ),
+    )
+    await ch._drain_group_queue("120363422292889459@g.us")
+
+    kwargs = ch._handle_message.await_args.kwargs
+    assert kwargs["sender_id"] == "56975746099"
+    assert kwargs["metadata"]["lid"] == "230343776985329"
+    assert kwargs["metadata"]["phone"] == "56975746099"
+
+
+@pytest.mark.asyncio
+async def test_group_sender_lid_resolves_to_phone_via_runtime_learned_mapping() -> None:
+    """Mappings persisted at runtime (``_lid_to_phone``) must also resolve
+    group senders whose SenderAlt is absent. The runtime learns LID<->phone
+    pairs whenever they arrive together in any message; that knowledge must
+    apply retroactively to subsequent LID-only group messages.
+    """
+    ch = WhatsAppChannel({"enabled": True, "allowFrom": ["*"]}, MagicMock())
+    ch._started_at = 0
+    ch._lid_to_phone = {"230343776985329": "56975746099"}
+    ch._handle_message = AsyncMock()
+
+    await ch._handle_neonize_message(
+        SimpleNamespace(download_any=AsyncMock()),
+        _event(
+            message=_Proto(conversation="@bot hola"),
+            chat=_jid("120363422292889459", "g.us"),
+            sender=_jid("230343776985329", "lid"),
+            is_group=True,
+        ),
+    )
+    await ch._drain_group_queue("120363422292889459@g.us")
+
+    kwargs = ch._handle_message.await_args.kwargs
+    assert kwargs["sender_id"] == "56975746099"

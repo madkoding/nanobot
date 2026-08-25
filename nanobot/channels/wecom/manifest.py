@@ -19,6 +19,11 @@ PLUGIN = ChannelPlugin(
     display_name="WeCom",
     runtime=f"{__package__}.runtime:WecomChannel",
     setup=SETUP_SPEC,
-    dependencies=("wecom-aibot-sdk-python>=0.1.5",),
+    dependencies=(
+        "wecom-aibot-sdk-python>=0.1.5",
+        # wecom-aibot-sdk-python only requires websockets>=12.0, so pip may
+        # resolve an old 15.x that conflicts with nanobot's >=15.0,<17.0.
+        "websockets>=15.0,<17.0",
+    ),
     webui="webui/index.ts",
 )

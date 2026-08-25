@@ -39,6 +39,7 @@ if DISCORD_AVAILABLE:
 MAX_ATTACHMENT_BYTES = 20 * 1024 * 1024  # 20MB
 MAX_MESSAGE_LEN = 2000  # Discord message character limit
 TYPING_INTERVAL_S = 8
+_STREAM_BUFFER_TTL_SECONDS = 120.0  # max lifetime for an orphan streaming buffer
 
 
 @dataclass
@@ -49,6 +50,8 @@ class _StreamBuf:
     message: Any | None = None
     last_edit: float = 0.0
     stream_id: str | None = None
+    created_at: float = 0.0
+    last_activity: float = 0.0
 
 
 class DiscordConfig(Base):
@@ -424,6 +427,7 @@ class DiscordChannel(BaseChannel):
         self._pending_reactions: dict[str, Any] = {}  # chat_id -> message object
         self._working_emoji_tasks: dict[str, asyncio.Task[None]] = {}
         self._stream_bufs: dict[str, _StreamBuf] = {}
+        self._stream_sweep_task: asyncio.Task | None = None
         self._known_channels: dict[str, Any] = {}
         # Rolling buffer of recent messages per Discord channel for context.
         # Key is the channel id string, value is a deque of (author_id, display_name, content, timestamp).
@@ -479,6 +483,7 @@ class DiscordChannel(BaseChannel):
 
         self._running = True
         self.logger.info("Starting client via discord.py...")
+        self._stream_sweep_task = asyncio.create_task(self._stream_sweep_loop())
 
         try:
             await self._client.start(self.config.token)
@@ -513,6 +518,68 @@ class DiscordChannel(BaseChannel):
                 await self._stop_typing(msg.chat_id)
                 await self._clear_reactions(msg.chat_id)
 
+    @staticmethod
+    def _stream_buf_key(chat_id: str, stream_id: str | None) -> str:
+        """Key for the streaming accumulator.
+
+        We keep ``chat_id`` as the dict key for backwards compatibility, but
+        each buffer stores its ``stream_id``.  A new ``stream_id`` replaces
+        any previous buffer for the same chat so aborted turns can never
+        resume editing an older message.
+        """
+        return chat_id
+
+    def _sweep_stream_buffers(self, now: float | None = None) -> None:
+        """Discard streaming buffers that have been idle beyond the TTL."""
+        if now is None:
+            now = time.monotonic()
+        stale = [
+            key
+            for key, buf in list(self._stream_bufs.items())
+            if now - buf.last_activity > _STREAM_BUFFER_TTL_SECONDS
+        ]
+        for key in stale:
+            self.logger.debug("Sweeping stale stream buffer for {}", key)
+            self._stream_bufs.pop(key, None)
+
+    def _reset_stream_buffer(
+        self,
+        chat_id: str,
+        stream_id: str | None,
+        *,
+        now: float,
+        reason: str = "new stream",
+    ) -> _StreamBuf:
+        """Start a fresh stream buffer for ``chat_id``.
+
+        Any leftover buffer from a previous turn is discarded; the previous
+        Discord message simply stays frozen at whatever partial state it had.
+        """
+        key = self._stream_buf_key(chat_id, stream_id)
+        old = self._stream_bufs.pop(key, None)
+        if old is not None:
+            self.logger.debug(
+                "Resetting stream buffer for {} ({} -> {}): {}",
+                chat_id,
+                old.stream_id,
+                stream_id,
+                reason,
+            )
+        buf = _StreamBuf(stream_id=stream_id, created_at=now, last_activity=now)
+        self._stream_bufs[key] = buf
+        return buf
+
+    async def _stream_sweep_loop(self) -> None:
+        """Background task that periodically discards orphan stream buffers."""
+        try:
+            while self._running:
+                await asyncio.sleep(30.0)
+                self._sweep_stream_buffers()
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:
+            self.logger.warning("Stream buffer sweep failed: {}", e)
+
     async def send_delta(
         self,
         chat_id: str,
@@ -529,30 +596,29 @@ class DiscordChannel(BaseChannel):
             self.logger.warning("client not ready; dropping stream delta")
             return
 
+        key = self._stream_buf_key(chat_id, stream_id)
+        self._sweep_stream_buffers()
+
         if stream_end:
-            buf = self._stream_bufs.get(chat_id)
+            buf = self._stream_bufs.get(key)
             if not buf or buf.message is None or not buf.text:
-                self._stream_bufs.pop(chat_id, None)
+                self._stream_bufs.pop(key, None)
                 return
             if stream_id is not None and buf.stream_id is not None and buf.stream_id != stream_id:
                 # End belongs to a different stream than the active buffer.
                 # Drop the stale buffer so it is not left orphaned in the chat.
-                self._stream_bufs.pop(chat_id, None)
+                self._stream_bufs.pop(key, None)
                 return
             await self._finalize_stream(chat_id, buf)
             return
 
-        buf = self._stream_bufs.get(chat_id)
+        now = time.monotonic()
+
+        buf = self._stream_bufs.get(key)
         if buf is None or (
             stream_id is not None and buf.stream_id is not None and buf.stream_id != stream_id
         ):
-            # If we are mid-stream and the stream_id changes (e.g. resuming),
-            # finalize whatever we have so far instead of abandoning it.
-            if buf is not None and buf.message is not None and buf.text.strip():
-                with suppress(Exception):
-                    await self._finalize_stream(chat_id, buf)
-            buf = _StreamBuf(stream_id=stream_id)
-            self._stream_bufs[chat_id] = buf
+            buf = self._reset_stream_buffer(chat_id, stream_id, now=now, reason="new text stream")
         elif buf.stream_id is None:
             buf.stream_id = stream_id
 
@@ -560,12 +626,13 @@ class DiscordChannel(BaseChannel):
         if not buf.text.strip():
             return
 
+        buf.last_activity = now
+
         target = await self._resolve_channel(chat_id)
         if target is None:
             self.logger.warning("stream target {} unavailable", chat_id)
             return
 
-        now = time.monotonic()
         if buf.message is None:
             try:
                 buf.message = await target.send(content=buf.text)
@@ -970,6 +1037,9 @@ class DiscordChannel(BaseChannel):
     async def _reset_runtime_state(self, close_client: bool) -> None:
         """Reset client and typing state."""
         await self._cancel_all_typing()
+        if self._stream_sweep_task is not None:
+            self._stream_sweep_task.cancel()
+            self._stream_sweep_task = None
         self._stream_bufs.clear()
         self._known_channels.clear()
         self._channel_context_buffers.clear()

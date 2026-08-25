@@ -99,6 +99,9 @@ class _StreamBuf:
     text: str = ""
     event_id: str | None = None
     last_edit: float = 0.0
+    created_at: float = 0.0
+    last_activity: float = 0.0
+
 
 def _matrix_stream_key(chat_id: str, stream_id: str | None) -> str:
     return chat_id if stream_id is None else f"{chat_id}\0{stream_id}"
@@ -131,6 +134,7 @@ class MatrixChannel(BaseChannel):
     name = "matrix"
     display_name = "Matrix"
     _STREAM_EDIT_INTERVAL = 2 # min seconds between edit_message_text calls
+    _STREAM_BUFFER_TTL_SECONDS = 120.0  # max lifetime for an orphan streaming buffer
     monotonic_time = time.monotonic
 
     @classmethod
@@ -162,6 +166,7 @@ class MatrixChannel(BaseChannel):
         self._server_upload_limit_bytes: int | None = None
         self._server_upload_limit_checked = False
         self._stream_bufs: dict[str, _StreamBuf] = {}
+        self._stream_sweep_task: asyncio.Task | None = None
         self._started_at_ms: int = 0
         self._media_download_semaphore = asyncio.Semaphore(
             max(1, int(self.config.max_concurrent_media_downloads))
@@ -244,12 +249,16 @@ class MatrixChannel(BaseChannel):
             return
 
         self._sync_task = asyncio.create_task(self._sync_loop())
+        self._stream_sweep_task = asyncio.create_task(self._stream_sweep_loop())
 
     async def stop(self) -> None:
         """Stop the Matrix channel with graceful sync shutdown."""
         self._running = False
         for room_id in list(self._typing_tasks):
             await self._stop_typing_keepalive(room_id, clear_typing=False)
+        if self._stream_sweep_task is not None:
+            self._stream_sweep_task.cancel()
+            self._stream_sweep_task = None
         if self.client:
             self.client.stop_sync_forever()
         if self._sync_task:
@@ -448,6 +457,30 @@ class MatrixChannel(BaseChannel):
             if not is_progress:
                 await self._stop_typing_keepalive(msg.chat_id, clear_typing=True)
 
+    def _sweep_stream_buffers(self, now: float | None = None) -> None:
+        """Discard streaming buffers that have been idle beyond the TTL."""
+        if now is None:
+            now = self.monotonic_time()
+        stale = [
+            key
+            for key, buf in list(self._stream_bufs.items())
+            if now - buf.last_activity > self._STREAM_BUFFER_TTL_SECONDS
+        ]
+        for key in stale:
+            self.logger.debug("Sweeping stale stream buffer for {}", key)
+            self._stream_bufs.pop(key, None)
+
+    async def _stream_sweep_loop(self) -> None:
+        """Background task that periodically discards orphan stream buffers."""
+        try:
+            while self._running:
+                await asyncio.sleep(30.0)
+                self._sweep_stream_buffers()
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:
+            self.logger.warning("Stream buffer sweep failed: {}", e)
+
     async def send_delta(
         self,
         chat_id: str,
@@ -462,6 +495,7 @@ class MatrixChannel(BaseChannel):
 
         if stream_end:
             stream_key = _matrix_stream_key(chat_id, stream_id)
+            self._sweep_stream_buffers()
             buf = self._stream_bufs.pop(stream_key, None)
             if not buf or not buf.event_id or not buf.text:
                 return
@@ -477,9 +511,11 @@ class MatrixChannel(BaseChannel):
             return
 
         stream_key = _matrix_stream_key(chat_id, stream_id)
+        self._sweep_stream_buffers()
         buf = self._stream_bufs.get(stream_key)
         if buf is None:
-            buf = _StreamBuf()
+            now = self.monotonic_time()
+            buf = _StreamBuf(created_at=now, last_activity=now)
             self._stream_bufs[stream_key] = buf
         buf.text += delta
 
@@ -487,6 +523,7 @@ class MatrixChannel(BaseChannel):
             return
 
         now = self.monotonic_time()
+        buf.last_activity = now
 
         if not buf.last_edit or (now - buf.last_edit) >= self._STREAM_EDIT_INTERVAL:
             try:

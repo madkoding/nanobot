@@ -63,6 +63,7 @@ from rich.text import Text  # noqa: E402
 from nanobot import __logo__, __version__  # noqa: E402
 from nanobot.agent.hooks import create_file_edit_activity_hook  # noqa: E402
 from nanobot.agent.loop import AgentLoop  # noqa: E402
+from nanobot.agent.rlaif.observer import make_rlaif_observer_factory  # noqa: E402
 from nanobot.agent.subagent import SubagentManager  # noqa: E402
 from nanobot.bus.outbound_events import (  # noqa: E402
     ProgressEvent,
@@ -231,6 +232,8 @@ class SafeFileHistory(FileHistory):
     def store_string(self, string: str) -> None:
         super().store_string(_sanitize_surrogates(string))
 
+
+_rlaif_scanner: Any = None  # ponytail: set when the proactive scanner starts up
 
 app = typer.Typer(
     name="nanobot",
@@ -1855,6 +1858,14 @@ def _run_gateway(
     )
 
     # Create agent with cron service
+    rlaif_factory = make_rlaif_observer_factory(
+        cfg=config.tools.rlaif,
+        workspace=config.workspace_path,
+        provider=provider_snapshot.provider,
+        model=provider_snapshot.model,
+        schedule_background=lambda coro: agent._schedule_background(coro),
+        publish_outbound=lambda msg: _deliver_to_channel(msg),
+    )
     agent = AgentLoop.from_config(
         config, bus,
         provider=provider_snapshot.provider,
@@ -1875,7 +1886,7 @@ def _run_gateway(
             ),
         )],
         local_trigger_store=trigger_store,
-        hook_factories=[create_file_edit_activity_hook],
+        hook_factories=[create_file_edit_activity_hook, rlaif_factory],
     )
     webui_turn_coordinator = WebuiTurnCoordinator(
         bus=bus,
@@ -2324,6 +2335,64 @@ def _run_gateway(
             await cron.start()
             # Re-read once on first admission to close the watcher subscription window.
             agent.runtime_resolver.invalidate()
+            # Optional proactive RLAIF scanner: runs on its own loop, picks a
+            # file from the workspace every interval_s and proposes an
+            # improvement, independent of any agent turn.
+            rlaif_scanner_task: asyncio.Task | None = None
+            try:
+                from nanobot.agent.rlaif.scanner import build_scanner_from_config
+                rlaif_cfg = getattr(config.tools, "rlaif", None)
+                if rlaif_cfg is not None and getattr(rlaif_cfg, "scanner_enable", False):
+                    scanner_provider = provider_snapshot.provider
+                    scanner_model = provider_snapshot.model
+                    critic_preset = getattr(rlaif_cfg, "scanner_critic_model", None)
+                    if critic_preset:
+                        # Build a dedicated provider for the critic so it can
+                        # use a different (presumably code-tuned) model than
+                        # the main runtime.
+                        try:
+                            from nanobot.providers.factory import build_provider_snapshot
+                            crit_snap = build_provider_snapshot(
+                                config, preset_name=critic_preset
+                            )
+                            scanner_provider = crit_snap.provider
+                            scanner_model = crit_snap.model
+                            logger.info(
+                                "RLAIF scanner using dedicated critic model: {} ({}/{})",
+                                critic_preset, crit_snap.provider, crit_snap.model,
+                            )
+                        except Exception:
+                            logger.exception(
+                                "RLAIF scanner: failed to build critic provider "
+                                "for preset {}, falling back to runtime model",
+                                critic_preset,
+                            )
+                    scanner = build_scanner_from_config(
+                        rlaif_cfg,
+                        workspace=Path(getattr(agent, "workspace", None) or "."),
+                        provider=scanner_provider,
+                        model=scanner_model,
+                        # Pass the actual model id so the scanner doesn't fall
+                        # back to the preset name from config.
+                        critic_model=scanner_model,
+                    )
+                    if scanner is not None:
+                        # ponytail: stash the scanner on a module-level
+                        # singleton so the HTTP /api/rlaif/proposals endpoints
+                        # can list/approve/reject without threading the
+                        # instance through the gateway plumbing.
+                        import nanobot.cli.commands as _cmd_mod
+                        _cmd_mod._rlaif_scanner = scanner
+                        rlaif_scanner_task = asyncio.create_task(
+                            scanner.run_forever(), name="nanobot-rlaif-scanner"
+                        )
+                        console.print(
+                            f"[dim]RLAIF scanner started "
+                            f"(every {scanner.interval_s:.0f}s, "
+                            f"advisor mode)[/dim]"
+                        )
+            except Exception:
+                logger.exception("RLAIF scanner failed to start; continuing without it")
             tasks = [
                 asyncio.create_task(
                     watch_config_file(
@@ -2353,6 +2422,8 @@ def _run_gateway(
                     _open_browser_when_ready(),
                     name="nanobot-open-browser",
                 ))
+            if rlaif_scanner_task is not None:
+                tasks.append(rlaif_scanner_task)
             runtime_tasks = asyncio.gather(*tasks)
             shutdown_task = asyncio.create_task(
                 shutdown_event.wait(),

@@ -2,6 +2,7 @@
 
 import asyncio
 import sys
+import time
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -1890,9 +1891,8 @@ async def test_send_delta_edits_again_after_interval(monkeypatch) -> None:
     channel.client = client
     client.room_send_response.event_id = "$8E2XVyINbEhcuAxvxd1d9JhQosNPzkVoU8TrbCAvyHo"
 
-    times = [100.0, 102.0, 104.0, 106.0, 108.0]
-    times.reverse()
-    monkeypatch.setattr(channel, "monotonic_time", lambda: times and times.pop())
+    times = iter([100.0, 102.0, 104.0, 106.0, 108.0])
+    monkeypatch.setattr(channel, "monotonic_time", lambda: next(times, 108.0))
 
     await channel.send_delta("!room:matrix.org", "Hello")
     await channel.send_delta("!room:matrix.org", " world")
@@ -1924,6 +1924,7 @@ async def test_send_delta_stream_end_replaces_existing_message() -> None:
         text="Final text",
         event_id="event-1",
         last_edit=100.0,
+        last_activity=time.monotonic(),
     )
 
     await channel.send_delta("!room:matrix.org", "", stream_end=True)
@@ -1996,9 +1997,8 @@ async def test_send_delta_threaded_edit_keeps_replace_and_thread_relation(monkey
     channel.client = client
     client.room_send_response.event_id = "event-1"
 
-    times = [100.0, 102.0, 104.0]
-    times.reverse()
-    monkeypatch.setattr(channel, "monotonic_time", lambda: times and times.pop())
+    times = iter([100.0, 102.0, 104.0, 106.0, 108.0, 110.0, 112.0, 114.0, 116.0])
+    monkeypatch.setattr(channel, "monotonic_time", lambda: next(times, 116.0))
 
     metadata = {
         "thread_root_event_id": "$root1",

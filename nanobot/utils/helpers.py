@@ -21,19 +21,30 @@ _TOOLS_TOKEN_CACHE_MAX_ENTRIES = 64
 _TOOLS_TOKEN_CACHE: dict[int, tuple[tuple[int, ...], dict[bool, int]]] = {}
 
 
+_KNOWN_CHANNEL_PREFIXES = ("whatsapp:", "discord:", "telegram:", "cli:")
+
+
 def normalize_owner_match(value: str | None) -> str:
     """Return a bare owner/sender identity suitable for cross-channel matching.
 
-    Strips WhatsApp-style server suffixes (``@s.whatsapp.net``, ``@g.us``,
-    ``@lid``), leading ``+`` signs, and whitespace so that a phone number
-    owner configured as ``15551234567`` matches inbound sender IDs like
-    ``15551234567@s.whatsapp.net`` or ``+15551234567``.
+    Strips channel prefixes (``whatsapp:``, ``discord:``, ``telegram:``,
+    ``cli:``), WhatsApp-style server suffixes (``@s.whatsapp.net``, ``@g.us``,
+    ``@lid``), device-id suffixes (``15551234567:42``), leading ``+`` signs,
+    and whitespace so a phone number owner configured as ``15551234567``,
+    ``+15551234567``, or ``whatsapp:+15551234567`` all match an inbound
+    sender ID like ``15551234567``, ``+15551234567``, or
+    ``15551234567@s.whatsapp.net``.
     """
     if not value:
         return ""
     if not isinstance(value, str):
         return str(value)
-    normalized = value.strip().lstrip("+")
+    normalized = value.strip()
+    for prefix in _KNOWN_CHANNEL_PREFIXES:
+        if normalized.lower().startswith(prefix):
+            normalized = normalized[len(prefix):]
+            break
+    normalized = normalized.lstrip("+")
     if "@" in normalized:
         normalized = normalized.split("@", 1)[0]
     if ":" in normalized:
@@ -45,7 +56,21 @@ def is_owner_match(sender_id: str | None, owner_id: str | list[str] | None) -> b
     """Return True when *sender_id* matches any configured owner identity.
 
     ``owner_id`` may be a single identity or a list (one per channel, e.g. a
-    Discord user id and a WhatsApp phone number).
+    Discord user id and a WhatsApp phone number). Accepted formats on
+    either side of the comparison (both ``sender_id`` and each
+    ``owner_id``):
+
+    * Bare phone: ``15551234567``
+    * Leading ``+``: ``+15551234567``
+    * WhatsApp JID: ``15551234567@s.whatsapp.net``
+    * WhatsApp LID: ``123456789012345`` or ``123456789012345@lid``
+    * Channel prefix: ``whatsapp:+15551234567``,
+      ``discord:123456789012345678``, ``telegram:12345``, ``cli:user``
+
+    All forms normalize to a bare numeric / alphanumeric token before
+    comparison. LID→phone mapping is the channel's responsibility (see
+    ``WhatsAppChannel._lid_to_phone``); declare a phone in ``ownerId``
+    and the channel will resolve LID senders to that phone.
     """
     if not owner_id or not sender_id:
         return False

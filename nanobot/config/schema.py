@@ -14,6 +14,7 @@ if TYPE_CHECKING:
     from nanobot.agent.tools.cli_apps import CliAppsToolConfig
     from nanobot.agent.tools.filesystem import FileToolsConfig
     from nanobot.agent.tools.image_generation import ImageGenerationToolConfig
+    from nanobot.agent.tools.rlaif_eval import RlaifToolConfig
     from nanobot.agent.tools.self import MyToolConfig
     from nanobot.agent.tools.shell import ExecToolConfig
     from nanobot.agent.tools.web import WebToolsConfig
@@ -423,7 +424,14 @@ class ToolsConfig(Base):
     image_generation: ImageGenerationToolConfig = Field(
         default_factory=lambda: _lazy_default("nanobot.agent.tools.image_generation", "ImageGenerationToolConfig"),
     )
-    restrict_to_workspace: bool = False  # policy intent: keep tool access inside workspace when possible
+    rlaif: RlaifToolConfig = Field(default_factory=lambda: _lazy_default("nanobot.agent.tools.rlaif_eval", "RlaifToolConfig"))
+    # Single source of truth for default workspace access mode. The
+    # WebUI's ``workspace-state.json::default_access_mode`` is a derived
+    # cache initialized from this field; if they ever disagree, the
+    # WebUI prefers this value and syncs the cache. Hot-reload: yes
+    # for the WebUI cache; runtime tool scope reads this snapshot once
+    # at loop construction.
+    restrict_to_workspace: bool = False
     webui_allow_local_service_access: bool = Field(
         default=True,
         validation_alias=AliasChoices(
@@ -464,6 +472,12 @@ class Config(BaseSettings):
         description="Operator identity (or list of identities, one per channel). Non-matching senders are treated as untrusted context.",
         validation_alias=AliasChoices("ownerId", "owner_id"),
         serialization_alias="ownerId",
+    )
+    owner_name: str | None = Field(
+        default=None,
+        description="Operator display name used in channel greetings and identity blocks.",
+        validation_alias=AliasChoices("ownerName", "owner_name"),
+        serialization_alias="ownerName",
     )
 
     def __init__(self, **values: Any) -> None:
@@ -695,6 +709,7 @@ def _resolve_tool_config_refs() -> None:
     from nanobot.agent.tools.cli_apps import CliAppsToolConfig
     from nanobot.agent.tools.filesystem import FileToolsConfig
     from nanobot.agent.tools.image_generation import ImageGenerationToolConfig
+    from nanobot.agent.tools.rlaif_eval import RlaifToolConfig
     from nanobot.agent.tools.self import MyToolConfig
     from nanobot.agent.tools.shell import ExecToolConfig
     from nanobot.agent.tools.web import WebFetchConfig, WebSearchConfig, WebToolsConfig
@@ -709,6 +724,7 @@ def _resolve_tool_config_refs() -> None:
     mod.WebFetchConfig = WebFetchConfig  # type: ignore[attr-defined]
     mod.MyToolConfig = MyToolConfig  # type: ignore[attr-defined]
     mod.ImageGenerationToolConfig = ImageGenerationToolConfig  # type: ignore[attr-defined]
+    mod.RlaifToolConfig = RlaifToolConfig  # type: ignore[attr-defined]
 
     ToolsConfig.model_rebuild()
     Config.model_rebuild()

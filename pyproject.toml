@@ -1,6 +1,6 @@
 [project]
 name = "nanobot-ai"
-version = "0.6.6"
+version = "0.7.0"
 description = "A lightweight personal AI assistant framework"
 readme = { file = "README.md", content-type = "text/markdown" }
 requires-python = ">=3.11"
@@ -27,7 +27,7 @@ dependencies = [
     "anthropic>=0.45.0,<1.0.0",
     "pydantic>=2.12.0,<3.0.0",
     "pydantic-settings>=2.12.0,<3.0.0",
-    "websockets>=16.0,<17.0",
+    "websockets>=15.0,<17.0",
     "httpx>=0.28.0,<1.0.0",
     "ddgs>=9.5.5,<10.0.0",
     "oauth-cli-kit>=0.1.6,<1.0.0",
@@ -47,7 +47,7 @@ dependencies = [
     "pyyaml>=6.0,<7.0.0",
     "filelock>=3.25.2",
     "watchfiles>=1.1.1,<2.0.0",
-    "packaging>=24.0",
+    "packaging>=24.0,<26.0",
     "tzdata>=2025.2; sys_platform == 'win32'",
     "pypdf>=6.15.0,<7.0.0",
     "python-docx>=1.1.0,<2.0.0",

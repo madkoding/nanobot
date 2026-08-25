@@ -404,3 +404,118 @@ def test_from_config_static_preset_loader_does_not_enable_hot_reload(tmp_path) -
         resolved = loop.runtime_resolver.resolve_preset("fast")
     assert resolved.model == "openai/gpt-4.1-mini"
     assert loop.runtime_resolver.runtime is default_runtime
+
+
+class TestWorkspacePresetHook:
+    def _make_loop(self, tmp_path, presets, active_preset=None):
+        provider = _provider("base-model")
+        return AgentLoop(
+            bus=MessageBus(),
+            provider=provider,
+            workspace=tmp_path,
+            model="base-model",
+            context_window_tokens=1000,
+            model_presets=presets,
+            model_preset=active_preset,
+        )
+
+    def test_stamps_preset_on_new_session(self, tmp_path):
+        presets = {
+            "nano": ModelPresetConfig(
+                model="nano-30b", provider="ollama",
+                max_tokens=4096, context_window_tokens=32_768,
+                temperature=0.3, reasoning_effort=None,
+            )
+        }
+        loop = self._make_loop(tmp_path, presets)
+
+        dm = tmp_path / "dms"; dm.mkdir()
+        from nanobot.channels.whatsapp.group_workspace import ChatWorkspaceRegistry
+        registry = ChatWorkspaceRegistry(
+            dm_workspace=str(dm),
+            dm_workspace_model_preset="nano",
+        )
+        loop.set_group_workspace_registry({"whatsapp": registry})
+
+        msg = MagicMock()
+        msg.channel = "whatsapp"
+        msg.chat_id = "56912345678@s.whatsapp.net"
+        msg.sender_id = "56912345678"
+        msg.session_key = "whatsapp:dm:56912345678"
+
+        loop._apply_workspace_preset_if_new(msg, msg.session_key)
+
+        assert model_preset_from_metadata(
+            loop.sessions.get_or_create(msg.session_key).metadata
+        ) == "nano"
+
+    def test_no_op_when_session_already_has_preset(self, tmp_path):
+        presets = {
+            "nano": ModelPresetConfig(model="n", provider="ollama",
+                max_tokens=4096, context_window_tokens=32_768,
+                temperature=0.3, reasoning_effort=None),
+            "big": ModelPresetConfig(model="b", provider="ollama",
+                max_tokens=4096, context_window_tokens=128_000,
+                temperature=0.3, reasoning_effort=None),
+        }
+        loop = self._make_loop(tmp_path, presets)
+        loop.set_session_model_preset("whatsapp:dm:x", "big")
+
+        dm = tmp_path / "dms"; dm.mkdir()
+        from nanobot.channels.whatsapp.group_workspace import ChatWorkspaceRegistry
+        registry = ChatWorkspaceRegistry(
+            dm_workspace=str(dm),
+            dm_workspace_model_preset="nano",
+        )
+        loop.set_group_workspace_registry({"whatsapp": registry})
+
+        msg = MagicMock()
+        msg.channel = "whatsapp"
+        msg.chat_id = "56912345678@s.whatsapp.net"
+        msg.sender_id = "56912345678"
+        msg.session_key = "whatsapp:dm:x"
+
+        loop._apply_workspace_preset_if_new(msg, msg.session_key)
+        assert model_preset_from_metadata(
+            loop.sessions.get_or_create("whatsapp:dm:x").metadata
+        ) == "big"
+
+    def test_silently_skips_when_no_registry(self, tmp_path):
+        presets = {
+            "nano": ModelPresetConfig(model="n", provider="ollama",
+                max_tokens=4096, context_window_tokens=32_768,
+                temperature=0.3, reasoning_effort=None),
+        }
+        loop = self._make_loop(tmp_path, presets)
+        msg = MagicMock()
+        msg.channel = "whatsapp"
+        msg.chat_id = "x"
+        msg.sender_id = "y"
+        msg.session_key = "whatsapp:dm:y"
+        # no registry installed — should not raise
+        loop._apply_workspace_preset_if_new(msg, msg.session_key)
+        assert loop.sessions.get_or_create("whatsapp:dm:y").metadata == {}
+
+    def test_invalid_preset_falls_back_silently(self, tmp_path):
+        presets = {
+            "nano": ModelPresetConfig(model="n", provider="ollama",
+                max_tokens=4096, context_window_tokens=32_768,
+                temperature=0.3, reasoning_effort=None),
+        }
+        loop = self._make_loop(tmp_path, presets)
+        dm = tmp_path / "dms"; dm.mkdir()
+        from nanobot.channels.whatsapp.group_workspace import ChatWorkspaceRegistry
+        registry = ChatWorkspaceRegistry(
+            dm_workspace=str(dm),
+            dm_workspace_model_preset="does-not-exist",
+        )
+        loop.set_group_workspace_registry({"whatsapp": registry})
+
+        msg = MagicMock()
+        msg.channel = "whatsapp"
+        msg.chat_id = "x"; msg.sender_id = "y"
+        msg.session_key = "whatsapp:dm:y"
+
+        loop._apply_workspace_preset_if_new(msg, msg.session_key)
+        # No preset metadata — fell back, did not raise.
+        assert loop.sessions.get_or_create("whatsapp:dm:y").metadata == {}

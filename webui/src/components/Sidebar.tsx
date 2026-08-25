@@ -9,6 +9,7 @@ import {
   Menu,
   Search,
   Settings,
+  Sparkles,
   SquarePen,
   Telescope,
 } from "lucide-react";
@@ -46,9 +47,10 @@ interface SidebarProps {
   onOpenTodos?: () => void;
   onOpenAgenda?: () => void;
   onOpenResearch?: () => void;
+  onOpenRlaif?: () => void;
   onSettingsIntent?: () => void;
   onOpenSearch: () => void;
-  activeUtility?: "automations" | "projects" | "workspace" | "todos" | "agenda" | "research" | null;
+  activeUtility?: "automations" | "projects" | "workspace" | "todos" | "agenda" | "research" | "rlaif" | null;
   onToggleArchived: () => void;
   onCollapse: () => void;
   onExpand?: () => void;
@@ -240,6 +242,16 @@ export function Sidebar(props: SidebarProps) {
             onIntent={props.onSettingsIntent}
             active={props.activeUtility === "research"}
             icon={<Telescope className="h-4 w-4" />}
+          />
+        )}
+        {props.onOpenRlaif && (
+          <SidebarActionButton
+            collapsed={collapsed}
+            label={t("sidebar.rlaif", { defaultValue: "RLAIF Watch" })}
+            onClick={props.onOpenRlaif}
+            onIntent={props.onSettingsIntent}
+            active={props.activeUtility === "rlaif"}
+            icon={<Sparkles className="h-4 w-4" />}
           />
         )}
         <SidebarActionButton

@@ -810,7 +810,7 @@ class ListDirTool(_FsTool):
         ".pnpm-store", ".parcel-cache", ".gradle", ".idea", ".vscode",
         "__snapshots__", "coverage",
         # nanobot runtime dirs (sessions, logs, local caches) — never search these.
-        ".nanobot", ".clawhub", ".imgvenv",
+        ".nanobot", ".nanobot_index", ".clawhub", ".imgvenv",
     }
 
     @property
