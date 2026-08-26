@@ -1177,16 +1177,24 @@ class WhatsAppChannel(BaseChannel):
         target = self._resolve_send_target(to) if isinstance(to, str) else to
         await client.send_message(target, text)
 
-    def _whatsapp_session_key(self, chat_id: str, sender_id: str, is_group: bool) -> str:
+    def _whatsapp_session_key(
+        self, chat_id: str, sender_id: str, is_group: bool, *, lid_id: str | None = None
+    ) -> str:
         """Return an isolated session key per sender inside group chats.
 
         In DMs the default ``whatsapp:<chat_id>`` is fine. In groups, every
-        sender gets ``whatsapp:<chat_id>:<sender_id>`` so that parallel
+        sender gets ``whatsapp:<chat_id>:<stable_id>`` so that parallel
         conversations about unrelated topics do not contaminate each other.
+
+        The suffix prefers the LID when known: it is WhatsApp's stable
+        per-user identifier, so the key does not change when a LID is later
+        resolved to a phone number (which would otherwise orphan the old
+        history and make the bot appear to "forget" the conversation).
         """
         base = f"{self.name}:{chat_id}"
         if is_group and sender_id:
-            return f"{base}:{sender_id}"
+            stable = lid_id or sender_id
+            return f"{base}:{stable}"
         return base
 
     async def _send_media(self, client: Any, to: Any, media_path: str, *, ptt: bool = False) -> None:
@@ -1507,7 +1515,7 @@ class WhatsAppChannel(BaseChannel):
         # (this is what the sender's WhatsApp client watches). For delivery we
         # still use `_resolve_send_target` so LID-based DMs reach a phone JID.
         typing_jid = self._build_typing_jid(chat_jid)
-        session_key = self._whatsapp_session_key(chat_jid, sender_id, is_group)
+        session_key = self._whatsapp_session_key(chat_jid, sender_id, is_group, lid_id=lid_id)
 
         # Screen DMs from unknown senders before handing them to the agent.
         if not is_group and self.config.unknown_dm_policy == "screen":
