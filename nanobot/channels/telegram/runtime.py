@@ -46,7 +46,11 @@ from nanobot.security.network import validate_url_target
 from nanobot.utils.helpers import split_message
 
 TELEGRAM_RICH_MAX_LEN = 30000
-TELEGRAM_REASONING_MAX_LEN = 8000  # reasoning truncado para no inflar el mensaje final
+# Límite seguro para el reasoning acumulado: el blockquote expandible se
+# edita in-place con parse_mode=HTML, así que el texto escapado + tags debe
+# caber en el límite real de Telegram (4096 chars). 3500 deja margen para
+# la expansión HTML (& < >) y los tags del blockquote.
+TELEGRAM_REASONING_MAX_LEN = 3500
 _DRAFT_TTL_SECONDS = 25.0  # margen bajo el límite de 30 s de sendRichMessageDraft
 
 
@@ -1037,6 +1041,11 @@ class TelegramChannel(BaseChannel):
     def _is_not_modified_error(exc: Exception) -> bool:
         return isinstance(exc, BadRequest) and "message is not modified" in str(exc).lower()
 
+    @staticmethod
+    def _is_message_too_long_error(exc: Exception) -> bool:
+        """True si Telegram rechaza el payload por exceder el límite de 4096 chars."""
+        return isinstance(exc, BadRequest) and "message is too long" in str(exc).lower()
+
     def _next_draft_id(self) -> int:
         """Return a stable draft_id for sendRichMessageDraft (per stream)."""
         self._draft_counter += 1
@@ -1196,6 +1205,30 @@ class TelegramChannel(BaseChannel):
                 if self._is_not_modified_error(e):
                     buf.last_edit = now
                     return
+                if self._is_message_too_long_error(e):
+                    # El reasoning acumulado excede el límite de Telegram
+                    # (4096 chars). Truncarlo al máximo seguro y reintentar una
+                    # sola vez; si sigue fallando, degradar a texto plano.
+                    self.logger.warning(
+                        "Reasoning edit too long ({} chars), truncating to {}: {}",
+                        len(buf.reasoning), TELEGRAM_REASONING_MAX_LEN, e,
+                    )
+                    buf.reasoning = buf.reasoning[:TELEGRAM_REASONING_MAX_LEN]
+                    try:
+                        await self._call_with_retry(
+                            self._app.bot.edit_message_text,
+                            chat_id=int_chat_id, message_id=buf.message_id,
+                            text=self._reasoning_blockquote(buf.reasoning),
+                            parse_mode="HTML",
+                        )
+                        buf.last_edit = now
+                        return
+                    except Exception as e2:
+                        if self._is_not_modified_error(e2):
+                            buf.last_edit = now
+                            return
+                        self.logger.warning("Reasoning edit failed after truncation: {}", e2)
+                        return
                 self.logger.warning("Reasoning edit failed: {}", e)
 
     async def send_reasoning_end(

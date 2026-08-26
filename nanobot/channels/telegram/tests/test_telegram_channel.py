@@ -16,7 +16,9 @@ from nanobot.bus.events import OutboundMessage
 from nanobot.bus.outbound_events import ProgressEvent
 from nanobot.bus.queue import MessageBus
 from nanobot.channels.telegram.runtime import (
+    TELEGRAM_HTML_MAX_LEN,
     TELEGRAM_MAX_MESSAGE_LEN,
+    TELEGRAM_REASONING_MAX_LEN,
     TELEGRAM_REPLY_CONTEXT_MAX_LEN,
     TelegramChannel,
     TelegramConfig,
@@ -3670,3 +3672,74 @@ async def test_stream_buffers_swept_after_ttl() -> None:
     channel._sweep_stream_buffers()
 
     assert "123" not in channel._stream_bufs
+
+
+@pytest.mark.asyncio
+async def test_reasoning_edit_too_long_truncates_and_retries() -> None:
+    """Regression: un edit del reasoning que excede el límite de Telegram
+    (Message_too_long) debe truncar el acumulado a TELEGRAM_REASONING_MAX_LEN
+    y reintentar una vez — no loguear warnings en loop infinito."""
+    from telegram.error import BadRequest
+
+    channel = TelegramChannel(
+        TelegramConfig(
+            enabled=True, token="123:abc", allow_from=["*"],
+            stream_edit_interval=0.1,
+        ),
+        MessageBus(),
+    )
+    channel._app = _FakeApp(lambda: None)
+    channel._app.bot.do_api_request = AsyncMock()
+
+    # Reasoning que excede el límite de Telegram (4096) y el de acumulación.
+    huge = "x" * (TELEGRAM_REASONING_MAX_LEN + 2000)
+    channel._stream_bufs["123"] = _StreamBuf(
+        reasoning=huge, message_id=7, last_edit=0.0, stream_id="s:0"
+    )
+    # Primer edit → Message_too_long; segundo edit (truncado) → OK.
+    channel._app.bot.edit_message_text = AsyncMock(
+        side_effect=[BadRequest("Message is too long"), None]
+    )
+
+    await channel.send_reasoning_delta("123", "y", metadata={"is_group": True}, stream_id="s:0")
+
+    # El acumulado se truncó al máximo seguro.
+    assert len(channel._stream_bufs["123"].reasoning) == TELEGRAM_REASONING_MAX_LEN
+    # Se reintentó el edit con el texto truncado (2 llamadas, no un loop).
+    assert channel._app.bot.edit_message_text.await_count == 2
+    retry_text = channel._app.bot.edit_message_text.call_args_list[1].kwargs["text"]
+    assert "<blockquote expandable>" in retry_text
+    assert len(retry_text) <= TELEGRAM_HTML_MAX_LEN
+
+
+@pytest.mark.asyncio
+async def test_reasoning_edit_too_long_truncation_fails_quietly() -> None:
+    """Regression: si el edit truncado también falla, se loguea y se abandona
+    (sin reintentos infinitos ni excepción propagada)."""
+    from telegram.error import BadRequest
+
+    channel = TelegramChannel(
+        TelegramConfig(
+            enabled=True, token="123:abc", allow_from=["*"],
+            stream_edit_interval=0.1,
+        ),
+        MessageBus(),
+    )
+    channel._app = _FakeApp(lambda: None)
+    channel._app.bot.do_api_request = AsyncMock()
+
+    huge = "x" * (TELEGRAM_REASONING_MAX_LEN + 2000)
+    channel._stream_bufs["123"] = _StreamBuf(
+        reasoning=huge, message_id=7, last_edit=0.0, stream_id="s:0"
+    )
+    channel._app.bot.edit_message_text = AsyncMock(
+        side_effect=BadRequest("Message is too long")
+    )
+
+    # No debe lanzar excepción: el fallo tras truncar se absorbe.
+    await channel.send_reasoning_delta("123", "y", metadata={"is_group": True}, stream_id="s:0")
+
+    assert channel._app.bot.edit_message_text.await_count == 2
+    assert len(channel._stream_bufs["123"].reasoning) == TELEGRAM_REASONING_MAX_LEN
+
+
