@@ -49,10 +49,25 @@
         "label": "Workspaces de grupos",
         "placeholder": "120363000@g.us=/ruta/al/workspace"
       },
+      "groupWorkspacePresets": {
+        "label": "Presets de modelo por grupo",
+        "placeholder": "120363000@g.us=nemotron3",
+        "help": "Asocia un JID de grupo a un nombre de preset de modelo; las sesiones que inician en ese grupo usan ese preset."
+      },
       "dmWorkspace": {
         "label": "Workspace para DMs",
         "placeholder": "/ruta/al/workspace-dm",
         "help": "Ruta absoluta usada como workspace para todos los DMs cuando no haya una entrada por remitente."
+      },
+      "dmWorkspaceModelPreset": {
+        "label": "Preset de modelo para workspace de DMs",
+        "placeholder": "nemotron3",
+        "help": "Nombre del preset de modelo aplicado a las sesiones cuyo primer mensaje entrante cae en el workspace de DMs por defecto."
+      },
+      "dmWorkspacePresets": {
+        "label": "Presets de modelo por DM",
+        "placeholder": "56912345678=ejecutor-deepseek",
+        "help": "Asocia un ID de remitente a un nombre de preset de modelo; anula dmWorkspaceModelPreset por remitente."
       },
       "dmWorkspaces": {
         "label": "Workspaces por DM",

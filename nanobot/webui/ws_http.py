@@ -14,7 +14,6 @@ import json
 import mimetypes
 import re
 import shutil
-import threading
 import time
 from collections.abc import Callable
 from pathlib import Path
@@ -24,12 +23,6 @@ from urllib.parse import quote, unquote
 from loguru import logger
 from websockets.http11 import Request as WsRequest
 from websockets.http11 import Response
-
-
-# ponytail: module-level store for in-flight RLAIF approve jobs. The
-# state persists across HTTP requests and across WebUI page reloads,
-# so the frontend can resume a progress view after a refresh.
-_RLAIF_APPROVE_JOBS: dict[str, dict] = {}
 
 from nanobot.command.builtin import builtin_command_palette
 from nanobot.cron.session_turns import is_bound_cron_job
@@ -201,6 +194,11 @@ from nanobot.webui.workspace_browser_api import (
     workspace_write_file,
 )
 from nanobot.webui.workspaces import WebUIWorkspaceController
+
+# ponytail: module-level store for in-flight RLAIF approve jobs. The
+# state persists across HTTP requests and across WebUI page reloads,
+# so the frontend can resume a progress view after a refresh.
+_RLAIF_APPROVE_JOBS: dict[str, dict] = {}
 
 _SLOW_WEBUI_HTTP_LOG_MS = 1_000
 _AUTOMATION_VALUES_HEADER = "X-Nanobot-Automation-Values"

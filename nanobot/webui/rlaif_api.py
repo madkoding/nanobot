@@ -12,7 +12,6 @@ from typing import Any
 
 from loguru import logger
 
-
 DEFAULT_LOG_TAIL = 200
 DEFAULT_LOG_MAX_BYTES = 256 * 1024
 RLAIF_LOG_PATTERN = "rlaif"

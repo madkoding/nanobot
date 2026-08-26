@@ -429,7 +429,8 @@ class TestWorkspacePresetHook:
         }
         loop = self._make_loop(tmp_path, presets)
 
-        dm = tmp_path / "dms"; dm.mkdir()
+        dm = tmp_path / "dms"
+        dm.mkdir()
         from nanobot.channels.whatsapp.group_workspace import ChatWorkspaceRegistry
         registry = ChatWorkspaceRegistry(
             dm_workspace=str(dm),
@@ -461,7 +462,8 @@ class TestWorkspacePresetHook:
         loop = self._make_loop(tmp_path, presets)
         loop.set_session_model_preset("whatsapp:dm:x", "big")
 
-        dm = tmp_path / "dms"; dm.mkdir()
+        dm = tmp_path / "dms"
+        dm.mkdir()
         from nanobot.channels.whatsapp.group_workspace import ChatWorkspaceRegistry
         registry = ChatWorkspaceRegistry(
             dm_workspace=str(dm),
@@ -503,7 +505,8 @@ class TestWorkspacePresetHook:
                 temperature=0.3, reasoning_effort=None),
         }
         loop = self._make_loop(tmp_path, presets)
-        dm = tmp_path / "dms"; dm.mkdir()
+        dm = tmp_path / "dms"
+        dm.mkdir()
         from nanobot.channels.whatsapp.group_workspace import ChatWorkspaceRegistry
         registry = ChatWorkspaceRegistry(
             dm_workspace=str(dm),
@@ -513,7 +516,8 @@ class TestWorkspacePresetHook:
 
         msg = MagicMock()
         msg.channel = "whatsapp"
-        msg.chat_id = "x"; msg.sender_id = "y"
+        msg.chat_id = "x"
+        msg.sender_id = "y"
         msg.session_key = "whatsapp:dm:y"
 
         loop._apply_workspace_preset_if_new(msg, msg.session_key)
