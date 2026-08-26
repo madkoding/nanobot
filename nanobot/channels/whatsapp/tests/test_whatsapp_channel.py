@@ -1408,6 +1408,52 @@ async def test_group_policy_mention_skips_unmentioned_group_message() -> None:
 
 
 @pytest.mark.asyncio
+async def test_group_policy_mention_accepts_plain_text_mention(monkeypatch) -> None:
+    # WhatsApp sometimes omits contextInfo.mentionedJID for @botName tags,
+    # so a plain-text mention must still trigger a response.
+    monkeypatch.setattr(whatsapp_module.WhatsAppChannel, "_bot_name", lambda self: "motoko")
+    ch = _make_channel({"groupPolicy": "mention"})
+    ch._self_jids = {"bot@s.whatsapp.net", "bot"}
+    ch._handle_message = AsyncMock()
+
+    await ch._handle_neonize_message(
+        SimpleNamespace(download_any=AsyncMock()),
+        _event(
+            message=_Proto(extendedTextMessage=_Proto(text="hola @motoko que opinas?")),
+            chat=_jid("120363000", "g.us"),
+            sender=_jid("SENDERLID", "lid"),
+            is_group=True,
+        ),
+    )
+    await ch._drain_group_queue("120363000@g.us")
+
+    assert ch._handle_message.awaited
+
+
+@pytest.mark.asyncio
+async def test_group_policy_mention_works_when_self_jids_empty(monkeypatch) -> None:
+    # If _self_jids wasn't populated yet, a plain-text mention must still
+    # be honored instead of silently dropping every group message.
+    monkeypatch.setattr(whatsapp_module.WhatsAppChannel, "_bot_name", lambda self: "motoko")
+    ch = _make_channel({"groupPolicy": "mention"})
+    ch._self_jids = set()
+    ch._handle_message = AsyncMock()
+
+    await ch._handle_neonize_message(
+        SimpleNamespace(download_any=AsyncMock()),
+        _event(
+            message=_Proto(extendedTextMessage=_Proto(text="@motoko ayúdame")),
+            chat=_jid("120363000", "g.us"),
+            sender=_jid("SENDERLID", "lid"),
+            is_group=True,
+        ),
+    )
+    await ch._drain_group_queue("120363000@g.us")
+
+    assert ch._handle_message.awaited
+
+
+@pytest.mark.asyncio
 async def test_group_policy_mention_accepts_mention_and_prefers_phone_sender() -> None:
     ch = _make_channel({"groupPolicy": "mention"})
     ch._self_jids = {"bot@s.whatsapp.net", "bot"}

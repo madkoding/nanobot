@@ -310,6 +310,10 @@ class WhatsAppChannel(BaseChannel):
         self._state_dirty_count: int = 0
         self._state_last_save_at: float = 0.0
         self._self_jids: set[str] = set()
+        # ponytail: holds the live neonize client so mention detection can
+        # retry _remember_self_jids lazily if it ran before me/JID was
+        # populated (some accounts expose only LID/PN at first).
+        self._current_client: Any = None
         self._started_at = 0.0
         self._typing_tasks: dict[str, asyncio.Task[None]] = {}
         # Per-group turn queue: one worker per chat processes messages sequentially.
@@ -1316,6 +1320,7 @@ class WhatsAppChannel(BaseChannel):
 
         @client.event(api.MessageEv)
         async def _on_message(current_client: Any, event: Any) -> None:
+            self._current_client = current_client
             try:
                 await self._handle_neonize_message(current_client, event)
             except Exception:
@@ -1328,7 +1333,7 @@ class WhatsAppChannel(BaseChannel):
         if device is None:
             device = await client.get_me()
 
-        for attr in ("JID", "LID"):
+        for attr in ("JID", "LID", "PN"):
             jid = _normalize_jid(_safe_attr(device, attr))
             if jid:
                 self._self_jids.add(jid)
@@ -1437,6 +1442,11 @@ class WhatsAppChannel(BaseChannel):
         push_name = str(_safe_attr(info, "Pushname", "") or "").strip()
         self._remember_display_name(chat_jid, sender_id, push_name)
         display_name = push_name or self._display_name_for(chat_jid, sender_id)
+
+        # Retry self-JID discovery if the first attempt (on connect) ran
+        # before me/JID was populated; otherwise mention detection fails.
+        if not self._self_jids:
+            await self._refresh_self_jids()
 
         is_addressed = self._is_addressed_to_bot(message)
         if is_group and self.config.group_policy == "mention" and not is_addressed:
@@ -1754,9 +1764,21 @@ class WhatsAppChannel(BaseChannel):
     def _is_addressed_to_bot(self, message: Any) -> bool:
         return self._was_mentioned(message) or self._is_reply_to_bot(message)
 
+    async def _refresh_self_jids(self) -> None:
+        """Best-effort repopulate _self_jids from the live client.
+
+        Retried lazily on mention detection in case the first population ran
+        before me/JID was available (some accounts expose only LID/PN).
+        """
+        client = self._current_client
+        if client is None:
+            return
+        try:
+            await self._remember_self_jids(client)
+        except Exception:
+            self.logger.debug("Failed to refresh WhatsApp self JIDs", exc_info=True)
+
     def _was_mentioned(self, message: Any) -> bool:
-        if not self._self_jids:
-            return False
         for context in _context_infos(message):
             mentioned = (
                 _safe_attr(context, "mentionedJID")
@@ -1768,7 +1790,36 @@ class WhatsAppChannel(BaseChannel):
                 normalized = _normalize_jid(jid)
                 if normalized in self._self_jids or _bare_jid(normalized) in self._self_jids:
                     return True
+        if self._mentioned_by_text(message):
+            return True
         return False
+
+    def _mentioned_by_text(self, message: Any) -> bool:
+        """Detect a plain-text @mention (e.g. "@motoko") even when WhatsApp
+        omits contextInfo.mentionedJID."""
+        text = _message_text(message)
+        if not text or "@" not in text:
+            return False
+        bot_names = {self._bot_name()}
+        if self._self_jids:
+            for jid in self._self_jids:
+                bare = _bare_jid(jid)
+                if bare and bare.isdigit():
+                    bot_names.add(bare)
+        lowered = text.lower()
+        for name in bot_names:
+            if name and ("@" + name.lower()) in lowered:
+                return True
+        return False
+
+    @staticmethod
+    def _bot_name() -> str:
+        try:
+            from nanobot.config.loader import load_config
+
+            return load_config().agents.defaults.bot_name
+        except Exception:
+            return "nanobot"
 
     def _is_reply_to_bot(self, message: Any) -> bool:
         if not self._self_jids:
