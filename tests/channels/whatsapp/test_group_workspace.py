@@ -181,8 +181,10 @@ class TestResolveModelPreset:
         assert registry.resolve_model_preset("56912345678@s.whatsapp.net") == "nemotron3"
 
     def test_group_preset_per_jid(self, tmp_path):
-        g1 = tmp_path / "g1"; self._setup(g1)
-        g2 = tmp_path / "g2"; self._setup(g2)
+        g1 = tmp_path / "g1"
+        self._setup(g1)
+        g2 = tmp_path / "g2"
+        self._setup(g2)
         registry = ChatWorkspaceRegistry(
             group_workspaces={"120363000@g.us": str(g1), "120363111@g.us": str(g2)},
             group_workspace_presets={
@@ -194,8 +196,10 @@ class TestResolveModelPreset:
         assert registry.resolve_model_preset("120363111@g.us") == "ejecutor-deepseek"
 
     def test_unmapped_chat_returns_none(self, tmp_path):
-        dm = tmp_path / "dms"; self._setup(dm)
-        g = tmp_path / "g"; self._setup(g)
+        dm = tmp_path / "dms"
+        self._setup(dm)
+        g = tmp_path / "g"
+        self._setup(g)
         registry = ChatWorkspaceRegistry(
             dm_workspace=str(dm),
             dm_workspace_model_preset="nemotron3",
@@ -205,12 +209,14 @@ class TestResolveModelPreset:
         assert registry.resolve_model_preset("999999@g.us") is None
 
     def test_empty_preset_map_returns_none(self, tmp_path):
-        dm = tmp_path / "dms"; self._setup(dm)
+        dm = tmp_path / "dms"
+        self._setup(dm)
         registry = ChatWorkspaceRegistry(dm_workspace=str(dm))
         assert registry.resolve_model_preset("56912345678@s.whatsapp.net") is None
 
     def test_star_key_rebinds_default_dm_preset(self, tmp_path):
-        dm = tmp_path / "dms"; self._setup(dm)
+        dm = tmp_path / "dms"
+        self._setup(dm)
         registry = ChatWorkspaceRegistry(
             dm_workspace=str(dm),
             dm_workspace_model_preset="nemotron3",
@@ -219,7 +225,8 @@ class TestResolveModelPreset:
         assert registry.resolve_model_preset("56912345678@s.whatsapp.net") == "ejecutor-deepseek"
 
     def test_skips_preset_for_unconfigured_key(self, tmp_path):
-        dm = tmp_path / "dms"; self._setup(dm)
+        dm = tmp_path / "dms"
+        self._setup(dm)
         registry = ChatWorkspaceRegistry(
             dm_workspace=str(dm),
             dm_workspace_presets={"56912345678": "ejecutor-deepseek"},
