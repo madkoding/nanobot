@@ -320,6 +320,10 @@ class RlaifProactiveScanner:
         ]
         self._save_state()
         if not result.passed:
+            if result.not_evaluable:
+                return f"approval aborted: baseline (clean worktree) failed for {rel}; patch not evaluable"
+            if result.patch_apply_failed:
+                return f"approval aborted: patch apply failed for {rel}"
             why = []
             if not result.test_passed:
                 why.append("tests")

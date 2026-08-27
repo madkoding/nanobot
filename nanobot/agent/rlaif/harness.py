@@ -18,6 +18,17 @@ from typing import Any
 
 from loguru import logger
 
+# ponytail: explicit source->test mapping for the RLAIF package. A patch that
+# touches one of these files only needs its own test file to be judged. Files
+# not listed here fall back to the full suite. Add rows as new modules appear.
+_SOURCE_TO_TEST = {
+    "harness.py": "test_rlaif_harness.py",
+    "dataset.py": "test_rlaif_dataset.py",
+    "critic.py": "test_rlaif_critic.py",
+    "diff_utils.py": "test_rlaif_diff_utils.py",
+    "observer.py": "test_rlaif_observer.py",
+}
+
 
 @dataclass
 class PatchHarnessResult:
@@ -33,10 +44,17 @@ class PatchHarnessResult:
     duration_s: float = 0.0
     backend: str = "unknown"
     metadata: dict[str, Any] = field(default_factory=dict)
+    baseline_failed: bool = False
+    patch_apply_failed: bool = False
 
     @property
     def passed(self) -> bool:
         return self.test_passed and self.lint_passed
+
+    @property
+    def not_evaluable(self) -> bool:
+        """Baseline (clean worktree) already fails; the patch can't be judged."""
+        return self.baseline_failed
 
     @property
     def score_bonus(self) -> float:
@@ -57,7 +75,7 @@ class PatchHarness:
         *,
         test_command: list[str] | None = None,
         lint_command: list[str] | None = None,
-        timeout: float = 120.0,
+        timeout: float = 300.0,
         keep_temp: bool = False,
     ) -> None:
         self.repo_root = repo_root.resolve(strict=False)
@@ -66,6 +84,7 @@ class PatchHarness:
         self.timeout = timeout
         self.keep_temp = keep_temp
         self._use_git = self._detect_git_worktree_support()
+        self._baseline_cache: dict[str, bool] = {}
 
     async def evaluate(
         self,
@@ -90,6 +109,23 @@ class PatchHarness:
 
             patch_file = target / "candidate.patch"
             patch_file.write_text(patch_text, encoding="utf-8")
+
+            test_cmd = self._scoped_test_command(patch_text)
+
+            baseline_ok = await self._baseline_check(target, test_cmd)
+            if not baseline_ok:
+                duration = asyncio.get_event_loop().time() - start
+                return PatchHarnessResult(
+                    patch=patch_text,
+                    summary=patch_summary,
+                    test_passed=False,
+                    lint_passed=False,
+                    test_output="Baseline (clean worktree) failed; patch not evaluable.",
+                    baseline_failed=True,
+                    duration_s=duration,
+                    backend=backend,
+                )
+
             apply = await self._run(
                 ["git", "apply", str(patch_file)],
                 cwd=target,
@@ -112,9 +148,10 @@ class PatchHarness:
                     exit_code=apply.returncode,
                     duration_s=duration,
                     backend=backend,
+                    patch_apply_failed=True,
                 )
 
-            test_proc = await self._run(self.test_command, cwd=target)
+            test_proc = await self._run(test_cmd, cwd=target)
             lint_proc = await self._run(self.lint_command, cwd=target)
             # ponytail: ruff is a standalone binary; on some runners `python -m ruff`
             # is not importable. Fall back to the `ruff` executable when that happens.
@@ -150,6 +187,37 @@ class PatchHarness:
                 await self._remove_git_worktree(worktree_dir)
             if tmp_dir is not None and not self.keep_temp:
                 shutil.rmtree(tmp_dir, ignore_errors=True)
+
+    def _scoped_test_command(self, patch_text: str) -> list[str]:
+        """Narrow the test command to the test file for the touched source file."""
+        touched = self._touched_files(patch_text)
+        test_files = [
+            _SOURCE_TO_TEST[name]
+            for name in touched
+            if name in _SOURCE_TO_TEST
+        ]
+        if not test_files:
+            return self.test_command
+        return [*self.test_command, *test_files]
+
+    @staticmethod
+    def _touched_files(patch_text: str) -> list[str]:
+        files: list[str] = []
+        for line in patch_text.splitlines():
+            if line.startswith("+++ b/"):
+                files.append(line[6:].split("/")[-1])
+        return files
+
+    async def _baseline_check(self, target: Path, test_cmd: list[str]) -> bool:
+        """Run tests+lint on the clean worktree; cache per target dir."""
+        key = str(target)
+        if key in self._baseline_cache:
+            return self._baseline_cache[key]
+        test_proc = await self._run(test_cmd, cwd=target)
+        lint_proc = await self._run(self.lint_command, cwd=target)
+        ok = test_proc.returncode == 0 and lint_proc.returncode == 0
+        self._baseline_cache[key] = ok
+        return ok
 
     def _detect_git_worktree_support(self) -> bool:
         if not shutil.which("git"):
