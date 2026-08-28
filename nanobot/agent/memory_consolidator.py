@@ -44,6 +44,7 @@ class Consolidator:
         get_tool_definitions: Callable[[], list[dict[str, Any]]],
         consolidation_ratio: float = 0.5,
         unified_session: bool = False,
+        shared_locks: "weakref.WeakValueDictionary[str, asyncio.Lock] | None" = None,
     ):
         self.store = store
         self.sessions = sessions
@@ -51,9 +52,10 @@ class Consolidator:
         self.unified_session = unified_session
         self._build_messages = build_messages
         self._get_tool_definitions = get_tool_definitions
-        self._locks: weakref.WeakValueDictionary[str, asyncio.Lock] = (
-            weakref.WeakValueDictionary()
-        )
+        # ponytail: when ``shared_locks`` is provided, consolidate through the
+        # same per-session lock the dispatcher uses; otherwise fall back to a
+        # private dict so the consolidator still works in isolation (tests).
+        self._locks = shared_locks or weakref.WeakValueDictionary()
 
     def get_lock(self, session_key: str) -> asyncio.Lock:
         """Return the shared consolidation lock for one session."""

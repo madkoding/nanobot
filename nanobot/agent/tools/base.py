@@ -187,6 +187,16 @@ class Tool(ABC):
         """Whether this tool should run alone even if concurrency is enabled."""
         return False
 
+    @property
+    def unbounded_execution(self) -> bool:
+        """Opt out of the runner's per-tool wall-clock timeout.
+
+        Tools that legitimately run for hours (long_task, sustained goals,
+        MCP servers hosting long streams) override this to True. Default
+        False keeps the safety bound on every other tool.
+        """
+        return False
+
     # --- Plugin metadata ---
 
     config_key: str = ""

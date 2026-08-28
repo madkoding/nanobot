@@ -8,6 +8,7 @@ from nanobot.utils import helpers
 from nanobot.utils.helpers import (
     _write_text_atomic,
     current_time_str,
+    find_legal_message_start,
     split_message,
     truncate_text_to_tokens,
 )
@@ -94,3 +95,49 @@ def test_write_text_atomic_keeps_file_when_directory_fsync_is_unsupported(
 
     assert target.read_text(encoding="utf-8") == '{"pending": {}}'
     assert len(fsync_calls) == 1
+
+
+def test_find_legal_message_start_empty():
+    assert find_legal_message_start([]) == 0
+
+
+def test_find_legal_message_start_well_formed():
+    messages = [
+        {"role": "assistant", "tool_calls": [{"id": "a1"}]},
+        {"role": "tool", "tool_call_id": "a1", "content": "ok"},
+        {"role": "user", "content": "next"},
+    ]
+    assert find_legal_message_start(messages) == 0
+
+
+def test_find_legal_message_start_orphan_kept_advances():
+    messages = [
+        {"role": "tool", "tool_call_id": "orphan", "content": "stale"},
+        {"role": "assistant", "tool_calls": [{"id": "a1"}]},
+        {"role": "tool", "tool_call_id": "a1", "content": "ok"},
+    ]
+    # Start advances past the orphan but the well-formed pair must remain.
+    assert find_legal_message_start(messages) == 1
+
+
+def test_find_legal_message_start_preserves_prior_declarations():
+    # ponytail: regression for H11. Wiping ``declared`` on an orphan used to
+    # also drop earlier valid declarations, orphaning every later tool result
+    # that legitimately referenced them.
+    messages = [
+        {"role": "assistant", "tool_calls": [{"id": "a1"}]},
+        {"role": "tool", "tool_call_id": "a1", "content": "ok"},
+        {"role": "assistant", "tool_calls": [{"id": "b1"}]},
+        {"role": "tool", "tool_call_id": "orphan", "content": "stale"},
+        {"role": "tool", "tool_call_id": "b1", "content": "ok"},
+    ]
+    assert find_legal_message_start(messages) == 4
+
+
+def test_find_legal_message_start_tool_without_id_is_skipped():
+    messages = [
+        {"role": "assistant", "tool_calls": [{"id": "a1"}]},
+        {"role": "tool", "content": "missing id"},
+        {"role": "tool", "tool_call_id": "a1", "content": "ok"},
+    ]
+    assert find_legal_message_start(messages) == 0

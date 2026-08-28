@@ -130,6 +130,12 @@ class _GoalToolsMixin:
 class CreateGoalTool(Tool, _GoalToolsMixin):
     """Create one explicit sustained objective for the current session."""
 
+    @property
+    def unbounded_execution(self) -> bool:
+        # ponytail: sustained goals may run for hours; opt out of the per-tool
+        # wall-clock timeout that exists to catch accidental hangs elsewhere.
+        return True
+
     def __init__(
         self,
         sessions: Any,
@@ -254,6 +260,10 @@ class CreateGoalTool(Tool, _GoalToolsMixin):
 )
 class UpdateGoalTool(Tool, _GoalToolsMixin):
     """Complete, cancel, block, or replace the active sustained goal."""
+
+    @property
+    def unbounded_execution(self) -> bool:
+        return True
 
     def __init__(
         self,

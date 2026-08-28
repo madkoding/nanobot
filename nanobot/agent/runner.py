@@ -59,6 +59,7 @@ _MAX_EMPTY_RETRIES = 2
 _MAX_LENGTH_RECOVERIES = 3
 _MAX_INJECTIONS_PER_TURN = 3
 _MAX_INJECTION_CYCLES = 5
+_DEFAULT_TOOL_TIMEOUT_S = 600.0  # ponytail: per-tool wall-clock safety bound
 
 # ponytail: repeated tool call detection — the model is stuck calling the same
 # target over and over. Nudge at 3, hard stop at 5.
@@ -1341,7 +1342,22 @@ class AgentRunner:
         messages: list[dict[str, Any]],
     ) -> LLMResponse:
         kwargs = self._build_request_kwargs(spec, messages, tools=None)
-        return await spec.runtime.provider.chat_with_retry(**kwargs)
+        coro = spec.runtime.provider.chat_with_retry(**kwargs)
+        # ponytail: mirror _request_model's wall-clock timeout so a hung
+        # provider on the no-tools finalization path can't wedge the session.
+        # ``None`` and ``<=0`` both disable the bound — the latter is the
+        # signal used by sustained-goal runs to opt out of the timeout.
+        timeout_s = spec.llm_timeout_s
+        if timeout_s is None or timeout_s <= 0:
+            return await coro
+        try:
+            return await asyncio.wait_for(coro, timeout=timeout_s)
+        except asyncio.TimeoutError:
+            return LLMResponse(
+                content=f"Error calling LLM: timed out after {timeout_s:g}s",
+                finish_reason="error",
+                error_kind="timeout",
+            )
 
     @staticmethod
     def _budget_exhausted_finalization_messages(
@@ -1544,13 +1560,46 @@ class AgentRunner:
                 RuntimeError(prep_error) if spec.fail_on_tool_error else None
             )
         await hook.before_execute_tool(context, tool_call, tool, params)
+        # ponytail: per-tool wall-clock timeout. Without this a single hung
+        # tool blocks the rest of the batch under concurrent_tools=True and
+        # holds the session lock until the caller intervenes. Tools can opt
+        # out via ``unbounded_execution = True`` for legitimate long-runners.
+        tool_timeout_s = _resolve_tool_timeout(tool)
         try:
             if tool is not None:
-                result = await tool.execute(**params)
+                if tool_timeout_s is None:
+                    result = await tool.execute(**params)
+                else:
+                    result = await asyncio.wait_for(
+                        tool.execute(**params), timeout=tool_timeout_s
+                    )
             else:
                 result = await spec.tools.execute(tool_call.name, params)
         except asyncio.CancelledError:
             raise
+        except asyncio.TimeoutError as exc:
+            await hook.on_execute_tool_error(context, tool_call, tool, params, exc)
+            event = {
+                "name": tool_call.name,
+                "status": "error",
+                "detail": f"timed out after {tool_timeout_s:g}s",
+            }
+            payload = (
+                f"Error: tool '{tool_call.name}' timed out after "
+                f"{tool_timeout_s:g}s"
+            )
+            handled = self._classify_violation(
+                raw_text=str(exc),
+                soft_payload=payload,
+                event=event,
+                tool_call=tool_call,
+                workspace_violation_counts=workspace_violation_counts,
+            )
+            if handled is not None:
+                return handled
+            if spec.fail_on_tool_error:
+                return payload, event, exc
+            return payload, event, None
         except Exception as exc:
             await hook.on_execute_tool_error(context, tool_call, tool, params, exc)
             event = {
@@ -1774,6 +1823,24 @@ _GOAL_CONFLICT_NUDGE = (
     "available tools. If you are blocked, describe the blocker concretely and "
     "ask the operator for guidance."
 )
+
+
+def _resolve_tool_timeout(tool: Any | None) -> float | None:
+    """Resolve the per-tool wall-clock timeout for *tool*.
+
+    Returns None when the tool opts out via ``unbounded_execution = True``
+    or when ``NANOBOT_TOOL_TIMEOUT_S=0`` disables the bound entirely.
+    """
+    raw = os.environ.get("NANOBOT_TOOL_TIMEOUT_S", str(_DEFAULT_TOOL_TIMEOUT_S)).strip()
+    try:
+        timeout_s = float(raw)
+    except ValueError:
+        timeout_s = _DEFAULT_TOOL_TIMEOUT_S
+    if timeout_s <= 0:
+        return None
+    if tool is not None and getattr(tool, "unbounded_execution", False):
+        return None
+    return timeout_s
 
 
 # Repetition/retry signature heuristics live in runner_signatures.py; re-export

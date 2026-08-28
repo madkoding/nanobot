@@ -516,9 +516,13 @@ def find_legal_message_start(messages: list[dict[str, Any]]) -> int:
                     declared.add(str(tc["id"]))
         elif role == "tool":
             tid = msg.get("tool_call_id")
-            if tid and str(tid) not in declared:
+            if not tid:
+                continue
+            if str(tid) not in declared:
+                # ponytail: orphan tool result — advance past it but keep
+                # earlier declarations; wiping the set would orphan every
+                # later result that legitimately references them.
                 start = i + 1
-                declared.clear()
     return start
 
 

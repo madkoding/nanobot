@@ -375,6 +375,7 @@ class AgentLoop(CheckpointMixin, TurnStateMixin, RunLoopMixin):
             get_tool_definitions=self.tools.get_definitions,
             consolidation_ratio=consolidation_ratio,
             unified_session=unified_session,
+            shared_locks=self._session_locks,
         )
         self.auto_compact = AutoCompact(
             sessions=self.sessions,
@@ -1035,8 +1036,13 @@ class AgentLoop(CheckpointMixin, TurnStateMixin, RunLoopMixin):
                     continue
                 except asyncio.CancelledError:
                     # Preserve real task cancellation so shutdown can complete cleanly.
-                    # Only ignore non-task CancelledError signals that may leak from integrations.
-                    if not self._running or task_is_cancelling():
+                    # Order matters: a normal shutdown sets ``_running=False`` first,
+                    # so check that before inspecting ``task_is_cancelling`` —
+                    # otherwise a cancelled-but-still-running task that calls
+                    # ``stop()`` mid-cancel would swallow one extra loop iteration.
+                    if not self._running:
+                        raise
+                    if task_is_cancelling():
                         raise
                     logger.warning(
                         "Ignoring leaked CancelledError while consuming inbound messages"
@@ -1149,6 +1155,7 @@ class AgentLoop(CheckpointMixin, TurnStateMixin, RunLoopMixin):
         delivery = self.turn_delivery_factory.unrouted(msg, session_key)
         pending: asyncio.Queue | None = None
         task_success = False
+        idle_published = False
         try:
             async with lock, gate:
                 # Only the task that owns the session lock may publish the
@@ -1250,6 +1257,7 @@ class AgentLoop(CheckpointMixin, TurnStateMixin, RunLoopMixin):
                         )
                     if not turn_continuation.internal_continuation_pending(msg.metadata):
                         await delivery.idle()
+                        idle_published = True
                     await self._publish_next_deferred_automation_turn(session_key)
             # ACK/NACK the message once the dispatch completes. For durable
             # queues this removes the message from processing or re-queues it.
@@ -1260,8 +1268,20 @@ class AgentLoop(CheckpointMixin, TurnStateMixin, RunLoopMixin):
             elif self._running:
                 await self.bus.nack_inbound(msg)
         finally:
+            # ponytail: always publish idle for non-continuation turns so the
+            # WebUI's running indicator clears even if the inner finally was
+            # skipped (e.g. when the pending-queue path owns cleanup). Use a
+            # local flag so the inner finally's already-published idle does
+            # not fire twice.
+            if (
+                not idle_published
+                and not turn_continuation.internal_continuation_pending(msg.metadata)
+            ):
+                try:
+                    await delivery.idle()
+                except Exception:
+                    logger.debug("delivery.idle failed in dispatch finally", exc_info=True)
             if pending is None:
-                await delivery.idle()
                 await self._publish_next_deferred_automation_turn(session_key)
 
     async def close_mcp(self) -> None:
