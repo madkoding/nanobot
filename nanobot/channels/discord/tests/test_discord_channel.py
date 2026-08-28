@@ -1695,3 +1695,61 @@ async def test_stream_buffers_swept_after_ttl() -> None:
     channel._sweep_stream_buffers()
 
     assert "123" not in channel._stream_bufs
+
+
+async def test_bot_mentioned_matches_bot_username() -> None:
+    """``_bot_mentioned`` must match the bot's own username / display name,
+    not the message author's. Regression: previously the loop iterated over
+    ``message.author.name`` which can never match the bot.
+    """
+    channel = DiscordChannel(
+        DiscordConfig(enabled=True, allow_from=["*"]), MessageBus()
+    )
+    bot_user = SimpleNamespace(
+        id=999,
+        name="motoko_bot",
+        global_name="Motoko Bot",
+        display_name="Motoko Bot",
+    )
+    channel._client = SimpleNamespace(user=bot_user)
+    channel._bot_user_id = "999"
+
+    msg = _make_message(
+        author_id=111,
+        author_name="Alice",
+        channel_id=456,
+        guild_id=1,
+        content="@Motoko_Bot hola",
+    )
+
+    assert channel._bot_mentioned(msg, "@Motoko_Bot hola", "999") is True
+
+
+async def test_bot_mentioned_does_not_match_author_name() -> None:
+    """The author name must not be used as the bot-mention needle.
+    A message where only the *sender*'s name happens to be "Motoko" must
+    not be considered addressed when the bot's profile differs.
+    """
+    channel = DiscordChannel(
+        DiscordConfig(enabled=True, allow_from=["*"]), MessageBus()
+    )
+    bot_user = SimpleNamespace(
+        id=999,
+        name="kusanagi",
+        global_name="Kusanagi",
+        display_name="Kusanagi",
+    )
+    channel._client = SimpleNamespace(user=bot_user)
+    channel._bot_user_id = "999"
+
+    msg = _make_message(
+        author_id=111,
+        author_name="Motoko",
+        author_global_name="Motoko",
+        channel_id=456,
+        guild_id=1,
+        content="hola @Motoko",
+    )
+
+    # Author mentions themselves: not the bot.
+    assert channel._bot_mentioned(msg, "hola @Motoko", "999") is False

@@ -310,6 +310,11 @@ class WhatsAppChannel(BaseChannel):
         self._state_dirty_count: int = 0
         self._state_last_save_at: float = 0.0
         self._self_jids: set[str] = set()
+        # ponytail: display names / usernames the bot exposes on its profile
+        # (PushName, VerifiedName, Notify). Used by ``_mentioned_by_text`` so
+        # plain-text ``@<username>`` mentions match even when the bot's
+        # WhatsApp profile name differs from ``agents.defaults.bot_name``.
+        self._bot_display_names: set[str] = set()
         # ponytail: holds the live neonize client so mention detection can
         # retry _remember_self_jids lazily if it ran before me/JID was
         # populated (some accounts expose only LID/PN at first).
@@ -1338,6 +1343,15 @@ class WhatsAppChannel(BaseChannel):
             if jid:
                 self._self_jids.add(jid)
                 self._self_jids.add(_bare_jid(jid))
+        # ponytail: capture profile names so plain-text @username mentions
+        # match even when bot_name in config differs from the WhatsApp
+        # profile (e.g. bot_name="motoko" but the user types @Motoko_Bot).
+        for attr in ("PushName", "VerifiedName", "BusinessName", "Notify"):
+            name = _safe_attr(device, attr)
+            if isinstance(name, str):
+                stripped = name.strip()
+                if stripped and self._looks_like_name(stripped):
+                    self._bot_display_names.add(stripped.lower())
 
     async def _send_read_receipt(self, client: Any, source: Any, message_id: str) -> None:
         """Send a read receipt (blue double-check) for an incoming message.
@@ -1458,6 +1472,13 @@ class WhatsAppChannel(BaseChannel):
                 display_name,
                 text_for_buffer,
                 timestamp=timestamp,
+            )
+            # ponytail: surface filtered group messages so silent drops are
+            # diagnosable from the gateway log without toggling DEBUG.
+            preview = (text_for_buffer or "")[:120].replace("\n", " ")
+            self.logger.info(
+                "Group message in {} from {} ignored (not addressed); preview: '{}'",
+                chat_jid, sender_id, preview,
             )
             return
 
@@ -1800,15 +1821,21 @@ class WhatsAppChannel(BaseChannel):
         text = _message_text(message)
         if not text or "@" not in text:
             return False
-        bot_names = {self._bot_name()}
+        bot_names = {self._bot_name().lower()}
+        # ponytail: also match the bot's WhatsApp profile names captured
+        # from PushName / VerifiedName / Notify on connect. Some users
+        # mention the bot by a username that differs from bot_name in
+        # config — this prevents those messages from being silently
+        # filtered.
+        bot_names.update(self._bot_display_names)
         if self._self_jids:
             for jid in self._self_jids:
                 bare = _bare_jid(jid)
                 if bare and bare.isdigit():
-                    bot_names.add(bare)
+                    bot_names.add(bare.lower())
         lowered = text.lower()
         for name in bot_names:
-            if name and ("@" + name.lower()) in lowered:
+            if name and ("@" + name) in lowered:
                 return True
         return False
 

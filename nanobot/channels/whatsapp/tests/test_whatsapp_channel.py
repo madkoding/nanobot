@@ -2073,3 +2073,67 @@ async def test_group_sender_lid_resolves_to_phone_via_runtime_learned_mapping() 
 
     kwargs = ch._handle_message.await_args.kwargs
     assert kwargs["sender_id"] == "56975746099"
+
+
+@pytest.mark.asyncio
+async def test_remember_self_jids_captures_profile_names(monkeypatch) -> None:
+    """``_remember_self_jids`` should harvest PushName / VerifiedName /
+    Notify into ``_bot_display_names`` so plain-text @username mentions
+    match even when config ``bot_name`` differs from the WhatsApp profile.
+    """
+    monkeypatch.setattr(whatsapp_module.WhatsAppChannel, "_bot_name", lambda self: "motoko")
+    ch = _make_channel({"groupPolicy": "mention"})
+    device = _Proto(
+        JID="56912345678@s.whatsapp.net",
+        LID="9876543210@lid",
+        PN="56912345678",
+        PushName="Motoko Bot",
+        VerifiedName="Motoko",
+        BusinessName="",
+        Notify="motoko_bot_handle",
+    )
+
+    await ch._remember_self_jids(SimpleNamespace(me=device))
+
+    assert {"motoko bot", "motoko", "motoko_bot_handle"}.issubset(ch._bot_display_names)
+    assert "56912345678@s.whatsapp.net" in ch._self_jids
+
+
+@pytest.mark.asyncio
+async def test_remember_self_jids_skips_pure_digits(monkeypatch) -> None:
+    """Pure-digit display fields (e.g. accidental JIDs in Notify) must not be
+    added to ``_bot_display_names``.
+    """
+    monkeypatch.setattr(whatsapp_module.WhatsAppChannel, "_bot_name", lambda self: "motoko")
+    ch = _make_channel({"groupPolicy": "mention"})
+    device = _Proto(JID="56912345678@s.whatsapp.net", Notify="12345678901234567890")
+
+    await ch._remember_self_jids(SimpleNamespace(me=device))
+
+    assert "12345678901234567890" not in ch._bot_display_names
+
+
+@pytest.mark.asyncio
+async def test_group_policy_mention_accepts_push_name_username(monkeypatch) -> None:
+    """When the bot's profile name (PushName) differs from ``bot_name``
+    config, a plain-text ``@<push_name>`` mention must still trigger a
+    response.
+    """
+    monkeypatch.setattr(whatsapp_module.WhatsAppChannel, "_bot_name", lambda self: "motoko")
+    ch = _make_channel({"groupPolicy": "mention"})
+    ch._self_jids = set()
+    ch._bot_display_names = {"motoko bot"}
+    ch._handle_message = AsyncMock()
+
+    await ch._handle_neonize_message(
+        SimpleNamespace(download_any=AsyncMock()),
+        _event(
+            message=_Proto(extendedTextMessage=_Proto(text="@Motoko_Bot ayúdame")),
+            chat=_jid("120363000", "g.us"),
+            sender=_jid("SENDERLID", "lid"),
+            is_group=True,
+        ),
+    )
+    await ch._drain_group_queue("120363000@g.us")
+
+    assert ch._handle_message.awaited
