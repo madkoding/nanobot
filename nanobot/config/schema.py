@@ -14,7 +14,6 @@ if TYPE_CHECKING:
     from nanobot.agent.tools.cli_apps import CliAppsToolConfig
     from nanobot.agent.tools.filesystem import FileToolsConfig
     from nanobot.agent.tools.image_generation import ImageGenerationToolConfig
-    from nanobot.agent.tools.rlaif_eval import RlaifToolConfig
     from nanobot.agent.tools.self import MyToolConfig
     from nanobot.agent.tools.shell import ExecToolConfig
     from nanobot.agent.tools.web import WebToolsConfig
@@ -424,7 +423,6 @@ class ToolsConfig(Base):
     image_generation: ImageGenerationToolConfig = Field(
         default_factory=lambda: _lazy_default("nanobot.agent.tools.image_generation", "ImageGenerationToolConfig"),
     )
-    rlaif: RlaifToolConfig = Field(default_factory=lambda: _lazy_default("nanobot.agent.tools.rlaif_eval", "RlaifToolConfig"))
     # Single source of truth for default workspace access mode. The
     # WebUI's ``workspace-state.json::default_access_mode`` is a derived
     # cache initialized from this field; if they ever disagree, the
@@ -709,7 +707,6 @@ def _resolve_tool_config_refs() -> None:
     from nanobot.agent.tools.cli_apps import CliAppsToolConfig
     from nanobot.agent.tools.filesystem import FileToolsConfig
     from nanobot.agent.tools.image_generation import ImageGenerationToolConfig
-    from nanobot.agent.tools.rlaif_eval import RlaifToolConfig
     from nanobot.agent.tools.self import MyToolConfig
     from nanobot.agent.tools.shell import ExecToolConfig
     from nanobot.agent.tools.web import WebFetchConfig, WebSearchConfig, WebToolsConfig
@@ -724,7 +721,6 @@ def _resolve_tool_config_refs() -> None:
     mod.WebFetchConfig = WebFetchConfig  # type: ignore[attr-defined]
     mod.MyToolConfig = MyToolConfig  # type: ignore[attr-defined]
     mod.ImageGenerationToolConfig = ImageGenerationToolConfig  # type: ignore[attr-defined]
-    mod.RlaifToolConfig = RlaifToolConfig  # type: ignore[attr-defined]
 
     ToolsConfig.model_rebuild()
     Config.model_rebuild()

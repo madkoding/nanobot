@@ -4,7 +4,7 @@ import { displayTitle } from "@/lib/chat-groups";
 import type { ChatSummary, SidebarStatePayload } from "@/lib/types";
 
 type Args = {
-  view: "chat" | "settings" | "apps" | "automations" | "skills" | "projects" | "workspace" | "todos" | "agenda" | "research" | "rlaif";
+  view: "chat" | "settings" | "apps" | "automations" | "skills" | "projects" | "workspace" | "todos" | "agenda" | "research";
   activeSession: ChatSummary | null;
   sidebarState: SidebarStatePayload;
 };
@@ -63,12 +63,6 @@ export function useDocumentTitle({ view, activeSession, sidebarState }: Args) {
     if (view === "research") {
       document.title = t("app.documentTitle.chat", {
         title: t("sidebar.research", { defaultValue: "Research" }),
-      });
-      return;
-    }
-    if (view === "rlaif") {
-      document.title = t("app.documentTitle.chat", {
-        title: t("sidebar.rlaif", { defaultValue: "RLAIF Watch" }),
       });
       return;
     }

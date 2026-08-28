@@ -18,9 +18,6 @@ const AgendaSurface = lazy(() =>
 const ResearchSurface = lazy(() =>
   import("@/components/research/ResearchSurface").then((m) => ({ default: m.ResearchSurface })),
 );
-const RlaifSurface = lazy(() =>
-  import("@/components/rlaif/RlaifSurface").then((m) => ({ default: m.RlaifSurface })),
-);
 
 type ThreadProps = React.ComponentProps<typeof ThreadShell>;
 type SettingsProps = React.ComponentProps<typeof SettingsView>;
@@ -139,14 +136,6 @@ export function MainView(props: Args) {
         <Surface hidden={false}>
           <Suspense fallback={props.fallback}>
             <ResearchSurface
-              onBackToChat={props.onBackToChat}
-            />
-          </Suspense>
-        </Surface>
-      ) : props.view === "rlaif" ? (
-        <Surface hidden={false}>
-          <Suspense fallback={props.fallback}>
-            <RlaifSurface
               onBackToChat={props.onBackToChat}
             />
           </Suspense>

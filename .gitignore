@@ -247,6 +247,3 @@ MagicMock/
 
 # Opencode tooling (node_modules)
 .opencode/
-
-# RLAIF SQLite index
-.nanobot_index/

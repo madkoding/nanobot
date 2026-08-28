@@ -7,7 +7,7 @@ type Args = {
   sessions: ChatSummary[];
   activeKey: string | null;
   loading: boolean;
-  view: "chat" | "settings" | "apps" | "automations" | "skills" | "projects" | "workspace" | "todos" | "agenda" | "research" | "rlaif";
+  view: "chat" | "settings" | "apps" | "automations" | "skills" | "projects" | "workspace" | "todos" | "agenda" | "research";
   sidebarState: SidebarStatePayload;
   workspaces: WorkspacesPayload | null;
   runningChatIdList: string[];
@@ -18,7 +18,6 @@ type Args = {
   onOpenTodos: () => void;
   onOpenAgenda: () => void;
   onOpenResearch: () => void;
-  onOpenRlaif: () => void;
   projects: ProjectSummary[];
   onOpenProject: (id: string | null) => void;
   token: string;
@@ -37,11 +36,10 @@ export function useSidebarProps({
   chatActions,
   utility,
   onOpenUtility,
-  onOpenTodos,
-  onOpenAgenda,
-  onOpenResearch,
-  onOpenRlaif,
-  projects,
+      onOpenTodos,
+      onOpenAgenda,
+      onOpenResearch,
+      projects,
   onOpenProject,
   token,
   version,
@@ -72,7 +70,6 @@ export function useSidebarProps({
       onOpenTodos,
       onOpenAgenda,
       onOpenResearch,
-      onOpenRlaif,
       projects,
       onOpenProject,
       onSettingsIntent: utility.onSettingsIntent,
@@ -83,8 +80,7 @@ export function useSidebarProps({
         view === "workspace" ||
         view === "todos" ||
         view === "agenda" ||
-        view === "research" ||
-        view === "rlaif"
+        view === "research"
           ? view
           : null,
       onToggleArchived: chatActions.onToggleArchived,
@@ -116,7 +112,6 @@ export function useSidebarProps({
       onOpenTodos,
       onOpenAgenda,
       onOpenResearch,
-      onOpenRlaif,
       projects,
       onOpenProject,
       projectNameOverrides,
