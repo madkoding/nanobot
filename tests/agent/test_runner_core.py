@@ -423,6 +423,57 @@ async def test_runner_retries_empty_final_response_with_summary_prompt():
 
 
 @pytest.mark.asyncio
+async def test_runner_empty_retry_injects_nudge_message():
+    """On an empty response, the runner appends an ``_EMPTY_RETRY_NUDGE`` to
+    the conversation before re-issuing the request so the model can break
+    out of a stuck ``<think>``-only loop on local Ollama providers.
+    """
+    from nanobot.agent.runner import AgentRunner
+
+    provider = MagicMock(spec=LLMProvider)
+    calls: list[dict] = []
+
+    async def chat_with_retry(*, messages, tools=None, **kwargs):
+        calls.append({"messages": list(messages), "tools": tools})
+        # First call returns empty; second call (after the nudge) returns text.
+        if len(calls) == 1:
+            return LLMResponse(
+                content=None,
+                tool_calls=[],
+                reasoning_content="the model thought but said nothing",
+                usage={"prompt_tokens": 5, "completion_tokens": 1},
+            )
+        return LLMResponse(
+            content="user-facing reply",
+            tool_calls=[],
+            usage={"prompt_tokens": 5, "completion_tokens": 5},
+        )
+
+    provider.chat_with_retry = chat_with_retry
+    tools = MagicMock()
+    tools.get_definitions.return_value = []
+
+    runner = AgentRunner()
+    result = await runner.run(make_run_spec(provider,
+        initial_messages=[{"role": "user", "content": "ping"}],
+        tools=tools,
+        model="test-model",
+        max_iterations=4,
+        max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
+    ))
+
+    assert result.final_content == "user-facing reply"
+    assert len(calls) == 2
+    # Second call must include the empty-retry nudge that the runner
+    # injected after the first empty response.
+    second_messages = calls[1]["messages"]
+    last_user = next(
+        msg for msg in reversed(second_messages) if msg.get("role") == "user"
+    )
+    assert "previous response had no visible content" in last_user["content"]
+
+
+@pytest.mark.asyncio
 async def test_runner_uses_specific_message_after_empty_finalization_retry():
     """After silent retries + finalization all return empty, stop_reason is empty_final_response."""
     from nanobot.agent.runner import AgentRunner

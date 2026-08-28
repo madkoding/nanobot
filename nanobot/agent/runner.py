@@ -756,13 +756,25 @@ class AgentRunner:
             if response.finish_reason != "error" and is_blank_text(clean):
                 empty_content_retries += 1
                 if empty_content_retries < _MAX_EMPTY_RETRIES:
+                    reasoning_len = len(response.reasoning_content or "")
+                    has_tools = bool(response.tool_calls)
                     logger.warning(
-                        "Empty response on turn {} for {} ({}/{}); retrying",
+                        "Empty response on turn {} for {} ({}/{}); retrying. "
+                        "finish_reason={}, reasoning_chars={}, has_tool_calls={}",
                         iteration,
                         spec.session_key or "default",
                         empty_content_retries,
                         _MAX_EMPTY_RETRIES,
+                        response.finish_reason,
+                        reasoning_len,
+                        has_tools,
                     )
+                    # ponytail: nudge the model toward an actual reply.
+                    # Some local Ollama models emit only `<think>...` reasoning
+                    # and then stop, which ``strip_think`` reduces to "".
+                    # An explicit "respond now" user message breaks the
+                    # silence without needing the model to start from scratch.
+                    messages.append({"role": "user", "content": _EMPTY_RETRY_NUDGE})
                     if hook.wants_streaming():
                         await hook.on_stream_end(context, resuming=False)
                     await hook.after_iteration(context)
@@ -1809,6 +1821,18 @@ _REPEAT_CONTENT_NUDGE_TEMPLATE = (
     "call update_goal with action='complete'. If you are blocked, explain the "
     "specific blocker and ask the operator for guidance. Otherwise continue "
     "with a different tool or approach."
+)
+
+
+# ponytail: nudge injected when the model returns an empty response (only
+# reasoning, hidden think-tags, or nothing at all). The previous turn loop
+# re-issued the request without telling the model why it failed; with this
+# prompt the model is asked for an actual user-facing reply, which usually
+# unblocks local Ollama models that emit only ``<think>`` blocks.
+_EMPTY_RETRY_NUDGE = (
+    "Your previous response had no visible content for the user. Reply now "
+    "with a real, user-facing answer to the latest user message — keep it "
+    "concise and avoid restating prior reasoning."
 )
 
 
