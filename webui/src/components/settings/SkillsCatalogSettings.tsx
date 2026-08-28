@@ -134,7 +134,7 @@ export function SkillsCatalogSettings({
           </span>
         </div>
         {localSkills.length ? (
-          <div className="grid gap-x-10 gap-y-1 py-3 md:grid-cols-2">
+          <div className="flex flex-col gap-2.5 py-3">
             {localSkills.map((skill) => (
               <SkillCatalogRow
                 key={`${skill.source}:${skill.name}`}
@@ -434,7 +434,7 @@ function ClawhubSection({
           {t("settings.skills.loadingCatalog", { defaultValue: "Loading skills…" })}
         </div>
       ) : results.length ? (
-        <div className="grid gap-x-10 gap-y-1 py-1 md:grid-cols-2">
+        <div className="flex flex-col gap-2.5 py-1">
           {results.map((skill) => (
             <ClawhubRow
               key={skill.reference}
@@ -570,40 +570,41 @@ function ClawhubRow({
 }) {
   const { t } = useTranslation();
   return (
-    <div className="group flex min-w-0 items-center gap-3 rounded-[16px] px-3 py-3 text-left">
-      <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-[14px] bg-muted/70 text-muted-foreground">
+    <div className="group flex min-w-0 flex-col gap-3 rounded-[18px] border border-border/40 bg-background/60 px-4 py-4 text-left transition-colors hover:border-border/70 hover:bg-background/85 sm:flex-row sm:items-start">
+      <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-[12px] bg-muted/70 text-muted-foreground">
         <Brain className="h-5 w-5" strokeWidth={1.8} aria-hidden />
       </div>
       <div className="min-w-0 flex-1">
-        <h3 className="truncate text-[15px] font-semibold leading-5 text-foreground">
-          {skill.name}
-        </h3>
-        <p className="mt-1 line-clamp-2 text-[13px] leading-5 text-muted-foreground">
-          {skill.description}
-        </p>
-        <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
-          <span className="shrink-0 rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-semibold leading-none text-muted-foreground">
+        <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
+          <h3 className="text-[15px] font-semibold leading-5 text-foreground">
+            {skill.name}
+          </h3>
+          <span className="rounded-full bg-muted px-2 py-0.5 text-[11px] font-medium leading-none text-muted-foreground">
             {skill.owner}
           </span>
           {skill.kind === "skills-sh" ? (
-            <span className="shrink-0 rounded-full bg-violet-500/10 px-1.5 py-0.5 text-[10px] font-semibold leading-none text-violet-600 dark:text-violet-300">
+            <span className="rounded-full bg-violet-500/10 px-2 py-0.5 text-[11px] font-medium leading-none text-violet-600 dark:text-violet-300">
               skills.sh
             </span>
           ) : null}
-          <span className="text-[11px] leading-4 text-muted-foreground/70">
+          <span className="text-[12px] leading-4 text-muted-foreground/70">
             {t("settings.skills.clawhubInstalls", {
               count: skill.lifetime_installs ?? skill.installs_60d,
               defaultValue: "{{count}} installs",
             })}
           </span>
         </div>
+        <p className="mt-2 text-[13px] leading-[1.55] text-muted-foreground">
+          {skill.description}
+        </p>
       </div>
-      <div className="flex shrink-0 items-center gap-1.5">
+      <div className="flex shrink-0 items-center gap-2 self-start sm:self-center">
         {installed ? (
           <button
             type="button"
             onClick={onDelete}
             title={t("settings.skills.clawhubDelete", { defaultValue: "Delete skill" })}
+            aria-label={t("settings.skills.clawhubDelete", { defaultValue: "Delete skill" })}
             className="inline-flex items-center gap-1.5 rounded-[12px] border border-border/50 px-2.5 py-1.5 text-[12px] font-medium text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
           >
             <Trash2 className="h-3.5 w-3.5" aria-hidden />
@@ -663,8 +664,7 @@ function SkillCatalogRow({
   return (
     <div
       className={cn(
-        "group flex min-w-0 items-center gap-3 rounded-[16px] px-3 py-3 text-left transition-colors",
-        "hover:bg-muted/45",
+        "group flex min-w-0 flex-col gap-3 rounded-[18px] border border-border/40 bg-background/60 px-4 py-4 text-left transition-colors hover:border-border/70 hover:bg-background/85 sm:flex-row sm:items-start",
         !skill.available && "opacity-65",
         skill.disabled && "opacity-70",
       )}
@@ -676,25 +676,37 @@ function SkillCatalogRow({
           defaultValue: "Open details for {{name}}",
         })}
         onClick={() => onSelect(skill)}
-        className="flex min-w-0 flex-1 items-center gap-3 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        className="flex min-w-0 flex-1 items-start gap-3 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:items-center"
       >
-        <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-[14px] bg-muted/70 text-muted-foreground">
+        <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-[12px] bg-muted/70 text-muted-foreground">
           <Brain className="h-5 w-5" strokeWidth={1.8} aria-hidden />
         </div>
         <div className="min-w-0 flex-1">
-          <div className="flex min-w-0 items-center gap-2">
-            <h3 className="truncate text-[15px] font-semibold leading-5 text-foreground">
+          <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
+            <h3 className="text-[15px] font-semibold leading-5 text-foreground">
               {skill.name}
             </h3>
-            <span className="shrink-0 rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-semibold leading-none text-muted-foreground">
+            <span className="rounded-full bg-muted px-2 py-0.5 text-[11px] font-medium leading-none text-muted-foreground">
               {sourceLabel}
             </span>
+            <span
+              title={!skill.available && skill.unavailable_reason ? skill.unavailable_reason : undefined}
+              className={cn(
+                "inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium leading-none",
+                skill.available
+                  ? "bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"
+                  : "bg-amber-500/10 text-amber-700 dark:text-amber-300",
+              )}
+            >
+              <StatusIcon className="h-3 w-3" aria-hidden />
+              {statusLabel}
+            </span>
           </div>
-          <p className="mt-1 line-clamp-2 text-[13px] leading-5 text-muted-foreground">
+          <p className="mt-2 text-[13px] leading-[1.55] text-muted-foreground">
             {skill.description}
           </p>
           {!skill.available && skill.unavailable_reason ? (
-            <p className="mt-1 truncate text-[12px] leading-4 text-muted-foreground/80">
+            <p className="mt-1.5 text-[12px] leading-4 text-muted-foreground/80">
               {t("settings.skills.unavailableReason", {
                 reason: skill.unavailable_reason,
                 defaultValue: "Missing: {{reason}}",
@@ -703,19 +715,7 @@ function SkillCatalogRow({
           ) : null}
         </div>
       </button>
-      <span
-        title={!skill.available && skill.unavailable_reason ? skill.unavailable_reason : undefined}
-        className={cn(
-          "hidden shrink-0 items-center gap-1 rounded-full px-2.5 py-1 text-[12px] font-medium sm:inline-flex",
-          skill.available
-            ? "bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"
-            : "bg-muted text-muted-foreground",
-        )}
-      >
-        <StatusIcon className="h-3.5 w-3.5" aria-hidden />
-        {statusLabel}
-      </span>
-      <div className="flex shrink-0 items-center gap-2">
+      <div className="flex shrink-0 items-center gap-2 self-start sm:self-center">
         <ToggleButton
           checked={!skill.disabled}
           disabled={toggling}
@@ -731,6 +731,7 @@ function SkillCatalogRow({
             type="button"
             onClick={onDelete}
             title={t("settings.skills.clawhubDelete", { defaultValue: "Delete skill" })}
+            aria-label={t("settings.skills.clawhubDelete", { defaultValue: "Delete skill" })}
             className="inline-flex items-center rounded-[12px] border border-border/50 px-2.5 py-1.5 text-[12px] font-medium text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
           >
             <Trash2 className="h-3.5 w-3.5" aria-hidden />

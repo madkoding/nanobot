@@ -198,9 +198,15 @@ class ContextBuilder:
             if always_content:
                 parts.append(f"# Active Skills\n\n{always_content}")
 
-        skills_summary = self.skills.build_skills_summary(exclude=set(always_skills))
-        if skills_summary:
-            parts.append(render_template("agent/skills_section.md", skills_summary=skills_summary))
+        # ponytail: the per-skill summary is intentionally omitted from the
+        # static system prompt. Listing every available skill (description +
+        # path) used to add ~5 KB to every turn. The agent discovers skills
+        # under demand: ``always``-marked skills load as full bodies, the
+        # research skill is loaded by ``session_metadata``, and other skills
+        # are found by their directory name when the model needs them.
+        # ``self.skills.build_skills_summary`` and the
+        # ``agent/skills_section.md`` template remain available for callers
+        # that want the listing (e.g. WebUI skills API).
 
         text = "\n\n---\n\n".join(parts)
         self._static_prompt_cache[cache_key] = (
