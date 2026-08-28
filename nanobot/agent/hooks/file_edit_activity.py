@@ -99,7 +99,17 @@ class FileEditActivityHook(AgentHook):
             self._trackers_by_call.pop(key, None)
 
     async def on_finally(self, context: AgentRunHookContext) -> None:
-        if context.stop_reason != "cancelled" or not self._trackers_by_call:
+        # ponytail: any non-graceful stop (cancelled, error, max_iterations
+        # mid-tool) leaves trackers orphaned in _trackers_by_call — the UI
+        # would never see an end/error event for them. Emit errors for all
+        # in-flight trackers on any non-normal stop and clear the dict so
+        # the next turn starts clean. ``before_iteration`` already clears
+        # the dict on the next iteration; this is a belt-and-suspenders
+        # cleanup for cases where the next iteration never runs (e.g.
+        # provider error before any LLM call).
+        if not self._trackers_by_call:
+            return
+        if context.stop_reason not in {"cancelled", "error"}:
             return
         trackers = [
             tracker
@@ -107,12 +117,13 @@ class FileEditActivityHook(AgentHook):
             for tracker in trackers
         ]
         self._trackers_by_call.clear()
+        message = (
+            "Task interrupted before this tool finished."
+            if context.stop_reason == "cancelled"
+            else "Tool did not complete before the run aborted."
+        )
         await self._emit([
-            build_file_edit_error_event(
-                tracker,
-                "Task interrupted before this tool finished.",
-            )
-            for tracker in trackers
+            build_file_edit_error_event(tracker, message) for tracker in trackers
         ])
 
     async def _emit(self, events: list[dict[str, Any]]) -> None:

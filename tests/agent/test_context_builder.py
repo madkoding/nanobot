@@ -535,3 +535,74 @@ class TestExtraBootstrapPaths:
         )
         system_msg = messages[0]["content"]
         assert "propagated" in system_msg
+
+
+# ---------------------------------------------------------------------------
+# _recent_consolidated_history fallback cap (regression for A3)
+# ---------------------------------------------------------------------------
+
+
+class TestRecentConsolidatedHistoryCap:
+    """The BM25-empty fallback path must cap output so a fresh install
+    with no consolidated memory cannot dump the entire history.jsonl
+    into the system prompt.
+    """
+
+    def test_fallback_truncates_when_history_is_large(self, tmp_path: Path):
+        from nanobot.agent.context import ContextBuilder
+
+        builder = ContextBuilder(workspace=tmp_path)
+        store = builder.memory
+        # No BM25 contents: BM25 retrieval branch returns "".
+        # Append enough history entries that the fallback path would
+        # exceed the default cap.
+        for i in range(200):
+            store.append_history(
+                "x" * 200,
+                session_key="sk",
+            )
+
+        # Default budget (8000 chars).
+        out = builder._recent_consolidated_history(
+            session_key="sk",
+            unified_session=False,
+            query=None,
+        )
+        assert out.startswith("[Consolidated history")
+        assert "[… truncated to fit budget]" in out
+        # Body must be within budget + a small fudge factor.
+        assert len(out) < 10_000
+
+    def test_fallback_short_history_keeps_all_entries(self, tmp_path: Path):
+        from nanobot.agent.context import ContextBuilder
+
+        builder = ContextBuilder(workspace=tmp_path)
+        store = builder.memory
+        for i in range(3):
+            store.append_history(f"entry {i}", session_key="sk")
+
+        out = builder._recent_consolidated_history(
+            session_key="sk",
+            unified_session=False,
+            query=None,
+        )
+        assert "entry 0" in out
+        assert "entry 2" in out
+        assert "[… truncated" not in out
+
+    def test_custom_max_chars_budget(self, tmp_path: Path):
+        from nanobot.agent.context import ContextBuilder
+
+        builder = ContextBuilder(workspace=tmp_path)
+        store = builder.memory
+        for i in range(20):
+            store.append_history("y" * 100, session_key="sk")
+
+        out = builder._recent_consolidated_history(
+            session_key="sk",
+            unified_session=False,
+            query=None,
+            max_chars=300,
+        )
+        assert "[… truncated to fit budget]" in out
+        assert len(out) < 800

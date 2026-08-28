@@ -2137,3 +2137,62 @@ async def test_group_policy_mention_accepts_push_name_username(monkeypatch) -> N
     await ch._drain_group_queue("120363000@g.us")
 
     assert ch._handle_message.awaited
+
+
+@pytest.mark.asyncio
+async def test_partial_self_jids_still_triggers_lazy_retry(monkeypatch) -> None:
+    """A partial ``_self_jids`` capture (e.g. only LID, no phone JID) must
+    still trigger ``_refresh_self_jids`` on the next inbound message. The
+    previous truthiness check ``if not self._self_jids`` silently skipped
+    retries whenever any single attr was captured.
+    """
+    monkeypatch.setattr(whatsapp_module.WhatsAppChannel, "_bot_name", lambda self: "motoko")
+    ch = _make_channel({"groupPolicy": "mention"})
+    # Only LID captured: _self_jids is non-empty but _self_jids_attrs
+    # is missing JID and PN.
+    ch._self_jids = {"BOTLID@lid", "BOTLID"}
+    ch._self_jids_attrs = {"LID"}
+    ch._handle_message = AsyncMock()
+    refresh_calls = AsyncMock()
+    monkeypatch.setattr(ch, "_refresh_self_jids", refresh_calls)
+
+    await ch._handle_neonize_message(
+        SimpleNamespace(download_any=AsyncMock()),
+        _event(
+            message=_Proto(extendedTextMessage=_Proto(text="@motoko ayúdame")),
+            chat=_jid("120363000", "g.us"),
+            sender=_jid("SENDERLID", "lid"),
+            is_group=True,
+        ),
+    )
+    await ch._drain_group_queue("120363000@g.us")
+
+    refresh_calls.assert_awaited_once()
+    assert ch._handle_message.awaited
+
+
+@pytest.mark.asyncio
+async def test_full_self_jids_skips_lazy_retry(monkeypatch) -> None:
+    """When all canonical JID attrs are captured, the hot path must not
+    re-issue ``_refresh_self_jids`` on every message.
+    """
+    monkeypatch.setattr(whatsapp_module.WhatsAppChannel, "_bot_name", lambda self: "motoko")
+    ch = _make_channel({"groupPolicy": "mention"})
+    ch._self_jids = {"bot@s.whatsapp.net", "bot", "BOTLID@lid", "BOTLID", "15551234567@s.whatsapp.net", "15551234567"}
+    ch._self_jids_attrs = {"JID", "LID", "PN"}
+    ch._handle_message = AsyncMock()
+    refresh_calls = AsyncMock()
+    monkeypatch.setattr(ch, "_refresh_self_jids", refresh_calls)
+
+    await ch._handle_neonize_message(
+        SimpleNamespace(download_any=AsyncMock()),
+        _event(
+            message=_Proto(extendedTextMessage=_Proto(text="@motoko ayúdame")),
+            chat=_jid("120363000", "g.us"),
+            sender=_jid("SENDERLID", "lid"),
+            is_group=True,
+        ),
+    )
+    await ch._drain_group_queue("120363000@g.us")
+
+    refresh_calls.assert_not_awaited()

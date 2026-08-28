@@ -139,6 +139,11 @@ _NEONIZE_API: _NeonizeAPI | None = None
 _LEGACY_BRIDGE_CONFIG_FIELDS = ("bridgeUrl", "bridgeToken", "bridge_url", "bridge_token")
 # Names that look like generated WhatsApp IDs rather than human push names.
 _NAME_LIKE_ID_RE = re.compile(r"^[0-9a-f]{16,}$", re.IGNORECASE)
+# ponytail: canonical JID attributes that should all be populated after a
+# successful _remember_self_jids call. Partial captures trigger a lazy
+# retry on the next inbound message instead of being masked by a
+# non-empty _self_jids set.
+_EXPECTED_SELF_JID_ATTRS = frozenset({"JID", "LID", "PN"})
 
 
 def _default_database_path() -> Path:
@@ -310,6 +315,7 @@ class WhatsAppChannel(BaseChannel):
         self._state_dirty_count: int = 0
         self._state_last_save_at: float = 0.0
         self._self_jids: set[str] = set()
+        self._self_jids_attrs: set[str] = set()
         # ponytail: display names / usernames the bot exposes on its profile
         # (PushName, VerifiedName, Notify). Used by ``_mentioned_by_text`` so
         # plain-text ``@<username>`` mentions match even when the bot's
@@ -342,6 +348,7 @@ class WhatsAppChannel(BaseChannel):
             group_workspace_presets=self.config.group_workspace_presets,
             dm_workspace_presets=self.config.dm_workspace_presets,
             log=self.logger,
+            config_getter=lambda: self.config,
         )
         # Rolling buffer of recent messages per WhatsApp group (chat_jid -> deque).
         # Each entry is (sender_id, display_name, text, timestamp).
@@ -1343,6 +1350,7 @@ class WhatsAppChannel(BaseChannel):
             if jid:
                 self._self_jids.add(jid)
                 self._self_jids.add(_bare_jid(jid))
+                self._self_jids_attrs.add(attr)
         # ponytail: capture profile names so plain-text @username mentions
         # match even when bot_name in config differs from the WhatsApp
         # profile (e.g. bot_name="motoko" but the user types @Motoko_Bot).
@@ -1458,8 +1466,12 @@ class WhatsAppChannel(BaseChannel):
         display_name = push_name or self._display_name_for(chat_jid, sender_id)
 
         # Retry self-JID discovery if the first attempt (on connect) ran
-        # before me/JID was populated; otherwise mention detection fails.
-        if not self._self_jids:
+        # before me/JID was fully populated; otherwise mention detection
+        # silently misses mentions that only carry the missing JID form.
+        # _self_jids_attrs tracks which canonical JID types we have, so a
+        # partial capture (e.g. only LID, no phone JID) still triggers the
+        # retry instead of being masked by a non-empty _self_jids.
+        if not _EXPECTED_SELF_JID_ATTRS.issubset(self._self_jids_attrs):
             await self._refresh_self_jids()
 
         is_addressed = self._is_addressed_to_bot(message)

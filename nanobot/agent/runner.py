@@ -437,19 +437,13 @@ class AgentRunner:
         last_content_signature: str | None = None
         content_repeat_count = 0
         content_nudge_done = False
-        # ponytail: seed the content-repetition detector with the last final
-        # response from history so repetition *across* turns is caught on the
-        # first iteration instead of giving the model 3 free repeats per turn.
-        # The counter resets on any tool use, so a legitimate new approach that
-        # happens to reuse the same text is still allowed to proceed.
-        for _msg in reversed(messages):
-            if _msg.get("role") != "assistant" or _msg.get("tool_calls"):
-                continue
-            _content = _msg.get("content")
-            if isinstance(_content, str) and _content.strip():
-                last_content_signature = _content_signature(None, _content)
-                content_repeat_count = 1
-                break
+        # ponytail: do NOT seed the content-repetition detector from history.
+        # Seeding caused false positives at iteration 1 of new turns when
+        # the prior closing line ("I'll do that.", "Done.") was reused
+        # verbatim — a legitimate convention, not a runaway. Cross-turn
+        # repetition is still caught within the same run from iteration 2.
+        last_content_signature = None
+        content_repeat_count = 0
         goal_conflict_nudge_done = False
         governance_config = ContextGovernanceConfig(
             provider=spec.runtime.provider,

@@ -76,6 +76,12 @@ def webui_quote_runtime_context(metadata: Mapping[str, Any]) -> RuntimeContextBl
 PROJECT_CONTEXT_SOURCE = "project_context"
 DEFAULT_PROJECT_CONTEXT_BUDGET_CHARS = 8_000
 
+# ponytail: per-block cap to prevent a single channel-injected block (e.g. a
+# misbehaving contact list, an oversized quoted message) from blowing the
+# context budget. ~2 KB ≈ 500 tokens — fits a few paragraphs and a header.
+DEFAULT_RUNTIME_CONTEXT_BLOCK_CHARS = 2_000
+_RUNTIME_CONTEXT_TRUNCATION_SUFFIX = "\n\n[… truncated to fit per-block budget]"
+
 
 def compile_project_context(
     controller: "WebUIProjectsController",
@@ -150,7 +156,13 @@ def compile_project_context(
 
 
 def normalize_runtime_context_blocks(result: RuntimeContextResult) -> list[RuntimeContextBlock]:
-    """Return validated, non-empty blocks while preserving provider order."""
+    """Return validated, non-empty blocks while preserving provider order.
+
+    ponytail: also enforces a per-block char cap so a single runaway block
+    cannot consume the entire context budget before downstream governance
+    sees it. Blocks above the cap are truncated with an explicit marker so
+    downstream code can detect and report overflow if it cares.
+    """
     if result is None:
         return []
     values = [result] if isinstance(result, RuntimeContextBlock) else list(result)
@@ -169,8 +181,14 @@ def normalize_runtime_context_blocks(result: RuntimeContextResult) -> list[Runti
         content = block.content.strip()
         if not source:
             raise ValueError("runtime context block source must not be empty")
-        if content:
-            blocks.append(RuntimeContextBlock(source=source, content=content))
+        if not content:
+            continue
+        if len(content) > DEFAULT_RUNTIME_CONTEXT_BLOCK_CHARS:
+            content = (
+                content[:DEFAULT_RUNTIME_CONTEXT_BLOCK_CHARS]
+                + _RUNTIME_CONTEXT_TRUNCATION_SUFFIX
+            )
+        blocks.append(RuntimeContextBlock(source=source, content=content))
     return blocks
 
 

@@ -1,6 +1,7 @@
 """Tests for provider progress delta routing in the shared runner."""
 
 import asyncio
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -498,3 +499,60 @@ async def test_runner_marks_file_edit_activity_failed_when_cancelled(tmp_path):
     assert progress_events[-1]["status"] == "error"
     assert progress_events[-1]["error"] == "Task interrupted before this tool finished."
     provider.chat_with_retry.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_file_edit_activity_emits_error_on_stop_reason_error(tmp_path):
+    """on_finally must emit error events for in-flight trackers when the
+    run aborts with stop_reason='error' (not only on cancel). Before the
+    fix, only ``cancelled`` triggered the cleanup; an aborted run would
+    silently drop the in-flight tracker without notifying the UI.
+    """
+    progress_events: list[dict] = []
+
+    async def progress_cb(content, *, file_edit_events=None, **kwargs):
+        if file_edit_events:
+            progress_events.extend(file_edit_events)
+
+    hook = FileEditActivityHook(on_progress=progress_cb, workspace=tmp_path)
+    # Manually inject a fake tracker. The cleanup path only iterates the
+    # list and forwards it to build_file_edit_error_event, which doesn't
+    # introspect the tracker — so a SimpleNamespace stub is enough.
+    fake_tracker = SimpleNamespace(
+        call_id="orphan-call",
+        tool="write_file",
+        path=tmp_path / "ghost.txt",
+        display_path="ghost.txt",
+    )
+    hook._trackers_by_call["orphan-call|write_file"] = [fake_tracker]
+
+    from nanobot.agent.hook import AgentRunHookContext
+    ctx = AgentRunHookContext(messages=[], stop_reason="error", error="provider 503")
+    await hook.on_finally(ctx)
+
+    # The orphan tracker must have produced an error event and been
+    # removed from the in-flight dict.
+    assert hook._trackers_by_call == {}
+    assert len(progress_events) == 1
+    assert progress_events[0]["phase"] == "error"
+    assert progress_events[0]["status"] == "error"
+    assert "did not complete" in progress_events[0]["error"].lower()
+
+
+@pytest.mark.asyncio
+async def test_file_edit_activity_no_error_on_normal_finish(tmp_path):
+    """A successful run with leftover trackers (shouldn't happen, but be
+    defensive) must NOT spuriously emit error events — only cancelled /
+    error stop reasons trigger the cleanup.
+    """
+    progress_events: list[dict] = []
+
+    async def progress_cb(content, *, file_edit_events=None, **kwargs):
+        if file_edit_events:
+            progress_events.extend(file_edit_events)
+
+    hook = FileEditActivityHook(on_progress=progress_cb, workspace=tmp_path)
+    # _trackers_by_call is empty in practice; nothing to emit.
+    from nanobot.agent.hook import AgentRunHookContext
+    await hook.on_finally(AgentRunHookContext(messages=[], stop_reason="completed", error=None))
+    assert progress_events == []
