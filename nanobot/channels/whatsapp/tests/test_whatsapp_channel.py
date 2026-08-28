@@ -1333,11 +1333,9 @@ async def test_owner_bypasses_screen(monkeypatch) -> None:
 
 
 @pytest.mark.asyncio
-async def test_owner_bypasses_group_mention(monkeypatch) -> None:
-    """ponytail: owner messages in groups with ``groupPolicy=mention``
-    trigger a response even without ``@bot``. The owner configured the
-    bot and shouldn't have to remember to @mention themselves in their
-    own group.
+async def test_owner_group_message_without_mention_is_filtered(monkeypatch) -> None:
+    """ponytail: motoko only speaks when addressed, even from the owner.
+    The owner has to @motoko or reply to it like anyone else in the group.
     """
     monkeypatch.setattr(whatsapp_module.WhatsAppChannel, "_bot_name", lambda self: "motoko")
     ch = _make_channel({"groupPolicy": "mention"})
@@ -1356,13 +1354,13 @@ async def test_owner_bypasses_group_mention(monkeypatch) -> None:
     )
     await ch._drain_group_queue("120363000@g.us")
 
-    assert ch._handle_message.awaited
+    assert ch._handle_message.await_count == 0
 
 
 @pytest.mark.asyncio
 async def test_non_owner_group_message_without_mention_is_filtered(monkeypatch) -> None:
-    """ponytail: the owner bypass is owner-only. A non-owner in the same
-    group still needs an explicit mention to trigger the bot.
+    """ponytail: a non-owner in the group still needs an explicit mention
+    to trigger the bot. Same contract as the owner now.
     """
     monkeypatch.setattr(whatsapp_module.WhatsAppChannel, "_bot_name", lambda self: "motoko")
     ch = _make_channel({"groupPolicy": "mention"})

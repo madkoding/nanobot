@@ -1475,14 +1475,10 @@ class WhatsAppChannel(BaseChannel):
             await self._refresh_self_jids()
 
         is_addressed = self._is_addressed_to_bot(message)
-        # ponytail: the owner is always implicitly addressed in their own
-        # groups. They configured the bot and shouldn't need to add
-        # ``@motoko`` to every message just to get a response from their
-        # own assistant. Owner check uses the channel's owner_id (set by
-        # the manager) and matches either the bare phone or full JID.
-        if not is_addressed and is_group and self.config.group_policy == "mention":
-            if self._sender_is_owner(sender_id):
-                is_addressed = True
+        # ponytail: removed owner bypass. Motoko only responds in groups when
+        # explicitly addressed (@mention, reply, or matching the bot's display
+        # name). The owner has to @motoko or reply to it just like anyone
+        # else — that's the contract: bot speaks only when spoken to.
         if is_group and self.config.group_policy == "mention" and not is_addressed:
             # Still buffer the message for later context, but do not respond now.
             text_for_buffer = _message_text(message)
