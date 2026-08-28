@@ -1475,6 +1475,14 @@ class WhatsAppChannel(BaseChannel):
             await self._refresh_self_jids()
 
         is_addressed = self._is_addressed_to_bot(message)
+        # ponytail: the owner is always implicitly addressed in their own
+        # groups. They configured the bot and shouldn't need to add
+        # ``@motoko`` to every message just to get a response from their
+        # own assistant. Owner check uses the channel's owner_id (set by
+        # the manager) and matches either the bare phone or full JID.
+        if not is_addressed and is_group and self.config.group_policy == "mention":
+            if self._sender_is_owner(sender_id):
+                is_addressed = True
         if is_group and self.config.group_policy == "mention" and not is_addressed:
             # Still buffer the message for later context, but do not respond now.
             text_for_buffer = _message_text(message)
@@ -1833,23 +1841,27 @@ class WhatsAppChannel(BaseChannel):
         text = _message_text(message)
         if not text or "@" not in text:
             return False
-        bot_names = {self._bot_name().lower()}
-        # ponytail: also match the bot's WhatsApp profile names captured
-        # from PushName / VerifiedName / Notify on connect. Some users
-        # mention the bot by a username that differs from bot_name in
-        # config — this prevents those messages from being silently
-        # filtered.
-        bot_names.update(self._bot_display_names)
-        if self._self_jids:
-            for jid in self._self_jids:
-                bare = _bare_jid(jid)
-                if bare and bare.isdigit():
-                    bot_names.add(bare.lower())
+        bot_names = self._candidate_bot_names()
         lowered = text.lower()
         for name in bot_names:
             if name and ("@" + name) in lowered:
                 return True
         return False
+
+    def _candidate_bot_names(self) -> set[str]:
+        """All lowercased names that should trigger a plain-text mention match.
+
+        Union of: config ``bot_name``, profile names captured on connect
+        (PushName / VerifiedName / Notify), and any digit-only JID in
+        ``_self_jids`` (so users who type ``@<phone_number>`` work too).
+        """
+        bot_names = {self._bot_name().lower()}
+        bot_names.update(self._bot_display_names)
+        for jid in self._self_jids:
+            bare = _bare_jid(jid)
+            if bare and bare.isdigit():
+                bot_names.add(bare.lower())
+        return {name for name in bot_names if name}
 
     @staticmethod
     def _bot_name() -> str:
@@ -1859,6 +1871,20 @@ class WhatsAppChannel(BaseChannel):
             return load_config().agents.defaults.bot_name
         except Exception:
             return "nanobot"
+
+    def _sender_is_owner(self, sender_id: str) -> bool:
+        """True when *sender_id* matches the configured owner for this channel.
+
+        Uses the shared ``is_owner_match`` helper so LID->phone mappings
+        and JID/phone normalization rules apply consistently across the
+        codebase. Returns False when no owner is configured.
+        """
+        owner = getattr(self, "_owner_id", None)
+        if not owner or not sender_id:
+            return False
+        from nanobot.utils.helpers import is_owner_match
+
+        return is_owner_match(sender_id, owner)
 
     def _is_reply_to_bot(self, message: Any) -> bool:
         if not self._self_jids:

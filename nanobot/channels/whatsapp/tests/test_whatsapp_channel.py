@@ -1333,6 +1333,58 @@ async def test_owner_bypasses_screen(monkeypatch) -> None:
 
 
 @pytest.mark.asyncio
+async def test_owner_bypasses_group_mention(monkeypatch) -> None:
+    """ponytail: owner messages in groups with ``groupPolicy=mention``
+    trigger a response even without ``@bot``. The owner configured the
+    bot and shouldn't have to remember to @mention themselves in their
+    own group.
+    """
+    monkeypatch.setattr(whatsapp_module.WhatsAppChannel, "_bot_name", lambda self: "motoko")
+    ch = _make_channel({"groupPolicy": "mention"})
+    ch._self_jids = {"bot@s.whatsapp.net", "bot"}
+    ch._owner_id = ["56900000000"]
+    ch._handle_message = AsyncMock()
+
+    await ch._handle_neonize_message(
+        SimpleNamespace(download_any=AsyncMock()),
+        _event(
+            message=_Proto(extendedTextMessage=_Proto(text="hola, que hora es?")),
+            chat=_jid("120363000", "g.us"),
+            sender=_jid("56900000000", "s.whatsapp.net"),
+            is_group=True,
+        ),
+    )
+    await ch._drain_group_queue("120363000@g.us")
+
+    assert ch._handle_message.awaited
+
+
+@pytest.mark.asyncio
+async def test_non_owner_group_message_without_mention_is_filtered(monkeypatch) -> None:
+    """ponytail: the owner bypass is owner-only. A non-owner in the same
+    group still needs an explicit mention to trigger the bot.
+    """
+    monkeypatch.setattr(whatsapp_module.WhatsAppChannel, "_bot_name", lambda self: "motoko")
+    ch = _make_channel({"groupPolicy": "mention"})
+    ch._self_jids = {"bot@s.whatsapp.net", "bot"}
+    ch._owner_id = ["56900000000"]
+    ch._handle_message = AsyncMock()
+
+    await ch._handle_neonize_message(
+        SimpleNamespace(download_any=AsyncMock()),
+        _event(
+            message=_Proto(extendedTextMessage=_Proto(text="hola gente")),
+            chat=_jid("120363000", "g.us"),
+            sender=_jid("56911111111", "s.whatsapp.net"),
+            is_group=True,
+        ),
+    )
+    await ch._drain_group_queue("120363000@g.us")
+
+    assert ch._handle_message.await_count == 0
+
+
+@pytest.mark.asyncio
 async def test_send_stops_typing(monkeypatch) -> None:
     _patch_neonize_api(monkeypatch)
     paused: list[tuple[Any, Any, Any]] = []
