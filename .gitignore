@@ -247,3 +247,6 @@ MagicMock/
 
 # Opencode tooling (node_modules)
 .opencode/
+
+# Nanobot semantic index (local tooling artifact)
+.nanobot_index/
