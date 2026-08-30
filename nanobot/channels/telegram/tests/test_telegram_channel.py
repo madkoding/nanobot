@@ -3743,3 +3743,120 @@ async def test_reasoning_edit_too_long_truncation_fails_quietly() -> None:
     assert len(channel._stream_bufs["123"].reasoning) == TELEGRAM_REASONING_MAX_LEN
 
 
+@pytest.mark.asyncio
+async def test_reasoning_too_long_truncates_by_escaped_length() -> None:
+    """Regression: el overflow de Message_too_long viene de la expansión HTML
+    (& → &amp;), así que truncar raw a TELEGRAM_REASONING_MAX_LEN puede seguir
+    excediendo 4096. El retry debe truncar por longitud *escapada* (búsqueda
+    binaria del prefijo cuyo render quepa)."""
+    from telegram.error import BadRequest
+
+    channel = TelegramChannel(
+        TelegramConfig(
+            enabled=True, token="123:abc", allow_from=["*"],
+            stream_edit_interval=0.1,
+        ),
+        MessageBus(),
+    )
+    channel._app = _FakeApp(lambda: None)
+    channel._app.bot.do_api_request = AsyncMock()
+
+    # Raw corto pero con expansión HTML máxima: & → &amp; (5x).
+    # ~900 raw chars de '&' → ~4500 chars escapados + tags > 4096.
+    entity_heavy = "&" * 900
+    channel._stream_bufs["123"] = _StreamBuf(
+        reasoning=entity_heavy, message_id=7, last_edit=0.0, stream_id="s:0"
+    )
+    channel._app.bot.edit_message_text = AsyncMock(
+        side_effect=[BadRequest("Message is too long"), None]
+    )
+
+    await channel.send_reasoning_delta("123", "y", metadata={"is_group": True}, stream_id="s:0")
+
+    # El retry usó un payload que cabe en el límite real de Telegram.
+    assert channel._app.bot.edit_message_text.await_count == 2
+    retry_text = channel._app.bot.edit_message_text.call_args_list[1].kwargs["text"]
+    assert len(retry_text) <= 4096
+    assert len(channel._stream_bufs["123"].reasoning) < 900
+
+
+@pytest.mark.asyncio
+async def test_reasoning_too_long_with_plain_chars_fits_at_cap() -> None:
+    """Con reasoning sin expansión HTML (sin & < >), el cap raw
+    TELEGRAM_REASONING_MAX_LEN ya produce un payload que cabe; el retry
+    debe truncar exactamente al cap."""
+    from telegram.error import BadRequest
+
+    channel = TelegramChannel(
+        TelegramConfig(
+            enabled=True, token="123:abc", allow_from=["*"],
+            stream_edit_interval=0.1,
+        ),
+        MessageBus(),
+    )
+    channel._app = _FakeApp(lambda: None)
+    channel._app.bot.do_api_request = AsyncMock()
+
+    huge = "x" * (TELEGRAM_REASONING_MAX_LEN + 2000)
+    channel._stream_bufs["123"] = _StreamBuf(
+        reasoning=huge, message_id=7, last_edit=0.0, stream_id="s:0"
+    )
+    channel._app.bot.edit_message_text = AsyncMock(
+        side_effect=[BadRequest("Message is too long"), None]
+    )
+
+    await channel.send_reasoning_delta("123", "y", metadata={"is_group": True}, stream_id="s:0")
+
+    assert channel._app.bot.edit_message_text.await_count == 2
+    retry_text = channel._app.bot.edit_message_text.call_args_list[1].kwargs["text"]
+    assert len(retry_text) <= 4096
+    # El prefijo fitted con chars planos = el cap raw.
+    assert len(channel._stream_bufs["123"].reasoning) == TELEGRAM_REASONING_MAX_LEN
+
+
+@pytest.mark.asyncio
+async def test_reasoning_delta_respects_message_thread_id() -> None:
+    """En grupos-foro el preview de reasoning (legacy y draft) debe llevar
+    message_thread_id; sin esto el preview aterriza en el topic General."""
+    channel = TelegramChannel(
+        TelegramConfig(
+            enabled=True, token="123:abc", allow_from=["*"],
+            stream_edit_interval=0.1,
+        ),
+        MessageBus(),
+    )
+    channel._app = _FakeApp(lambda: None)
+    channel._app.bot.do_api_request = AsyncMock()
+    sent = SimpleNamespace(message_id=42)
+    channel._app.bot.send_message = AsyncMock(return_value=sent)
+
+    meta = {"is_group": True, "message_thread_id": 77}
+    await channel.send_reasoning_delta("123", "pensando", metadata=meta, stream_id="s:0")
+
+    # Legacy preview (grupo) enviado al topic correcto.
+    channel._app.bot.send_message.assert_awaited_once()
+    assert channel._app.bot.send_message.await_args.kwargs["message_thread_id"] == 77
+
+
+@pytest.mark.asyncio
+async def test_reasoning_delta_draft_respects_message_thread_id() -> None:
+    """Con rich activo y chat privado, el draft de reasoning debe incluir
+    message_thread_id en el payload de sendRichMessageDraft."""
+    channel = TelegramChannel(
+        TelegramConfig(
+            enabled=True, token="123:abc", allow_from=["*"],
+            rich_messages=True, stream_edit_interval=0.1,
+        ),
+        MessageBus(),
+    )
+    channel._app = _FakeApp(lambda: None)
+    channel._app.bot.do_api_request = AsyncMock()
+
+    meta = {"is_group": False, "message_thread_id": 77}
+    await channel.send_reasoning_delta("123", "pensando", metadata=meta, stream_id="s:0")
+
+    channel._app.bot.do_api_request.assert_awaited_once()
+    payload = channel._app.bot.do_api_request.await_args.kwargs["api_kwargs"]
+    assert payload["message_thread_id"] == 77
+
+

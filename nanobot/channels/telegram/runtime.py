@@ -46,11 +46,14 @@ from nanobot.security.network import validate_url_target
 from nanobot.utils.helpers import split_message
 
 TELEGRAM_RICH_MAX_LEN = 30000
+# Límite duro del payload HTML de Telegram: 4096 chars para edit_message_text.
+TELEGRAM_MESSAGE_HARD_LIMIT = 4096
 # Límite seguro para el reasoning acumulado: el blockquote expandible se
 # edita in-place con parse_mode=HTML, así que el texto escapado + tags debe
-# caber en el límite real de Telegram (4096 chars). 3500 deja margen para
-# la expansión HTML (& < >) y los tags del blockquote.
-TELEGRAM_REASONING_MAX_LEN = 3500
+# caber en el límite real de Telegram (4096 chars). El escape HTML expande
+# cada char hasta 5x (& → &amp;), así que el peor caso raw seguro es
+# 4096 // 5 menos los tags del blockquote.
+TELEGRAM_REASONING_MAX_LEN = (TELEGRAM_MESSAGE_HARD_LIMIT - 64) // 5
 _DRAFT_TTL_SECONDS = 25.0  # margen bajo el límite de 30 s de sendRichMessageDraft
 
 
@@ -1149,6 +1152,11 @@ class TelegramChannel(BaseChannel):
 
         now = time.monotonic()
         buf.last_activity = now
+        # Los previews de reasoning (draft y legacy) respetan el topic del
+        # chat; sin esto aterrizan en General en grupos-foro.
+        thread_kwargs = {}
+        if message_thread_id := meta.get("message_thread_id"):
+            thread_kwargs["message_thread_id"] = message_thread_id
         rich_ok = (
             self.config.rich_messages
             and not getattr(self, "_rich_send_disabled", False)
@@ -1163,13 +1171,14 @@ class TelegramChannel(BaseChannel):
                 # Draft expirado: se autolimpia; switch a legacy.
                 buf.using_draft = False
                 buf.draft_id = None
-                await self._send_legacy_preview(int_chat_id, buf, meta, {})
+                await self._send_legacy_preview(int_chat_id, buf, meta, thread_kwargs)
                 return
             if (now - buf.last_edit) >= self.config.stream_edit_interval:
                 payload: dict[str, Any] = {
                     "chat_id": int_chat_id,
                     "draft_id": buf.draft_id,
                     "rich_message": {"markdown": f"<tg-thinking>{buf.reasoning}</tg-thinking>"},
+                    **thread_kwargs,
                 }
                 try:
                     await self._call_with_retry(
@@ -1184,14 +1193,14 @@ class TelegramChannel(BaseChannel):
                         self._rich_send_disabled = True
                     buf.using_draft = False
                     buf.draft_id = None
-                    await self._send_legacy_preview(int_chat_id, buf, meta, {})
+                    await self._send_legacy_preview(int_chat_id, buf, meta, thread_kwargs)
                 except Exception as exc:
                     self.logger.debug("sendRichMessageDraft failed: {}", exc)
             return
 
         # Legacy: preview con blockquote expandible (se edita in-place).
         if buf.message_id is None:
-            await self._send_legacy_preview(int_chat_id, buf, meta, {})
+            await self._send_legacy_preview(int_chat_id, buf, meta, thread_kwargs)
         elif (now - buf.last_edit) >= self.config.stream_edit_interval:
             try:
                 await self._call_with_retry(
@@ -1206,14 +1215,17 @@ class TelegramChannel(BaseChannel):
                     buf.last_edit = now
                     return
                 if self._is_message_too_long_error(e):
-                    # El reasoning acumulado excede el límite de Telegram
-                    # (4096 chars). Truncarlo al máximo seguro y reintentar una
-                    # sola vez; si sigue fallando, degradar a texto plano.
+                    # El payload HTML excede el límite de Telegram (4096
+                    # chars). El overflow viene de la expansión HTML (& < >),
+                    # así que truncar raw a TELEGRAM_REASONING_MAX_LEN no
+                    # basta: buscar por búsqueda binaria el prefijo raw cuyo
+                    # render escapado quepa y reintentar una sola vez; si
+                    # sigue fallando, loguear y abandonar (sin loop).
                     self.logger.warning(
-                        "Reasoning edit too long ({} chars), truncating to {}: {}",
-                        len(buf.reasoning), TELEGRAM_REASONING_MAX_LEN, e,
+                        "Reasoning edit too long ({} raw chars), fitting prefix: {}",
+                        len(buf.reasoning), e,
                     )
-                    buf.reasoning = buf.reasoning[:TELEGRAM_REASONING_MAX_LEN]
+                    buf.reasoning = self._fit_reasoning_to_limit(buf.reasoning)
                     try:
                         await self._call_with_retry(
                             self._app.bot.edit_message_text,
@@ -1252,6 +1264,28 @@ class TelegramChannel(BaseChannel):
     def _reasoning_blockquote(self, reasoning: str) -> str:
         """Render accumulated reasoning as an expandable blockquote (legacy)."""
         return f"<blockquote expandable>{_escape_telegram_html(reasoning)}</blockquote>" if reasoning else ""
+
+    def _fit_reasoning_to_limit(self, reasoning: str) -> str:
+        """Return the longest raw prefix of *reasoning* whose HTML-rendered
+        blockquote fits within Telegram's 4096-char message limit.
+
+        The overflow comes from HTML escaping (& → &amp; is 5x), so truncating
+        raw chars doesn't guarantee a fitting payload. Binary search on the
+        raw prefix guarantees a fitting result in O(log n) renders.
+        """
+        def fits(length: int) -> bool:
+            return len(self._reasoning_blockquote(reasoning[:length])) <= TELEGRAM_MESSAGE_HARD_LIMIT
+
+        if fits(len(reasoning)):
+            return reasoning
+        lo, hi = 0, len(reasoning) - 1
+        while lo < hi:
+            mid = (lo + hi + 1) // 2
+            if fits(mid):
+                lo = mid
+            else:
+                hi = mid - 1
+        return reasoning[:lo]
 
     def _reasoning_details(self, reasoning: str) -> str:
         """Render accumulated reasoning as a collapsible <details> (rich final)."""
