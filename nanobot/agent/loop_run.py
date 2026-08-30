@@ -194,6 +194,7 @@ class RunLoopMixin:
             chat_id=chat_id,
             message_id=message_id,
             session_key=active_session_key,
+            sender_id=sender_id,
             original_user_text=original_user_text,
             runtime=runtime,
             metadata=dict(metadata or {}),

@@ -615,30 +615,36 @@ class WhatsAppChannel(BaseChannel):
         return True
 
     def _learned_lid_phone_pair(self, lid: str, phone: str) -> None:
-        """In-memory + scheduled-on-event-loop persistence for a new LID pair.
+        """Schedule atomic in-memory + on-disk persistence for a new LID pair.
 
-        Used from the sync inbound handler. Updates the config dict
-        immediately so subsequent resolution sees it, and schedules the
-        async disk flush so the caller doesn't block on I/O. If a loop
+        Used from the sync inbound handler. Schedules the async persist
+        helper so the caller doesn't block on I/O. The helper mutates the
+        config dict and flushes to disk atomically: mutating the dict
+        here first would make the helper's idempotence check observe the
+        pair as already-known and silently skip the disk flush (that
+        race is why learned pairs vanished on every restart). If a loop
         is not running, falls back to a sync persist (best-effort).
         """
         if not lid or not phone:
             return
         if self.config.lid_mappings.get(lid) == phone:
             return
-        self.config.lid_mappings[lid] = phone
         try:
             loop = asyncio.get_running_loop()
         except RuntimeError:
             loop = None
         if loop is None:
-            # No event loop (tests, sync callers). Persist synchronously.
+            # No event loop (tests, sync callers). Mutate + persist
+            # synchronously through the atomic helper.
             if self._mgr is not None and hasattr(self._mgr, "persist_config_change"):
                 try:
                     import asyncio as _asyncio
-                    _asyncio.run(self._mgr.persist_config_change())
+                    _asyncio.run(self._persist_lid_mapping(lid, phone))
                 except Exception:
                     self.logger.exception("Sync LID->phone persist failed for {} -> {}", lid, phone)
+            else:
+                # No manager wired: keep the pair in memory only.
+                self.config.lid_mappings[lid] = phone
             return
         loop.create_task(self._persist_lid_mapping(lid, phone))
 
