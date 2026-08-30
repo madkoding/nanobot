@@ -14,7 +14,6 @@ import json
 import mimetypes
 import re
 import shutil
-import threading
 import time
 from collections.abc import Callable
 from pathlib import Path
@@ -24,12 +23,6 @@ from urllib.parse import quote, unquote
 from loguru import logger
 from websockets.http11 import Request as WsRequest
 from websockets.http11 import Response
-
-
-# ponytail: module-level store for in-flight RLAIF approve jobs. The
-# state persists across HTTP requests and across WebUI page reloads,
-# so the frontend can resume a progress view after a refresh.
-_RLAIF_APPROVE_JOBS: dict[str, dict] = {}
 
 from nanobot.command.builtin import builtin_command_palette
 from nanobot.cron.session_turns import is_bound_cron_job
@@ -121,24 +114,6 @@ from nanobot.webui.projects import (
     projects_list_payload,
 )
 from nanobot.webui.research_api import share_research_article
-from nanobot.webui.rlaif_api import (
-    approve_proposal as _rlaif_approve_proposal,
-)
-from nanobot.webui.rlaif_api import (
-    get_proposal as _rlaif_get_proposal,
-)
-from nanobot.webui.rlaif_api import (
-    list_proposals as _rlaif_list_proposals,
-)
-from nanobot.webui.rlaif_api import (
-    read_log as _rlaif_read_log,
-)
-from nanobot.webui.rlaif_api import (
-    read_preferences as _rlaif_read_preferences,
-)
-from nanobot.webui.rlaif_api import (
-    reject_proposal as _rlaif_reject_proposal,
-)
 from nanobot.webui.session_automations import (
     all_automations_payload,
     serialize_automation_jobs,
@@ -392,11 +367,6 @@ class GatewayHTTPHandler:
 
         # Research routes
         response = self._dispatch_research_routes(request, got)
-        if response is not None:
-            return response
-
-        # RLAIF watch routes (preferences + filtered gateway log)
-        response = self._dispatch_rlaif_routes(request, got)
         if response is not None:
             return response
 
@@ -1056,143 +1026,6 @@ class GatewayHTTPHandler:
         if not payload.get("ok"):
             return _http_error(400, payload.get("error") or "Failed to share")
         return _http_json_response(payload)
-
-    # -- RLAIF watch routes --------------------------------------------------
-
-    def _dispatch_rlaif_routes(self, request: WsRequest, got: str) -> Response | None:
-        if got == "/api/rlaif/preferences":
-            return self._handle_rlaif_preferences(request)
-        if got == "/api/rlaif/log":
-            return self._handle_rlaif_log(request)
-        if got == "/api/rlaif/proposals":
-            return self._handle_rlaif_proposals_list(request)
-        if got.startswith("/api/rlaif/jobs/"):
-            return self._handle_rlaif_job_status(request, got)
-        if got.startswith("/api/rlaif/proposals/"):
-            return self._handle_rlaif_proposal_action(request, got)
-        return None
-
-    def _handle_rlaif_preferences(self, request: WsRequest) -> Response:
-        if not self.check_api_token(request):
-            return _http_error(401, "Unauthorized")
-        query = _parse_query(request.path)
-        try:
-            offset = int(_query_first(query, "offset") or 0)
-            limit_raw = _query_first(query, "limit")
-            limit = int(limit_raw) if limit_raw else None
-            since_raw = _query_first(query, "since_index")
-            since_index = int(since_raw) if since_raw is not None else None
-        except ValueError:
-            return _http_error(400, "invalid query parameter")
-        payload = _rlaif_read_preferences(
-            offset=max(0, offset),
-            limit=limit,
-            since_index=since_index,
-        )
-        return _http_json_response(payload)
-
-    def _handle_rlaif_log(self, request: WsRequest) -> Response:
-        if not self.check_api_token(request):
-            return _http_error(401, "Unauthorized")
-        query = _parse_query(request.path)
-        try:
-            since_raw = _query_first(query, "since_line")
-            since_line = int(since_raw) if since_raw is not None else None
-            max_lines = int(_query_first(query, "max_lines") or 200)
-        except ValueError:
-            return _http_error(400, "invalid query parameter")
-        payload = _rlaif_read_log(
-            since_line=since_line,
-            max_lines=max(1, min(max_lines, 1000)),
-        )
-        return _http_json_response(payload)
-
-    def _handle_rlaif_job_status(self, request: WsRequest, got: str) -> Response:
-        if not self.check_api_token(request):
-            return _http_error(401, "Unauthorized")
-        job_id = got[len("/api/rlaif/jobs/"):]
-        state = _RLAIF_APPROVE_JOBS.get(job_id)
-        if state is None:
-            return _http_error(404, "job not found")
-        return _http_json_response({"job_id": job_id, **state})
-
-    def _handle_rlaif_proposals_list(self, request: WsRequest) -> Response:
-        if not self.check_api_token(request):
-            return _http_error(401, "Unauthorized")
-        return _http_json_response(_rlaif_list_proposals())
-
-    def _handle_rlaif_proposal_action(self, request: WsRequest, got: str) -> Response:
-        if not self.check_api_token(request):
-            return _http_error(401, "Unauthorized")
-        # /api/rlaif/proposals/<id>/<action>
-        rest = got[len("/api/rlaif/proposals/"):]
-        parts = rest.split("/", 1)
-        if len(parts) != 2:
-            return _http_error(400, "expected /api/rlaif/proposals/<id>/<approve|reject>")
-        try:
-            proposal_id = int(parts[0])
-        except ValueError:
-            return _http_error(400, "proposal id must be an integer")
-        action = parts[1]
-
-        if action == "view":
-            prop = _rlaif_get_proposal(proposal_id)
-            if prop is None:
-                return _http_error(404, "proposal not found")
-            return _http_json_response(prop)
-        if action == "approve":
-            # ponytail: never block the WebSocket event loop on a
-            # long-running approve. The work runs in a worker thread,
-            # the handler responds immediately with a 202 + a job id,
-            # and the frontend polls /api/rlaif/jobs/<job_id> to read
-            # the result back. The state lives on a module-level dict
-            # so it survives across HTTP requests and across WebUI
-            # page reloads.
-            import threading
-            job_id = f"approve-{proposal_id}-{int(time.time() * 1000)}"
-            _RLAIF_APPROVE_JOBS[job_id] = {
-                "status": "running",
-                "proposal_id": proposal_id,
-                "started_at": time.time(),
-                "result": None,
-                "error": None,
-            }
-
-            def _run_approve() -> None:
-                try:
-                    result = asyncio.run(
-                        _rlaif_approve_proposal(proposal_id)
-                    )
-                    _RLAIF_APPROVE_JOBS[job_id]["result"] = result
-                    _RLAIF_APPROVE_JOBS[job_id]["status"] = "done"
-                except Exception as exc:  # noqa: BLE001
-                    _RLAIF_APPROVE_JOBS[job_id]["error"] = (
-                        f"{type(exc).__name__}: {exc}"
-                    )
-                    _RLAIF_APPROVE_JOBS[job_id]["status"] = "error"
-                finally:
-                    _RLAIF_APPROVE_JOBS[job_id]["finished_at"] = time.time()
-
-            thread = threading.Thread(
-                target=_run_approve,
-                name=f"rlaif-approve-{proposal_id}",
-                daemon=True,
-            )
-            thread.start()
-            return _http_json_response(
-                {
-                    "ok": True,
-                    "status": "running",
-                    "job_id": job_id,
-                    "message": "approve started; poll /api/rlaif/jobs/<id>",
-                },
-                status=202,
-            )
-        if action == "reject":
-            return _http_json_response(
-                {"ok": True, "result": _rlaif_reject_proposal(proposal_id)}
-            )
-        return _http_error(404, f"unknown action {action!r}")
 
     # -- Workspace browser routes ------------------------------------------
 

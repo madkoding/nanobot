@@ -226,14 +226,19 @@ def test_subagent_result_does_not_create_consecutive_assistant_messages(tmp_path
 
 
 def test_memory_skill_is_lazy_loaded_from_skills_index(tmp_path) -> None:
-    """Memory search guidance should be discoverable without loading its full body."""
+    """Memory search guidance should be discoverable without loading its full body.
+
+    ponytail: the skills summary block was removed from the system prompt
+    to cut context bloat — the agent now discovers skills by name. Memory
+    guidance remains available via ``read_file`` of its SKILL.md.
+    """
     workspace = _make_workspace(tmp_path)
     builder = ContextBuilder(workspace)
 
     prompt = builder.build_system_prompt()
 
     assert "### Skill: memory" not in prompt
-    assert "**memory**" in prompt
+    assert "**memory**" not in prompt
     assert "Search Past Events" not in prompt
     assert "Examples (replace `keyword`)" not in prompt
 

@@ -139,6 +139,11 @@ _NEONIZE_API: _NeonizeAPI | None = None
 _LEGACY_BRIDGE_CONFIG_FIELDS = ("bridgeUrl", "bridgeToken", "bridge_url", "bridge_token")
 # Names that look like generated WhatsApp IDs rather than human push names.
 _NAME_LIKE_ID_RE = re.compile(r"^[0-9a-f]{16,}$", re.IGNORECASE)
+# ponytail: canonical JID attributes that should all be populated after a
+# successful _remember_self_jids call. Partial captures trigger a lazy
+# retry on the next inbound message instead of being masked by a
+# non-empty _self_jids set.
+_EXPECTED_SELF_JID_ATTRS = frozenset({"JID", "LID", "PN"})
 
 
 def _default_database_path() -> Path:
@@ -310,6 +315,16 @@ class WhatsAppChannel(BaseChannel):
         self._state_dirty_count: int = 0
         self._state_last_save_at: float = 0.0
         self._self_jids: set[str] = set()
+        self._self_jids_attrs: set[str] = set()
+        # ponytail: display names / usernames the bot exposes on its profile
+        # (PushName, VerifiedName, Notify). Used by ``_mentioned_by_text`` so
+        # plain-text ``@<username>`` mentions match even when the bot's
+        # WhatsApp profile name differs from ``agents.defaults.bot_name``.
+        self._bot_display_names: set[str] = set()
+        # ponytail: holds the live neonize client so mention detection can
+        # retry _remember_self_jids lazily if it ran before me/JID was
+        # populated (some accounts expose only LID/PN at first).
+        self._current_client: Any = None
         self._started_at = 0.0
         self._typing_tasks: dict[str, asyncio.Task[None]] = {}
         # Per-group turn queue: one worker per chat processes messages sequentially.
@@ -333,6 +348,7 @@ class WhatsAppChannel(BaseChannel):
             group_workspace_presets=self.config.group_workspace_presets,
             dm_workspace_presets=self.config.dm_workspace_presets,
             log=self.logger,
+            config_getter=lambda: self.config,
         )
         # Rolling buffer of recent messages per WhatsApp group (chat_jid -> deque).
         # Each entry is (sender_id, display_name, text, timestamp).
@@ -823,7 +839,7 @@ class WhatsAppChannel(BaseChannel):
             try:
                 # ponytail: bump activity every healthy poll so the manager
                 # watchdog (WATCHDOG_IDLE_S=600s) doesn't kill idle sessions.
-                if not client.is_connected():
+                if not await client.is_connected():
                     self._reconnect_triggered = True
                     self.logger.warning(
                         "WhatsApp websocket lost; stopping client to reconnect"
@@ -1316,6 +1332,7 @@ class WhatsAppChannel(BaseChannel):
 
         @client.event(api.MessageEv)
         async def _on_message(current_client: Any, event: Any) -> None:
+            self._current_client = current_client
             try:
                 await self._handle_neonize_message(current_client, event)
             except Exception:
@@ -1328,11 +1345,26 @@ class WhatsAppChannel(BaseChannel):
         if device is None:
             device = await client.get_me()
 
-        for attr in ("JID", "LID"):
+        for attr in ("JID", "LID", "PN"):
             jid = _normalize_jid(_safe_attr(device, attr))
             if jid:
                 self._self_jids.add(jid)
                 self._self_jids.add(_bare_jid(jid))
+                self._self_jids_attrs.add(attr)
+        # ponytail: capture profile names so plain-text @username mentions
+        # match even when bot_name in config differs from the WhatsApp
+        # profile (e.g. bot_name="motoko" but the user types @Motoko_Bot).
+        for attr in ("PushName", "VerifiedName", "BusinessName", "Notify"):
+            name = _safe_attr(device, attr)
+            if isinstance(name, str):
+                stripped = name.strip()
+                if stripped and self._looks_like_name(stripped):
+                    self._bot_display_names.add(stripped.lower())
+        self.logger.info(
+            "WhatsApp self-capture: jids={} display_names={}",
+            sorted(self._self_jids),
+            sorted(self._bot_display_names),
+        )
 
     async def _send_read_receipt(self, client: Any, source: Any, message_id: str) -> None:
         """Send a read receipt (blue double-check) for an incoming message.
@@ -1438,7 +1470,28 @@ class WhatsAppChannel(BaseChannel):
         self._remember_display_name(chat_jid, sender_id, push_name)
         display_name = push_name or self._display_name_for(chat_jid, sender_id)
 
+        # Retry self-JID discovery if the first attempt (on connect) ran
+        # before me/JID was fully populated; otherwise mention detection
+        # silently misses mentions that only carry the missing JID form.
+        # _self_jids_attrs tracks which canonical JID types we have, so a
+        # partial capture (e.g. only LID, no phone JID) still triggers the
+        # retry instead of being masked by a non-empty _self_jids.
+        if not _EXPECTED_SELF_JID_ATTRS.issubset(self._self_jids_attrs):
+            await self._refresh_self_jids()
+
         is_addressed = self._is_addressed_to_bot(message)
+        preview = (_message_text(message) or "")[:80].replace("\n", " ")
+        self.logger.info(
+            "WhatsApp inbound: chat={} sender={} is_addressed={} preview={}",
+            chat_jid,
+            sender_id,
+            is_addressed,
+            preview,
+        )
+        # ponytail: removed owner bypass. Motoko only responds in groups when
+        # explicitly addressed (@mention, reply, or matching the bot's display
+        # name). The owner has to @motoko or reply to it just like anyone
+        # else — that's the contract: bot speaks only when spoken to.
         if is_group and self.config.group_policy == "mention" and not is_addressed:
             # Still buffer the message for later context, but do not respond now.
             text_for_buffer = _message_text(message)
@@ -1448,6 +1501,13 @@ class WhatsAppChannel(BaseChannel):
                 display_name,
                 text_for_buffer,
                 timestamp=timestamp,
+            )
+            # ponytail: surface filtered group messages so silent drops are
+            # diagnosable from the gateway log without toggling DEBUG.
+            preview = (text_for_buffer or "")[:120].replace("\n", " ")
+            self.logger.info(
+                "Group message in {} from {} ignored (not addressed); preview: '{}'",
+                chat_jid, sender_id, preview,
             )
             return
 
@@ -1754,9 +1814,21 @@ class WhatsAppChannel(BaseChannel):
     def _is_addressed_to_bot(self, message: Any) -> bool:
         return self._was_mentioned(message) or self._is_reply_to_bot(message)
 
+    async def _refresh_self_jids(self) -> None:
+        """Best-effort repopulate _self_jids from the live client.
+
+        Retried lazily on mention detection in case the first population ran
+        before me/JID was available (some accounts expose only LID/PN).
+        """
+        client = self._current_client
+        if client is None:
+            return
+        try:
+            await self._remember_self_jids(client)
+        except Exception:
+            self.logger.debug("Failed to refresh WhatsApp self JIDs", exc_info=True)
+
     def _was_mentioned(self, message: Any) -> bool:
-        if not self._self_jids:
-            return False
         for context in _context_infos(message):
             mentioned = (
                 _safe_attr(context, "mentionedJID")
@@ -1768,7 +1840,60 @@ class WhatsAppChannel(BaseChannel):
                 normalized = _normalize_jid(jid)
                 if normalized in self._self_jids or _bare_jid(normalized) in self._self_jids:
                     return True
+        if self._mentioned_by_text(message):
+            return True
         return False
+
+    def _mentioned_by_text(self, message: Any) -> bool:
+        """Detect a plain-text @mention (e.g. "@motoko") even when WhatsApp
+        omits contextInfo.mentionedJID."""
+        text = _message_text(message)
+        if not text or "@" not in text:
+            return False
+        bot_names = self._candidate_bot_names()
+        lowered = text.lower()
+        for name in bot_names:
+            if name and ("@" + name) in lowered:
+                return True
+        return False
+
+    def _candidate_bot_names(self) -> set[str]:
+        """All lowercased names that should trigger a plain-text mention match.
+
+        Union of: config ``bot_name``, profile names captured on connect
+        (PushName / VerifiedName / Notify), and any digit-only JID in
+        ``_self_jids`` (so users who type ``@<phone_number>`` work too).
+        """
+        bot_names = {self._bot_name().lower()}
+        bot_names.update(self._bot_display_names)
+        for jid in self._self_jids:
+            bare = _bare_jid(jid)
+            if bare and bare.isdigit():
+                bot_names.add(bare.lower())
+        return {name for name in bot_names if name}
+
+    @staticmethod
+    def _bot_name() -> str:
+        try:
+            from nanobot.config.loader import load_config
+
+            return load_config().agents.defaults.bot_name
+        except Exception:
+            return "nanobot"
+
+    def _sender_is_owner(self, sender_id: str) -> bool:
+        """True when *sender_id* matches the configured owner for this channel.
+
+        Uses the shared ``is_owner_match`` helper so LID->phone mappings
+        and JID/phone normalization rules apply consistently across the
+        codebase. Returns False when no owner is configured.
+        """
+        owner = getattr(self, "_owner_id", None)
+        if not owner or not sender_id:
+            return False
+        from nanobot.utils.helpers import is_owner_match
+
+        return is_owner_match(sender_id, owner)
 
     def _is_reply_to_bot(self, message: Any) -> bool:
         if not self._self_jids:

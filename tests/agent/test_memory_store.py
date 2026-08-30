@@ -242,6 +242,48 @@ class TestHistoryWithCursor:
         persisted = store.read_unprocessed_history(since_cursor=0)
         assert sorted(e["cursor"] for e in persisted) == list(range(1, writers + 1))
 
+    def test_get_latest_cursor_serializes_with_concurrent_appends(self, store):
+        """Regression: get_latest_cursor must observe every committed cursor.
+
+        A pre-fix reader would race with append_history and either return a
+        stale cursor or duplicate the in-flight one. With the RLock in place
+        the two paths share the same cursor allocator.
+        """
+        import threading
+
+        writers = 8
+        start = threading.Barrier(writers + 1)
+        cursors: list[int] = []
+        reads: list[int] = []
+        lock = threading.Lock()
+
+        def writer(i):
+            start.wait()
+            c = store.append_history(f"event {i}")
+            with lock:
+                cursors.append(c)
+
+        def reader():
+            start.wait()
+            for _ in range(50):
+                with lock:
+                    reads.append(store.get_latest_cursor())
+
+        threads = [threading.Thread(target=writer, args=(i,)) for i in range(writers)]
+        threads.append(threading.Thread(target=reader))
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+
+        assert len(cursors) == writers
+        assert len(set(cursors)) == writers, f"duplicate cursors: {sorted(cursors)}"
+        # Reads must never exceed the highest cursor that could exist at the
+        # moment of the read. The opposite direction (read returns a value
+        # not in the assigned set) is fine: 0 means "empty file" before any
+        # commit and is a legitimate read result.
+        assert all(r <= max(cursors) for r in reads)
+
     def test_compact_history_drops_oldest(self, tmp_path):
         store = MemoryStore(tmp_path, max_history_entries=2)
         store.append_history("event 1")

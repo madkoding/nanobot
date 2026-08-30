@@ -86,6 +86,20 @@ def _content_signature(reasoning: str | None, content: str | None) -> str | None
     Combines reasoning and content so repetition in either is detected.
     Strips whitespace, lowercases, and caps length to keep comparisons cheap.
     Returns None when there is nothing to fingerprint (blank assistant turn).
+
+    Combines three signals so a model looping on one word is caught
+    regardless of spacing:
+
+    * ``head`` — first ``_HEAD_CONTENT_SIGNATURE_CHARS`` characters.
+    * ``tail`` — last ``_TAIL_CONTENT_SIGNATURE_CHARS`` characters.
+    * ``run`` — when one alphanumeric token dominates the character budget
+      past ``_RUN_DOMINANCE_RATIO``, the signature collapses to just that
+      token (length-capped). This catches ``"okokokok..."`` with no
+      separators, where the growing blob would otherwise shift the tail
+      through a different slice every iteration and evade detection.
+
+    The three signals are combined with ``|`` separators so equality on the
+    full string requires equality on every component.
     """
     blob = f"{reasoning or ''}\n{content or ''}"
     blob = blob.strip().lower()
@@ -93,10 +107,64 @@ def _content_signature(reasoning: str | None, content: str | None) -> str | None
         return None
     # collapse whitespace so formatting drift does not evade detection
     blob = " ".join(blob.split())
-    return blob[:_MAX_CONTENT_SIGNATURE_CHARS]
+    if len(blob) >= _RUN_MIN_BLOB_CHARS:
+        dominant = _dominant_run_token(blob)
+        if dominant is not None:
+            # Extreme repetition: signature is the dominant token alone so
+            # two runs of "ok...ok" with different lengths share a fingerprint.
+            return f"run:{dominant}"
+    head = blob[:_HEAD_CONTENT_SIGNATURE_CHARS]
+    if len(blob) <= _HEAD_CONTENT_SIGNATURE_CHARS:
+        return head
+    tail = blob[-_TAIL_CONTENT_SIGNATURE_CHARS:]
+    return f"{head}|{tail}"
 
 
-_MAX_CONTENT_SIGNATURE_CHARS = 500
+def _dominant_run_token(blob: str) -> str | None:
+    """Return the most-repeated alphanumeric token if its total character
+    coverage exceeds ``_RUN_DOMINANCE_RATIO`` of *blob*, else ``None``.
+
+    A token is a maximal alphanumeric run (``[a-z0-9_]+``). The function
+    sums the character counts of *all* occurrences of the most frequent
+    token (not just the longest single run), so ``"ok ok ok ..."`` with
+    whitespace and ``"okokokok..."`` without both register the same way.
+    Returning that token makes the signature invariant under growth: every
+    iteration shares the same dominant token until the model breaks out of
+    the loop.
+    """
+    if not blob:
+        return None
+    counts: dict[str, int] = {}
+    current_chars = 0
+    current_token: str | None = None
+    for ch in blob:
+        if ch.isalnum() or ch == "_":
+            current_chars += 1
+            if current_token is None:
+                current_token = ch
+            else:
+                current_token += ch
+        else:
+            if current_token is not None:
+                counts[current_token] = counts.get(current_token, 0) + current_chars
+            current_token = None
+            current_chars = 0
+    if current_token is not None:
+        counts[current_token] = counts.get(current_token, 0) + current_chars
+    if not counts:
+        return None
+    best_token = max(counts, key=counts.get)
+    best_chars = counts[best_token]
+    if best_chars == 0 or best_chars / len(blob) <= _RUN_DOMINANCE_RATIO:
+        return None
+    return best_token[:_MAX_DOMINANT_TOKEN_CHARS]
+
+
+_HEAD_CONTENT_SIGNATURE_CHARS = 300
+_TAIL_CONTENT_SIGNATURE_CHARS = 200
+_RUN_MIN_BLOB_CHARS = 200
+_RUN_DOMINANCE_RATIO = 0.6
+_MAX_DOMINANT_TOKEN_CHARS = 64
 
 
 # Maximum characters of a tool result to hash for the action-observation

@@ -41,8 +41,15 @@ class ChatWorkspaceRegistry:
         group_workspace_presets: Mapping[str, str] | None = None,
         dm_workspace_presets: Mapping[str, str] | None = None,
         log: Any | None = None,
+        config_getter: Any | None = None,
     ) -> None:
         self._log = log or logger
+        # ponytail: when a config_getter is supplied, resolve() reads the
+        # latest config from it on every call so WebUI edits to
+        # group_workspaces / dm_workspaces / *workspace_presets take
+        # effect without a channel restart. Without it, we fall back to
+        # the init-time snapshot (legacy behavior, kept for tests).
+        self._config_getter = config_getter
         self._group_paths: dict[str, Path] = {}
         self._dm_paths: dict[str, Path] = {}
         self._default_dm_path: Path | None = None
@@ -108,15 +115,57 @@ class ChatWorkspaceRegistry:
 
     def resolve(self, chat_id: str, sender_id: str | None = None) -> Path | None:
         """Return the configured workspace for *chat_id*, or ``None``."""
+        if self._config_getter is not None:
+            group_paths, dm_paths, default_dm_path = self._live_paths()
+        else:
+            group_paths, dm_paths, default_dm_path = (
+                self._group_paths, self._dm_paths, self._default_dm_path,
+            )
         if is_group_jid(chat_id):
-            return self._group_paths.get(chat_id)
+            return group_paths.get(chat_id)
         if _is_dm_chat_id(chat_id) or sender_id is not None:
             target = sender_id if sender_id is not None else chat_id
             target = str(target).strip()
-            if target in self._dm_paths:
-                return self._dm_paths[target]
-            return self._default_dm_path
+            if target in dm_paths:
+                return dm_paths[target]
+            return default_dm_path
         return None
+
+    def _live_paths(self) -> tuple[dict[str, Path], dict[str, Path], Path | None]:
+        """Re-resolve all path maps from the live config getter.
+
+        Called only when ``config_getter`` was supplied at construction.
+        Unknown paths are resolved on the fly and silently dropped if
+        invalid (no warning — loguru would be noisy for transient
+        half-edited states during a WebUI save).
+        """
+        cfg = self._config_getter()
+        try:
+            group_workspaces = cfg.group_workspaces or {}
+            dm_workspaces = cfg.dm_workspaces or {}
+            dm_workspace = cfg.dm_workspace or ""
+        except AttributeError:
+            return self._group_paths, self._dm_paths, self._default_dm_path
+        group_paths: dict[str, Path] = {}
+        for raw_jid, raw_path in group_workspaces.items():
+            jid = str(raw_jid).strip()
+            if not jid or not is_group_jid(jid):
+                continue
+            path = self._resolve_path(raw_path, f"group_workspaces[{jid}]")
+            if path is not None:
+                group_paths[jid] = path
+        dm_paths: dict[str, Path] = {}
+        for raw_sender, raw_path in dm_workspaces.items():
+            sender = str(raw_sender).strip()
+            if not sender:
+                continue
+            path = self._resolve_path(raw_path, f"dm_workspaces[{sender}]")
+            if path is not None:
+                dm_paths[sender] = path
+        default_dm = (
+            self._resolve_path(dm_workspace, "dm_workspace") if dm_workspace else None
+        )
+        return group_paths, dm_paths, default_dm
 
     def load_ruleset(self, chat_id: str, sender_id: str | None = None) -> str | None:
         """Load and cap ``AGENTS.md``/``SOUL.md`` from the chat's workspace.

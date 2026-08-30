@@ -181,8 +181,10 @@ class TestResolveModelPreset:
         assert registry.resolve_model_preset("56912345678@s.whatsapp.net") == "nemotron3"
 
     def test_group_preset_per_jid(self, tmp_path):
-        g1 = tmp_path / "g1"; self._setup(g1)
-        g2 = tmp_path / "g2"; self._setup(g2)
+        g1 = tmp_path / "g1"
+        self._setup(g1)
+        g2 = tmp_path / "g2"
+        self._setup(g2)
         registry = ChatWorkspaceRegistry(
             group_workspaces={"120363000@g.us": str(g1), "120363111@g.us": str(g2)},
             group_workspace_presets={
@@ -194,8 +196,10 @@ class TestResolveModelPreset:
         assert registry.resolve_model_preset("120363111@g.us") == "ejecutor-deepseek"
 
     def test_unmapped_chat_returns_none(self, tmp_path):
-        dm = tmp_path / "dms"; self._setup(dm)
-        g = tmp_path / "g"; self._setup(g)
+        dm = tmp_path / "dms"
+        self._setup(dm)
+        g = tmp_path / "g"
+        self._setup(g)
         registry = ChatWorkspaceRegistry(
             dm_workspace=str(dm),
             dm_workspace_model_preset="nemotron3",
@@ -205,12 +209,14 @@ class TestResolveModelPreset:
         assert registry.resolve_model_preset("999999@g.us") is None
 
     def test_empty_preset_map_returns_none(self, tmp_path):
-        dm = tmp_path / "dms"; self._setup(dm)
+        dm = tmp_path / "dms"
+        self._setup(dm)
         registry = ChatWorkspaceRegistry(dm_workspace=str(dm))
         assert registry.resolve_model_preset("56912345678@s.whatsapp.net") is None
 
     def test_star_key_rebinds_default_dm_preset(self, tmp_path):
-        dm = tmp_path / "dms"; self._setup(dm)
+        dm = tmp_path / "dms"
+        self._setup(dm)
         registry = ChatWorkspaceRegistry(
             dm_workspace=str(dm),
             dm_workspace_model_preset="nemotron3",
@@ -219,10 +225,74 @@ class TestResolveModelPreset:
         assert registry.resolve_model_preset("56912345678@s.whatsapp.net") == "ejecutor-deepseek"
 
     def test_skips_preset_for_unconfigured_key(self, tmp_path):
-        dm = tmp_path / "dms"; self._setup(dm)
+        dm = tmp_path / "dms"
+        self._setup(dm)
         registry = ChatWorkspaceRegistry(
             dm_workspace=str(dm),
             dm_workspace_presets={"56912345678": "ejecutor-deepseek"},
         )
         # No dm_workspaces entry for that sender, so the override is dropped.
         assert registry.resolve_model_preset("56912345678@s.whatsapp.net", sender_id="56912345678") is None
+
+
+class TestLiveConfigGetter:
+    """``config_getter`` must let resolve() pick up edits made after init."""
+
+    def test_resolve_picks_up_added_group(self, tmp_path):
+        """A new group_workspaces entry added via the live config must be
+        visible on the next ``resolve()`` call without rebuilding the
+        registry.
+        """
+        ws_a = tmp_path / "a"
+        ws_b = tmp_path / "b"
+        ws_a.mkdir()
+        ws_b.mkdir()
+        # Mutable config-like object.
+        cfg = {
+            "group_workspaces": {"120363000@g.us": str(ws_a)},
+            "dm_workspace": "",
+            "dm_workspaces": {},
+        }
+        # Adapt to the registry's expected attribute access.
+        from types import SimpleNamespace
+        live_cfg = SimpleNamespace(**cfg)
+
+        class _LiveConfig:
+            def __init__(self, ref):
+                self._ref = ref
+
+            @property
+            def group_workspaces(self):
+                return self._ref["group_workspaces"]
+
+            @property
+            def dm_workspace(self):
+                return self._ref["dm_workspace"]
+
+            @property
+            def dm_workspaces(self):
+                return self._ref["dm_workspaces"]
+
+        live = _LiveConfig(cfg)
+        registry = ChatWorkspaceRegistry(
+            group_workspaces=live_cfg.group_workspaces,
+            config_getter=lambda: live,
+        )
+        assert registry.resolve("120363000@g.us") == ws_a.resolve()
+        # Simulate a WebUI edit: add a new entry to the live config dict.
+        cfg["group_workspaces"]["999999@g.us"] = str(ws_b)
+        assert registry.resolve("999999@g.us") == ws_b.resolve()
+
+    def test_resolve_falls_back_to_snapshot_without_getter(self, tmp_path):
+        """Without a config_getter the registry uses its init snapshot
+        (legacy behavior — added entries are NOT picked up). This pins
+        the contract so a future refactor doesn't silently break it.
+        """
+        ws_a = tmp_path / "a"
+        ws_b = tmp_path / "b"
+        ws_a.mkdir()
+        ws_b.mkdir()
+        registry = ChatWorkspaceRegistry(group_workspaces={"120363000@g.us": str(ws_a)})
+        # Pretend a WebUI edit happened in some external config dict.
+        # The registry still holds only its init snapshot.
+        assert registry.resolve("999999@g.us") is None

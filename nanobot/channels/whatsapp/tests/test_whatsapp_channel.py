@@ -1333,6 +1333,56 @@ async def test_owner_bypasses_screen(monkeypatch) -> None:
 
 
 @pytest.mark.asyncio
+async def test_owner_group_message_without_mention_is_filtered(monkeypatch) -> None:
+    """ponytail: motoko only speaks when addressed, even from the owner.
+    The owner has to @motoko or reply to it like anyone else in the group.
+    """
+    monkeypatch.setattr(whatsapp_module.WhatsAppChannel, "_bot_name", lambda self: "motoko")
+    ch = _make_channel({"groupPolicy": "mention"})
+    ch._self_jids = {"bot@s.whatsapp.net", "bot"}
+    ch._owner_id = ["56900000000"]
+    ch._handle_message = AsyncMock()
+
+    await ch._handle_neonize_message(
+        SimpleNamespace(download_any=AsyncMock()),
+        _event(
+            message=_Proto(extendedTextMessage=_Proto(text="hola, que hora es?")),
+            chat=_jid("120363000", "g.us"),
+            sender=_jid("56900000000", "s.whatsapp.net"),
+            is_group=True,
+        ),
+    )
+    await ch._drain_group_queue("120363000@g.us")
+
+    assert ch._handle_message.await_count == 0
+
+
+@pytest.mark.asyncio
+async def test_non_owner_group_message_without_mention_is_filtered(monkeypatch) -> None:
+    """ponytail: a non-owner in the group still needs an explicit mention
+    to trigger the bot. Same contract as the owner now.
+    """
+    monkeypatch.setattr(whatsapp_module.WhatsAppChannel, "_bot_name", lambda self: "motoko")
+    ch = _make_channel({"groupPolicy": "mention"})
+    ch._self_jids = {"bot@s.whatsapp.net", "bot"}
+    ch._owner_id = ["56900000000"]
+    ch._handle_message = AsyncMock()
+
+    await ch._handle_neonize_message(
+        SimpleNamespace(download_any=AsyncMock()),
+        _event(
+            message=_Proto(extendedTextMessage=_Proto(text="hola gente")),
+            chat=_jid("120363000", "g.us"),
+            sender=_jid("56911111111", "s.whatsapp.net"),
+            is_group=True,
+        ),
+    )
+    await ch._drain_group_queue("120363000@g.us")
+
+    assert ch._handle_message.await_count == 0
+
+
+@pytest.mark.asyncio
 async def test_send_stops_typing(monkeypatch) -> None:
     _patch_neonize_api(monkeypatch)
     paused: list[tuple[Any, Any, Any]] = []
@@ -1405,6 +1455,52 @@ async def test_group_policy_mention_skips_unmentioned_group_message() -> None:
     )
 
     ch._handle_message.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_group_policy_mention_accepts_plain_text_mention(monkeypatch) -> None:
+    # WhatsApp sometimes omits contextInfo.mentionedJID for @botName tags,
+    # so a plain-text mention must still trigger a response.
+    monkeypatch.setattr(whatsapp_module.WhatsAppChannel, "_bot_name", lambda self: "motoko")
+    ch = _make_channel({"groupPolicy": "mention"})
+    ch._self_jids = {"bot@s.whatsapp.net", "bot"}
+    ch._handle_message = AsyncMock()
+
+    await ch._handle_neonize_message(
+        SimpleNamespace(download_any=AsyncMock()),
+        _event(
+            message=_Proto(extendedTextMessage=_Proto(text="hola @motoko que opinas?")),
+            chat=_jid("120363000", "g.us"),
+            sender=_jid("SENDERLID", "lid"),
+            is_group=True,
+        ),
+    )
+    await ch._drain_group_queue("120363000@g.us")
+
+    assert ch._handle_message.awaited
+
+
+@pytest.mark.asyncio
+async def test_group_policy_mention_works_when_self_jids_empty(monkeypatch) -> None:
+    # If _self_jids wasn't populated yet, a plain-text mention must still
+    # be honored instead of silently dropping every group message.
+    monkeypatch.setattr(whatsapp_module.WhatsAppChannel, "_bot_name", lambda self: "motoko")
+    ch = _make_channel({"groupPolicy": "mention"})
+    ch._self_jids = set()
+    ch._handle_message = AsyncMock()
+
+    await ch._handle_neonize_message(
+        SimpleNamespace(download_any=AsyncMock()),
+        _event(
+            message=_Proto(extendedTextMessage=_Proto(text="@motoko ayúdame")),
+            chat=_jid("120363000", "g.us"),
+            sender=_jid("SENDERLID", "lid"),
+            is_group=True,
+        ),
+    )
+    await ch._drain_group_queue("120363000@g.us")
+
+    assert ch._handle_message.awaited
 
 
 @pytest.mark.asyncio
@@ -2027,3 +2123,126 @@ async def test_group_sender_lid_resolves_to_phone_via_runtime_learned_mapping() 
 
     kwargs = ch._handle_message.await_args.kwargs
     assert kwargs["sender_id"] == "56975746099"
+
+
+@pytest.mark.asyncio
+async def test_remember_self_jids_captures_profile_names(monkeypatch) -> None:
+    """``_remember_self_jids`` should harvest PushName / VerifiedName /
+    Notify into ``_bot_display_names`` so plain-text @username mentions
+    match even when config ``bot_name`` differs from the WhatsApp profile.
+    """
+    monkeypatch.setattr(whatsapp_module.WhatsAppChannel, "_bot_name", lambda self: "motoko")
+    ch = _make_channel({"groupPolicy": "mention"})
+    device = _Proto(
+        JID="56912345678@s.whatsapp.net",
+        LID="9876543210@lid",
+        PN="56912345678",
+        PushName="Motoko Bot",
+        VerifiedName="Motoko",
+        BusinessName="",
+        Notify="motoko_bot_handle",
+    )
+
+    await ch._remember_self_jids(SimpleNamespace(me=device))
+
+    assert {"motoko bot", "motoko", "motoko_bot_handle"}.issubset(ch._bot_display_names)
+    assert "56912345678@s.whatsapp.net" in ch._self_jids
+
+
+@pytest.mark.asyncio
+async def test_remember_self_jids_skips_pure_digits(monkeypatch) -> None:
+    """Pure-digit display fields (e.g. accidental JIDs in Notify) must not be
+    added to ``_bot_display_names``.
+    """
+    monkeypatch.setattr(whatsapp_module.WhatsAppChannel, "_bot_name", lambda self: "motoko")
+    ch = _make_channel({"groupPolicy": "mention"})
+    device = _Proto(JID="56912345678@s.whatsapp.net", Notify="12345678901234567890")
+
+    await ch._remember_self_jids(SimpleNamespace(me=device))
+
+    assert "12345678901234567890" not in ch._bot_display_names
+
+
+@pytest.mark.asyncio
+async def test_group_policy_mention_accepts_push_name_username(monkeypatch) -> None:
+    """When the bot's profile name (PushName) differs from ``bot_name``
+    config, a plain-text ``@<push_name>`` mention must still trigger a
+    response.
+    """
+    monkeypatch.setattr(whatsapp_module.WhatsAppChannel, "_bot_name", lambda self: "motoko")
+    ch = _make_channel({"groupPolicy": "mention"})
+    ch._self_jids = set()
+    ch._bot_display_names = {"motoko bot"}
+    ch._handle_message = AsyncMock()
+
+    await ch._handle_neonize_message(
+        SimpleNamespace(download_any=AsyncMock()),
+        _event(
+            message=_Proto(extendedTextMessage=_Proto(text="@Motoko_Bot ayúdame")),
+            chat=_jid("120363000", "g.us"),
+            sender=_jid("SENDERLID", "lid"),
+            is_group=True,
+        ),
+    )
+    await ch._drain_group_queue("120363000@g.us")
+
+    assert ch._handle_message.awaited
+
+
+@pytest.mark.asyncio
+async def test_partial_self_jids_still_triggers_lazy_retry(monkeypatch) -> None:
+    """A partial ``_self_jids`` capture (e.g. only LID, no phone JID) must
+    still trigger ``_refresh_self_jids`` on the next inbound message. The
+    previous truthiness check ``if not self._self_jids`` silently skipped
+    retries whenever any single attr was captured.
+    """
+    monkeypatch.setattr(whatsapp_module.WhatsAppChannel, "_bot_name", lambda self: "motoko")
+    ch = _make_channel({"groupPolicy": "mention"})
+    # Only LID captured: _self_jids is non-empty but _self_jids_attrs
+    # is missing JID and PN.
+    ch._self_jids = {"BOTLID@lid", "BOTLID"}
+    ch._self_jids_attrs = {"LID"}
+    ch._handle_message = AsyncMock()
+    refresh_calls = AsyncMock()
+    monkeypatch.setattr(ch, "_refresh_self_jids", refresh_calls)
+
+    await ch._handle_neonize_message(
+        SimpleNamespace(download_any=AsyncMock()),
+        _event(
+            message=_Proto(extendedTextMessage=_Proto(text="@motoko ayúdame")),
+            chat=_jid("120363000", "g.us"),
+            sender=_jid("SENDERLID", "lid"),
+            is_group=True,
+        ),
+    )
+    await ch._drain_group_queue("120363000@g.us")
+
+    refresh_calls.assert_awaited_once()
+    assert ch._handle_message.awaited
+
+
+@pytest.mark.asyncio
+async def test_full_self_jids_skips_lazy_retry(monkeypatch) -> None:
+    """When all canonical JID attrs are captured, the hot path must not
+    re-issue ``_refresh_self_jids`` on every message.
+    """
+    monkeypatch.setattr(whatsapp_module.WhatsAppChannel, "_bot_name", lambda self: "motoko")
+    ch = _make_channel({"groupPolicy": "mention"})
+    ch._self_jids = {"bot@s.whatsapp.net", "bot", "BOTLID@lid", "BOTLID", "15551234567@s.whatsapp.net", "15551234567"}
+    ch._self_jids_attrs = {"JID", "LID", "PN"}
+    ch._handle_message = AsyncMock()
+    refresh_calls = AsyncMock()
+    monkeypatch.setattr(ch, "_refresh_self_jids", refresh_calls)
+
+    await ch._handle_neonize_message(
+        SimpleNamespace(download_any=AsyncMock()),
+        _event(
+            message=_Proto(extendedTextMessage=_Proto(text="@motoko ayúdame")),
+            chat=_jid("120363000", "g.us"),
+            sender=_jid("SENDERLID", "lid"),
+            is_group=True,
+        ),
+    )
+    await ch._drain_group_queue("120363000@g.us")
+
+    refresh_calls.assert_not_awaited()

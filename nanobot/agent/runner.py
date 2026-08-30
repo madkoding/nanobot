@@ -59,6 +59,7 @@ _MAX_EMPTY_RETRIES = 2
 _MAX_LENGTH_RECOVERIES = 3
 _MAX_INJECTIONS_PER_TURN = 3
 _MAX_INJECTION_CYCLES = 5
+_DEFAULT_TOOL_TIMEOUT_S = 600.0  # ponytail: per-tool wall-clock safety bound
 
 # ponytail: repeated tool call detection — the model is stuck calling the same
 # target over and over. Nudge at 3, hard stop at 5.
@@ -436,19 +437,13 @@ class AgentRunner:
         last_content_signature: str | None = None
         content_repeat_count = 0
         content_nudge_done = False
-        # ponytail: seed the content-repetition detector with the last final
-        # response from history so repetition *across* turns is caught on the
-        # first iteration instead of giving the model 3 free repeats per turn.
-        # The counter resets on any tool use, so a legitimate new approach that
-        # happens to reuse the same text is still allowed to proceed.
-        for _msg in reversed(messages):
-            if _msg.get("role") != "assistant" or _msg.get("tool_calls"):
-                continue
-            _content = _msg.get("content")
-            if isinstance(_content, str) and _content.strip():
-                last_content_signature = _content_signature(None, _content)
-                content_repeat_count = 1
-                break
+        # ponytail: do NOT seed the content-repetition detector from history.
+        # Seeding caused false positives at iteration 1 of new turns when
+        # the prior closing line ("I'll do that.", "Done.") was reused
+        # verbatim — a legitimate convention, not a runaway. Cross-turn
+        # repetition is still caught within the same run from iteration 2.
+        last_content_signature = None
+        content_repeat_count = 0
         goal_conflict_nudge_done = False
         governance_config = ContextGovernanceConfig(
             provider=spec.runtime.provider,
@@ -755,13 +750,25 @@ class AgentRunner:
             if response.finish_reason != "error" and is_blank_text(clean):
                 empty_content_retries += 1
                 if empty_content_retries < _MAX_EMPTY_RETRIES:
+                    reasoning_len = len(response.reasoning_content or "")
+                    has_tools = bool(response.tool_calls)
                     logger.warning(
-                        "Empty response on turn {} for {} ({}/{}); retrying",
+                        "Empty response on turn {} for {} ({}/{}); retrying. "
+                        "finish_reason={}, reasoning_chars={}, has_tool_calls={}",
                         iteration,
                         spec.session_key or "default",
                         empty_content_retries,
                         _MAX_EMPTY_RETRIES,
+                        response.finish_reason,
+                        reasoning_len,
+                        has_tools,
                     )
+                    # ponytail: nudge the model toward an actual reply.
+                    # Some local Ollama models emit only `<think>...` reasoning
+                    # and then stop, which ``strip_think`` reduces to "".
+                    # An explicit "respond now" user message breaks the
+                    # silence without needing the model to start from scratch.
+                    messages.append({"role": "user", "content": _EMPTY_RETRY_NUDGE})
                     if hook.wants_streaming():
                         await hook.on_stream_end(context, resuming=False)
                     await hook.after_iteration(context)
@@ -1131,6 +1138,10 @@ class AgentRunner:
                 new_clean = strip_think(stream_buf)
                 incremental = new_clean[len(prev_clean):]
 
+                # ponytail: feed the *raw* buffer (with Qwen3 "✻ ..." leaks
+                # still present) to the think extractor so it can surface
+                # those lines as reasoning instead of letting strip_think
+                # silently drop them.
                 if await think_extractor.feed(stream_buf, hook.emit_reasoning):
                     context.streamed_reasoning = True
                     progress_state["reasoning_open"] = True
@@ -1341,7 +1352,22 @@ class AgentRunner:
         messages: list[dict[str, Any]],
     ) -> LLMResponse:
         kwargs = self._build_request_kwargs(spec, messages, tools=None)
-        return await spec.runtime.provider.chat_with_retry(**kwargs)
+        coro = spec.runtime.provider.chat_with_retry(**kwargs)
+        # ponytail: mirror _request_model's wall-clock timeout so a hung
+        # provider on the no-tools finalization path can't wedge the session.
+        # ``None`` and ``<=0`` both disable the bound — the latter is the
+        # signal used by sustained-goal runs to opt out of the timeout.
+        timeout_s = spec.llm_timeout_s
+        if timeout_s is None or timeout_s <= 0:
+            return await coro
+        try:
+            return await asyncio.wait_for(coro, timeout=timeout_s)
+        except asyncio.TimeoutError:
+            return LLMResponse(
+                content=f"Error calling LLM: timed out after {timeout_s:g}s",
+                finish_reason="error",
+                error_kind="timeout",
+            )
 
     @staticmethod
     def _budget_exhausted_finalization_messages(
@@ -1544,13 +1570,46 @@ class AgentRunner:
                 RuntimeError(prep_error) if spec.fail_on_tool_error else None
             )
         await hook.before_execute_tool(context, tool_call, tool, params)
+        # ponytail: per-tool wall-clock timeout. Without this a single hung
+        # tool blocks the rest of the batch under concurrent_tools=True and
+        # holds the session lock until the caller intervenes. Tools can opt
+        # out via ``unbounded_execution = True`` for legitimate long-runners.
+        tool_timeout_s = _resolve_tool_timeout(tool)
         try:
             if tool is not None:
-                result = await tool.execute(**params)
+                if tool_timeout_s is None:
+                    result = await tool.execute(**params)
+                else:
+                    result = await asyncio.wait_for(
+                        tool.execute(**params), timeout=tool_timeout_s
+                    )
             else:
                 result = await spec.tools.execute(tool_call.name, params)
         except asyncio.CancelledError:
             raise
+        except asyncio.TimeoutError as exc:
+            await hook.on_execute_tool_error(context, tool_call, tool, params, exc)
+            event = {
+                "name": tool_call.name,
+                "status": "error",
+                "detail": f"timed out after {tool_timeout_s:g}s",
+            }
+            payload = (
+                f"Error: tool '{tool_call.name}' timed out after "
+                f"{tool_timeout_s:g}s"
+            )
+            handled = self._classify_violation(
+                raw_text=str(exc),
+                soft_payload=payload,
+                event=event,
+                tool_call=tool_call,
+                workspace_violation_counts=workspace_violation_counts,
+            )
+            if handled is not None:
+                return handled
+            if spec.fail_on_tool_error:
+                return payload, event, exc
+            return payload, event, None
         except Exception as exc:
             await hook.on_execute_tool_error(context, tool_call, tool, params, exc)
             event = {
@@ -1763,6 +1822,18 @@ _REPEAT_CONTENT_NUDGE_TEMPLATE = (
 )
 
 
+# ponytail: nudge injected when the model returns an empty response (only
+# reasoning, hidden think-tags, or nothing at all). The previous turn loop
+# re-issued the request without telling the model why it failed; with this
+# prompt the model is asked for an actual user-facing reply, which usually
+# unblocks local Ollama models that emit only ``<think>`` blocks.
+_EMPTY_RETRY_NUDGE = (
+    "Your previous response had no visible content for the user. Reply now "
+    "with a real, user-facing answer to the latest user message — keep it "
+    "concise and avoid restating prior reasoning."
+)
+
+
 # Goal-conflict nudge: the model emitted a final response without tools but a
 # sustained goal is still active. The model likely believes it is done; we tell
 # it explicitly how to close the goal or keep working. This attacks the most
@@ -1774,6 +1845,24 @@ _GOAL_CONFLICT_NUDGE = (
     "available tools. If you are blocked, describe the blocker concretely and "
     "ask the operator for guidance."
 )
+
+
+def _resolve_tool_timeout(tool: Any | None) -> float | None:
+    """Resolve the per-tool wall-clock timeout for *tool*.
+
+    Returns None when the tool opts out via ``unbounded_execution = True``
+    or when ``NANOBOT_TOOL_TIMEOUT_S=0`` disables the bound entirely.
+    """
+    raw = os.environ.get("NANOBOT_TOOL_TIMEOUT_S", str(_DEFAULT_TOOL_TIMEOUT_S)).strip()
+    try:
+        timeout_s = float(raw)
+    except ValueError:
+        timeout_s = _DEFAULT_TOOL_TIMEOUT_S
+    if timeout_s <= 0:
+        return None
+    if tool is not None and getattr(tool, "unbounded_execution", False):
+        return None
+    return timeout_s
 
 
 # Repetition/retry signature heuristics live in runner_signatures.py; re-export

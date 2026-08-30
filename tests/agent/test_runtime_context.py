@@ -8,6 +8,7 @@ import pytest
 
 from nanobot.agent.tools.context import RequestContext
 from nanobot.runtime_context import (
+    DEFAULT_RUNTIME_CONTEXT_BLOCK_CHARS,
     MAX_WEBUI_QUOTE_CHARS,
     RUNTIME_CONTEXT_HISTORY_META,
     RUNTIME_CONTEXT_INPUT_META,
@@ -15,6 +16,7 @@ from nanobot.runtime_context import (
     WEBUI_QUOTE_SOURCE,
     RuntimeContextBlock,
     append_runtime_context,
+    normalize_runtime_context_blocks,
     normalize_webui_quote,
     public_history_message,
     resolve_runtime_context,
@@ -181,3 +183,40 @@ def test_webui_preview_title_and_backfill_hide_runtime_context() -> None:
     event = _session_user_event("websocket:chat", persisted)
     assert event is not None
     assert event["text"] == "visible user text"
+
+
+# ---------------------------------------------------------------------------
+# Per-block char cap (regression for A4)
+# ---------------------------------------------------------------------------
+
+
+class TestRuntimeContextBlockCap:
+    """normalize_runtime_context_blocks must cap each block individually so
+    a runaway channel-injected block cannot blow the context budget.
+    """
+
+    def test_truncates_oversized_block(self) -> None:
+        huge = "x" * (DEFAULT_RUNTIME_CONTEXT_BLOCK_CHARS * 4)
+        blocks = normalize_runtime_context_blocks(
+            [RuntimeContextBlock(source="oversized", content=huge)],
+        )
+        assert len(blocks) == 1
+        # Content body is capped, with an explicit truncation marker so
+        # downstream code can detect overflow.
+        assert len(blocks[0].content) <= DEFAULT_RUNTIME_CONTEXT_BLOCK_CHARS + 64
+        assert "[… truncated to fit per-block budget]" in blocks[0].content
+
+    def test_preserves_small_blocks_unchanged(self) -> None:
+        blocks = normalize_runtime_context_blocks([
+            RuntimeContextBlock(source="a", content="short body"),
+            RuntimeContextBlock(source="b", content="x" * 100),
+        ])
+        assert [b.content for b in blocks] == ["short body", "x" * 100]
+
+    def test_drops_oversized_then_blank_but_keeps_valid(self) -> None:
+        blocks = normalize_runtime_context_blocks([
+            RuntimeContextBlock(source="ok", content="fine"),
+            RuntimeContextBlock(source="big", content="y" * 10_000),
+            RuntimeContextBlock(source="empty", content="   "),
+        ])
+        assert [b.source for b in blocks] == ["ok", "big"]

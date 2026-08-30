@@ -952,15 +952,17 @@ class DiscordChannel(BaseChannel):
             if self._references_bot_message(message, bot_user_id):
                 return True
 
-            self.logger.debug(
-                "message in {} ignored (bot not mentioned by {})", message.channel.id, bot_user_id
+            self.logger.info(
+                "Guild message in {} from {} ignored (bot {} not addressed); preview: '{}'",
+                message.channel.id, message.author.id, bot_user_id,
+                (content or "")[:120].replace("\n", " "),
             )
             return False
 
         return True
 
-    @staticmethod
     def _bot_mentioned(
+        self,
         message: discord.Message,
         content: str,
         bot_user_id: str,
@@ -972,16 +974,27 @@ class DiscordChannel(BaseChannel):
             return True
         if f"<@{bot_user_id}>" in content or f"<@!{bot_user_id}>" in content:
             return True
-        # Common display-name mention variants (no space, underscores/dashes).
-        lower = content.lower()
-        for name in (
-            getattr(message.author, "name", None),
-            getattr(message.author, "global_name", None),
-        ):
-            if name:
-                needle = f"@{name.lower().replace(' ', '')}"
-                if needle in lower.replace(" ", ""):
-                    return True
+        # ponytail: match the bot's own display name / global name / username
+        # so plain-text "@Motoko_Bot" mentions are detected. Previously this
+        # loop iterated over ``message.author`` (the *sender*), which can never
+        # match the bot and silently filtered real mentions.
+        bot_user = self._client.user if self._client else None
+        bot_names: list[str] = []
+        if bot_user is not None:
+            bot_names.extend(
+                str(value).strip()
+                for value in (
+                    getattr(bot_user, "name", None),
+                    getattr(bot_user, "global_name", None),
+                    getattr(bot_user, "display_name", None),
+                )
+                if value
+            )
+        lower_nospace = content.lower().replace(" ", "")
+        for name in bot_names:
+            stripped = name.lower().replace(" ", "")
+            if stripped and ("@" + stripped) in lower_nospace:
+                return True
         return False
 
     @staticmethod

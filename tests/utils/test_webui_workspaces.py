@@ -120,11 +120,14 @@ def test_webui_default_access_applies_to_unscoped_old_sessions(tmp_path, monkeyp
     default.mkdir()
     sessions = SessionManager(tmp_path / "sessions")
     sessions.save(sessions.get_or_create("websocket:old-chat"))
-    write_webui_default_access_mode("full")
+    # tools.restrictToWorkspace (config) is the single source of truth.
+    # A full-access config applies to old sessions without an explicit scope,
+    # even when the webui cache was previously set to a more restrictive value.
+    write_webui_default_access_mode("restricted")
     controller = WebUIWorkspaceController(
         session_manager=sessions,
         default_workspace=default,
-        default_restrict_to_workspace=True,
+        default_restrict_to_workspace=False,
     )
 
     scope = controller.scope_for_session_key("websocket:old-chat")

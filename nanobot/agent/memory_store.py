@@ -89,7 +89,7 @@ class MemoryStore:
         self._malformed_entry_logged = False  # rate-limit bad history shape warning
         self._oversize_logged = False  # rate-limit oversized-entry warning
         self._dream_prompt_oversize_logged = False
-        self._append_lock = threading.Lock()  # serialize cursor allocation + append
+        self._append_lock = threading.RLock()  # serialize cursor allocation + append; reentrant so _next_cursor can self-lock
         self._bm25_lock = threading.Lock()
         self._git = GitStore(workspace, tracked_files=[
             "SOUL.md", "USER.md", "memory/MEMORY.md", "memory/.dream_cursor",
@@ -430,21 +430,25 @@ class MemoryStore:
 
     def _next_cursor(self) -> int:
         """Read the current cursor counter and return the next value."""
-        cursor_counter = self._read_cursor_counter()
-        last = self._read_last_entry() or {}
-        last_cursor = self._valid_cursor(last.get("cursor"))
-        if cursor_counter is not None:
-            if last_cursor is not None:
-                return max(cursor_counter, last_cursor) + 1
-            max_history_cursor = max((c for _, c in self._iter_valid_entries()), default=0)
-            return max(cursor_counter, max_history_cursor) + 1
+        # ponytail: cursor reads must not race with append_history; an unsynchronized
+        # caller (e.g. get_latest_cursor) would otherwise observe a stale counter
+        # or duplicate the in-flight cursor. RLock makes the self-call reentrant.
+        with self._append_lock:
+            cursor_counter = self._read_cursor_counter()
+            last = self._read_last_entry() or {}
+            last_cursor = self._valid_cursor(last.get("cursor"))
+            if cursor_counter is not None:
+                if last_cursor is not None:
+                    return max(cursor_counter, last_cursor) + 1
+                max_history_cursor = max((c for _, c in self._iter_valid_entries()), default=0)
+                return max(cursor_counter, max_history_cursor) + 1
 
-        # Fast path: trust the tail when intact.  Otherwise scan the whole
-        # file and take ``max`` — that stays correct even if the monotonic
-        # invariant was broken by external writes.
-        if last_cursor is not None:
-            return last_cursor + 1
-        return max((c for _, c in self._iter_valid_entries()), default=0) + 1
+            # Fast path: trust the tail when intact.  Otherwise scan the whole
+            # file and take ``max`` — that stays correct even if the monotonic
+            # invariant was broken by external writes.
+            if last_cursor is not None:
+                return last_cursor + 1
+            return max((c for _, c in self._iter_valid_entries()), default=0) + 1
 
     def read_unprocessed_history(self, since_cursor: int) -> list[dict[str, Any]]:
         """Return history entries with a valid cursor > *since_cursor*.
