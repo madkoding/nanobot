@@ -839,7 +839,7 @@ class WhatsAppChannel(BaseChannel):
             try:
                 # ponytail: bump activity every healthy poll so the manager
                 # watchdog (WATCHDOG_IDLE_S=600s) doesn't kill idle sessions.
-                if not client.is_connected():
+                if not await client.is_connected():
                     self._reconnect_triggered = True
                     self.logger.warning(
                         "WhatsApp websocket lost; stopping client to reconnect"
@@ -1360,6 +1360,11 @@ class WhatsAppChannel(BaseChannel):
                 stripped = name.strip()
                 if stripped and self._looks_like_name(stripped):
                     self._bot_display_names.add(stripped.lower())
+        self.logger.info(
+            "WhatsApp self-capture: jids={} display_names={}",
+            sorted(self._self_jids),
+            sorted(self._bot_display_names),
+        )
 
     async def _send_read_receipt(self, client: Any, source: Any, message_id: str) -> None:
         """Send a read receipt (blue double-check) for an incoming message.
@@ -1475,6 +1480,14 @@ class WhatsAppChannel(BaseChannel):
             await self._refresh_self_jids()
 
         is_addressed = self._is_addressed_to_bot(message)
+        preview = (_message_text(message) or "")[:80].replace("\n", " ")
+        self.logger.info(
+            "WhatsApp inbound: chat={} sender={} is_addressed={} preview={}",
+            chat_jid,
+            sender_id,
+            is_addressed,
+            preview,
+        )
         # ponytail: removed owner bypass. Motoko only responds in groups when
         # explicitly addressed (@mention, reply, or matching the bot's display
         # name). The owner has to @motoko or reply to it just like anyone
