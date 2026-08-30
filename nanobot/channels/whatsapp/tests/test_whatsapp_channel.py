@@ -1125,6 +1125,24 @@ def test_whatsapp_session_key_isolates_group_members() -> None:
     )
 
 
+def test_whatsapp_group_session_key_stable_across_lid_and_phone() -> None:
+    """A group sender's session key must not change when a LID is resolved to a phone.
+
+    Regression: previously the key used ``sender_id``, which flipped from the
+    LID to the phone number once the LID mapping was learned, orphaning the old
+    history and making the bot appear to "forget" the conversation.
+    """
+    ch = _make_channel()
+    group = "120363@g.us"
+    lid = "230343776985329"
+    phone = "56911111111"
+    # Same person, same group: LID-only, LID+phone, and phone-only all collide.
+    assert ch._whatsapp_session_key(group, lid, True, lid_id=lid) == f"whatsapp:{group}:{lid}"
+    assert ch._whatsapp_session_key(group, phone, True, lid_id=lid) == f"whatsapp:{group}:{lid}"
+    # No LID known yet -> falls back to the phone (stable until LID appears).
+    assert ch._whatsapp_session_key(group, phone, True) == f"whatsapp:{group}:{phone}"
+
+
 def test_resolve_mention_prefers_push_name() -> None:
     ch = _make_channel()
     assert ch._resolve_mention("56911111111", "Juan Pérez") == "@Juan Pérez"
