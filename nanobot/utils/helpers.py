@@ -206,6 +206,13 @@ _THINKING_TAG_PREFIX = "|".join(
 )
 _PARTIAL_THINKING_TAG = rf"</?(?:{_THINKING_TAG_PREFIX})>?"
 
+# ponytail: Qwen3 / ornith style thinking prefixes. Each line that starts with
+# the unicode "✻" (U+273B SIX POINTED BLACK STAR) is internal scratchpad and
+# leaks into the user-visible output when the model fails to suppress thinking
+# via chat_template_kwargs. Strip both full lines and inline occurrences.
+_QWEN_THINK_LINE = re.compile(r"(?m)^[ \t]*\u273b[ \t].*?$\n?")
+_QWEN_THINK_INLINE = re.compile(r"\u273b[ \t][^\n]{0,500}")
+
 
 def strip_think(text: str) -> str:
     """Remove thinking blocks, unclosed trailing tags, and tokenizer-level
@@ -259,6 +266,11 @@ def strip_think(text: str) -> str:
     )
     text = re.sub(rf"(?:{partial_control_tag})$", "", text)
     text = re.sub(r"^\s*<\|?$", "", text)
+    # ponytail: Qwen3 / ornith emit "✻ <scratchpad>" as inline prose when the
+    # chat_template does not suppress thinking. Strip full lines first, then
+    # any inline occurrences that survived the per-line pass.
+    text = _QWEN_THINK_LINE.sub("", text)
+    text = _QWEN_THINK_INLINE.sub("", text)
     return text.strip()
 
 
@@ -284,6 +296,12 @@ def extract_think(text: str) -> tuple[str | None, str]:
     parts: list[str] = []
     for m in re.finditer(rf"<(?P<tag>{_THINKING_TAG})>([\s\S]*?)</(?P=tag)>", text):
         parts.append(m.group(2).strip())
+    # ponytail: also lift Qwen3 / ornith-style "✻ ..." lines into the
+    # thinking trace so the runner can surface them via the reasoning hook
+    # instead of leaking them to the user. Strip both forms so the cleaned
+    # text never carries them.
+    for m in _QWEN_THINK_LINE.finditer(text):
+        parts.append(m.group(0).strip())
     thinking = "\n\n".join(parts) if parts else None
     return thinking, strip_think(text)
 

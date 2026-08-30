@@ -1138,6 +1138,10 @@ class AgentRunner:
                 new_clean = strip_think(stream_buf)
                 incremental = new_clean[len(prev_clean):]
 
+                # ponytail: feed the *raw* buffer (with Qwen3 "✻ ..." leaks
+                # still present) to the think extractor so it can surface
+                # those lines as reasoning instead of letting strip_think
+                # silently drop them.
                 if await think_extractor.feed(stream_buf, hook.emit_reasoning):
                     context.streamed_reasoning = True
                     progress_state["reasoning_open"] = True
