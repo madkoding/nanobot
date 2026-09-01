@@ -39,6 +39,35 @@ def _install_fake_supertonic(monkeypatch, engine: _FakeEngine) -> None:
     monkeypatch.setattr("nanobot.agent.tools.tts._supertonic_engine", None)
 
 
+class _FakeKokoroPipeline:
+    """Minimal stand-in for kokoro.KPipeline."""
+
+    sample_rate = 24000
+
+    def __init__(self, lang_code: str | None = None, **kwargs: object) -> None:
+        self.lang_code = lang_code
+        self.voices: list[str] = []
+
+    def __call__(self, text: str, voice: str | None = None, **kwargs: object):
+        self.voices.append(voice or "")
+        n = int(0.5 * self.sample_rate)
+        yield (text, "fəˈnimz", [0.0] * n)
+
+
+def _install_fake_kokoro(monkeypatch, pipelines: dict[str, _FakeKokoroPipeline]) -> None:
+    mod = types.ModuleType("kokoro")
+
+    def _kp(lang_code: str | None = None, **kwargs: object) -> _FakeKokoroPipeline:
+        pipeline = _FakeKokoroPipeline(lang_code=lang_code)
+        pipelines[lang_code or ""] = pipeline
+        return pipeline
+
+    mod.KPipeline = _kp
+    monkeypatch.setitem(sys.modules, "kokoro", mod)
+    # Reset the process-wide pipeline cache so the fake is used.
+    monkeypatch.setattr("nanobot.agent.tools.tts._kokoro_pipelines", {})
+
+
 def _install_fake_edge_tts(monkeypatch, written: dict[str, Path], payload: bytes = b"MP3DATA") -> None:
     mod = types.ModuleType("edge_tts")
 
@@ -246,6 +275,105 @@ async def test_tts_tool_explicit_edge_engine(monkeypatch, tmp_path) -> None:
 
     tool = TtsTool()
     result = await tool.execute(text="hola", engine="edge")
+
+    assert "engine=edge" in result
+    assert "es-CL-CatalinaNeural" in result
+    assert written["path"].suffix == ".mp3"
+
+
+@pytest.mark.asyncio
+async def test_tts_tool_kokoro_default_engine(monkeypatch, tmp_path) -> None:
+    """engine='kokoro' with default voice: WAV output, voice/lang in result."""
+    fake_media = tmp_path / "media"
+    monkeypatch.setattr("nanobot.agent.tools.tts.get_media_dir", lambda *_: fake_media)
+
+    pipelines: dict[str, _FakeKokoroPipeline] = {}
+    _install_fake_kokoro(monkeypatch, pipelines)
+
+    tool = TtsTool()
+    result = await tool.execute(text="hola", engine="kokoro")
+
+    assert "engine=kokoro" in result
+    assert "voice=ef_dora" in result
+    assert "lang=e" in result
+    assert "duration=0.5s" in result
+    assert ".wav" in result
+    # el lang se deriva del prefijo de la voz (e = español)
+    assert "e" in pipelines and pipelines["e"].voices == ["ef_dora"]
+    wav_files = list(fake_media.glob("*.wav"))
+    assert wav_files and wav_files[0].stat().st_size > 44
+
+
+@pytest.mark.asyncio
+async def test_tts_tool_kokoro_custom_voice(monkeypatch, tmp_path) -> None:
+    fake_media = tmp_path / "media"
+    monkeypatch.setattr("nanobot.agent.tools.tts.get_media_dir", lambda *_: fake_media)
+
+    pipelines: dict[str, _FakeKokoroPipeline] = {}
+    _install_fake_kokoro(monkeypatch, pipelines)
+
+    tool = TtsTool()
+    result = await tool.execute(text="hola", engine="kokoro", voice="em_alex")
+
+    assert "engine=kokoro" in result
+    assert "voice=em_alex" in result
+    assert "e" in pipelines and pipelines["e"].voices == ["em_alex"]
+
+
+@pytest.mark.asyncio
+async def test_tts_tool_kokoro_import_error(monkeypatch, tmp_path) -> None:
+    fake_media = tmp_path / "media"
+    monkeypatch.setattr("nanobot.agent.tools.tts.get_media_dir", lambda *_: fake_media)
+    monkeypatch.setitem(sys.modules, "kokoro", None)
+    monkeypatch.setattr("nanobot.agent.tools.tts._kokoro_pipelines", {})
+
+    tool = TtsTool()
+    result = await tool.execute(text="hola", engine="kokoro")
+
+    assert result.startswith("Error:")
+    assert "kokoro" in result
+
+
+@pytest.mark.asyncio
+async def test_tts_tool_kokoro_mp3_reencode(monkeypatch, tmp_path) -> None:
+    """With ffmpeg available, the Kokoro WAV is re-encoded to MP3 and removed."""
+    fake_media = tmp_path / "media"
+    monkeypatch.setattr("nanobot.agent.tools.tts.get_media_dir", lambda *_: fake_media)
+
+    fake_ffmpeg = tmp_path / "ffmpeg"
+    fake_ffmpeg.write_text(
+        "#!/bin/sh\nlast_mp3=\"\"\nfor arg in \"$@\"; do\n  case \"$arg\" in\n    *.mp3) last_mp3=\"$arg\" ;;\n  esac\ndone\nprintf 'MP3MP3MP3' > \"$last_mp3\"\nexit 0\n",
+        encoding="utf-8",
+    )
+    fake_ffmpeg.chmod(0o755)
+    monkeypatch.setattr("nanobot.agent.tools.tts._find_ffmpeg", lambda: str(fake_ffmpeg))
+
+    pipelines: dict[str, _FakeKokoroPipeline] = {}
+    _install_fake_kokoro(monkeypatch, pipelines)
+
+    tool = TtsTool()
+    result = await tool.execute(text="hola", engine="kokoro")
+
+    assert "Re-encoded to MP3" in result
+    assert ".mp3" in result
+    wav_files = list(fake_media.glob("*.wav"))
+    mp3_files = list(fake_media.glob("*.mp3"))
+    assert not wav_files, "WAV should be removed after MP3 re-encode"
+    assert mp3_files and mp3_files[0].read_bytes() == b"MP3MP3MP3"
+
+
+@pytest.mark.asyncio
+async def test_tts_tool_kokoro_edge_voice_auto_fallback(monkeypatch, tmp_path) -> None:
+    """An edge-tts voice id with the kokoro engine falls back to edge-tts."""
+    fake_media = tmp_path / "media"
+    monkeypatch.setattr("nanobot.agent.tools.tts.get_media_dir", lambda *_: fake_media)
+    monkeypatch.setattr("shutil.which", lambda name: None)
+
+    written: dict[str, Path] = {}
+    _install_fake_edge_tts(monkeypatch, written)
+
+    tool = TtsTool()
+    result = await tool.execute(text="hola", engine="kokoro", voice="es-CL-CatalinaNeural")
 
     assert "engine=edge" in result
     assert "es-CL-CatalinaNeural" in result

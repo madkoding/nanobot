@@ -116,21 +116,101 @@ async def _get_supertonic_engine() -> Any:
         return _supertonic_engine
 
 
+# Kokoro-82M: 82M-param StyleTTS2-based model, Apache 2.0, 54 voices,
+# runs on CPU (~1.2s load, >3x real-time synthesis). Loaded once per (lang)
+# process and cached; each lang code has its own pipeline (G2P differs).
+# Voces es: ef_dora (f), em_alex/em_santa (m). Sample rate fijo 24 kHz.
+KOKORO_DEFAULT_VOICE = "ef_dora"
+KOKORO_VOICES = frozenset(
+    {
+        # es (e):
+        "ef_dora", "em_alex", "em_santa",
+        # en (a):
+        "af_alloy", "af_aoede", "af_bella", "af_heart", "af_jessica",
+        "af_kore", "af_nicole", "af_nova", "af_river", "af_sarah",
+        "af_sky", "am_adam", "am_echo", "am_eric", "am_fenrir",
+        "am_liam", "am_michael", "am_onyx", "am_puck", "am_santa",
+        # fr (f):
+        "ff_siwis",
+        # hi (h):
+        "hf_alpha", "hf_beta", "hm_omega", "hm_psi",
+        # it (i):
+        "if_sara", "im_nicola",
+        # ja (j):
+        "jf_alpha", "jf_gongitsune", "jf_nezumi", "jf_tebukuro",
+        "jm_kumo",
+        # pt (p):
+        "pf_dora", "pm_alex", "pm_santa",
+        # zh (z):
+        "zf_xiaobei", "zf_xiaoni", "zf_xiaoxiao", "zf_xiaoyi",
+        "zm_yunjian", "zm_yunxi", "zm_yunxia", "zm_yunyang",
+    }
+)
+# El modelo (Kokoro-82M) no clona voces: todos los voice ids nacen de un
+# prefijo de idioma (a=en, b=inglés británico, e=es, f=fr, h=hi, i=it, j=ja,
+# p=pt, z=zh) — el lang se deriva del prefijo, no requiere config extra.
+KOKORO_SAMPLE_RATE = 24000
+
+_kokoro_lock = asyncio.Lock()
+_kokoro_pipelines: dict[str, Any] = {}
+
+
+def _kokoro_lang_for_voice(voice: str) -> str:
+    """Map a Kokoro voice prefix to the KPipeline lang_code (G2P)."""
+    first = voice[0] if voice else ""
+    return {
+        "a": "a",  # en
+        "b": "b",  # en (británico)
+        "e": "e",  # es
+        "f": "f",  # fr
+        "h": "h",  # hi
+        "i": "i",  # it
+        "j": "j",  # ja
+        "p": "p",  # pt
+        "z": "z",  # zh
+    }.get(first, "e")
+
+
+async def _get_kokoro_pipeline(lang_code: str) -> Any:
+    """Return a lazily-loaded Kokoro KPipeline for a lang code (cached per lang)."""
+    global _kokoro_pipelines
+    pipeline = _kokoro_pipelines.get(lang_code)
+    if pipeline is not None:
+        return pipeline
+    async with _kokoro_lock:
+        pipeline = _kokoro_pipelines.get(lang_code)
+        if pipeline is not None:
+            return pipeline
+        try:
+            from kokoro import KPipeline  # type: ignore[import-not-found]
+        except ImportError as exc:
+            raise RuntimeError(
+                f"kokoro is not installed ({exc.__class__.__name__}); "
+                f"install with: uv pip install kokoro"
+            ) from exc
+        # Model load is CPU-bound; keep the event loop responsive.
+        pipeline = await asyncio.to_thread(KPipeline, lang_code=lang_code)
+        _kokoro_pipelines[lang_code] = pipeline
+        return pipeline
+
+
 @tool_parameters(
     tool_parameters_schema(
         text=StringSchema("Text to synthesize into speech."),
         voice=StringSchema(
             f"Voice id. Supertonic 3 built-ins: 'M1'..'M5' (male), 'F1'..'F5' (female). "
-            f"Default '{DEFAULT_VOICE}'. An edge-tts voice id (e.g. 'es-CL-CatalinaNeural') "
+            f"Kokoro voices (es): 'ef_dora' (f), 'em_alex'/'em_santa' (m), default '{KOKORO_DEFAULT_VOICE}' "
+            f"when engine='kokoro'. An edge-tts voice id (e.g. 'es-CL-CatalinaNeural') "
             f"auto-switches to the edge engine."
         ),
         engine=StringSchema(
-            f"TTS engine: 'supertonic' (local neural, default) or 'edge' (Microsoft edge-tts). "
-            f"Default '{DEFAULT_ENGINE}'."
+            f"TTS engine: 'supertonic' (local neural, default), 'kokoro' (Kokoro-82M, local) "
+            f"or 'edge' (Microsoft edge-tts). Default '{DEFAULT_ENGINE}'."
         ),
         lang=StringSchema(
             f"Language code for Supertonic (e.g. 'es', 'en', 'na' auto-detect). "
-            f"Default '{DEFAULT_LANG}'."
+            f"Default '{DEFAULT_LANG}'. For Kokoro the language comes from the voice prefix "
+            f"(ef_/em_ = es) and is ignored."
         ),
         speed=NumberSchema(
             f"Speech speed multiplier for Supertonic. Default {DEFAULT_SPEED}."
@@ -150,8 +230,9 @@ class TtsTool(Tool):
     @property
     def description(self) -> str:
         return (
-            "Text-to-speech via Supertonic 3 (local neural TTS) with edge-tts fallback. "
-            "Returns audio path. Use message tool with media=[path] to deliver."
+            "Text-to-speech via Supertonic 3 (local neural TTS, default), Kokoro-82M "
+            "(local) or edge-tts fallback. Returns audio path. Use message tool with "
+            "media=[path] to deliver."
         )
 
     async def execute(
@@ -171,15 +252,22 @@ class TtsTool(Tool):
             return ToolResult.error("Error: text is required")
 
         chosen_engine = (engine or DEFAULT_ENGINE).strip().lower()
-        if chosen_engine not in ("supertonic", "edge"):
+        if chosen_engine not in ("supertonic", "kokoro", "edge"):
             return ToolResult.error(
-                f"Error: unknown engine '{chosen_engine}' (use 'supertonic' or 'edge')"
+                f"Error: unknown engine '{chosen_engine}' "
+                f"(use 'supertonic', 'kokoro' or 'edge')"
             )
 
         if chosen_engine == "supertonic":
             chosen_voice = (voice or DEFAULT_VOICE).strip() or DEFAULT_VOICE
             # An edge-tts voice id with the supertonic engine → auto-fallback to edge.
             if chosen_voice not in SUPERTONIC_VOICES:
+                chosen_engine = "edge"
+        elif chosen_engine == "kokoro":
+            chosen_voice = (voice or KOKORO_DEFAULT_VOICE).strip() or KOKORO_DEFAULT_VOICE
+            # An edge-tts voice id (e.g. es-CL-*) or a Supertonic voice (M1..F5)
+            # with the kokoro engine → auto-fallback to edge.
+            if chosen_voice not in KOKORO_VOICES:
                 chosen_engine = "edge"
         else:
             chosen_voice = (voice or EDGE_DEFAULT_VOICE).strip() or EDGE_DEFAULT_VOICE
@@ -197,6 +285,10 @@ class TtsTool(Tool):
         if chosen_engine == "supertonic":
             return await self._synthesize_supertonic(
                 text, chosen_voice, lang, speed, media_dir, workspace_tag, token
+            )
+        if chosen_engine == "kokoro":
+            return await self._synthesize_kokoro(
+                text, chosen_voice, media_dir, workspace_tag, token
             )
         return await self._synthesize_edge(
             text, chosen_voice, rate, volume, pitch, media_dir, workspace_tag, token
@@ -264,6 +356,87 @@ class TtsTool(Tool):
             f"{format_note}\n"
             f"Attach it via the 'message' tool with media=[{out_path}]."
         )
+
+    async def _synthesize_kokoro(
+        self,
+        text: str,
+        voice: str,
+        media_dir: Path,
+        workspace_tag: str,
+        token: str,
+    ) -> str:
+        lang_code = _kokoro_lang_for_voice(voice)
+        try:
+            pipeline = await _get_kokoro_pipeline(lang_code)
+        except RuntimeError as exc:
+            return ToolResult.error(f"Error: {exc}")
+
+        wav_path = media_dir / f"tts_{workspace_tag}_{token}.wav"
+        try:
+            gen = await asyncio.to_thread(pipeline, text, voice=voice)
+            # Consume el primer chunk (y siguientes) en un hilo: la síntesis es
+            # CPU-bound (torch) y no debe bloquear el event loop.
+            def _synthesize() -> tuple[list[float], float]:
+                audio_parts: list[list[float]] = []
+                duration = 0.0
+                for _, _, audio in gen:
+                    chunk = audio.tolist() if hasattr(audio, "tolist") else list(audio)
+                    audio_parts.append(chunk)
+                    duration += len(chunk) / KOKORO_SAMPLE_RATE
+                samples: list[float] = []
+                for part in audio_parts:
+                    samples.extend(part)
+                return samples, duration
+
+            samples, duration = await asyncio.to_thread(_synthesize)
+            if not samples:
+                return ToolResult.error("Error: Kokoro produced no audio output")
+            # Guardar WAV 16-bit PCM 24 kHz.
+            import array
+
+            pcm = array.array("h", (int(max(-1.0, min(1.0, s)) * 32767) for s in samples))
+            with wav_path.open("wb") as fh:
+                self._write_wav_header(fh, KOKORO_SAMPLE_RATE, len(pcm))
+                pcm.tofile(fh)
+        except Exception as exc:  # noqa: BLE001 - surface upstream errors verbatim
+            return ToolResult.error(f"Error: Kokoro synthesis failed: {exc}")
+
+        if not wav_path.is_file() or wav_path.stat().st_size == 0:
+            return ToolResult.error("Error: TTS produced no audio output")
+
+        # Telegram no muestra la duración de los WAV; re-encode a MP3.
+        mp3_path = media_dir / f"tts_{workspace_tag}_{token}.mp3"
+        ok, note = await _ffmpeg_to_mp3(wav_path, mp3_path)
+        if ok:
+            try:
+                wav_path.unlink()
+            except OSError:
+                pass
+            out_path = mp3_path
+            format_note = f"Re-encoded to MP3 ({MP3_BITRATE}, {MP3_SAMPLE_RATE}Hz stereo)."
+        else:
+            out_path = wav_path
+            format_note = f"MP3 re-encode skipped ({note}); shipped WAV."
+
+        return (
+            f"TTS audio saved to {out_path}\n"
+            f"engine=kokoro voice={voice} lang={lang_code} duration={duration:.1f}s\n"
+            f"{format_note}\n"
+            f"Attach it via the 'message' tool with media=[{out_path}]."
+        )
+
+    @staticmethod
+    def _write_wav_header(fh: Any, sample_rate: int, n_samples: int) -> None:
+        """Write a minimal RIFF/WAVE header for 16-bit mono PCM."""
+        import struct
+
+        data_size = n_samples * 2
+        fh.write(b"RIFF")
+        fh.write(struct.pack("<I", 36 + data_size))
+        fh.write(b"WAVEfmt ")
+        fh.write(struct.pack("<IHHIIHH", 16, 1, 1, sample_rate, sample_rate * 2, 2, 16))
+        fh.write(b"data")
+        fh.write(struct.pack("<I", data_size))
 
     async def _synthesize_edge(
         self,
@@ -339,3 +512,5 @@ async def _maybe_reencode(mp3_path: Path, enabled: bool) -> tuple[Path, str]:
         return mp3_path, "MP3 output move failed; shipped raw MP3."
 
     return mp3_path, f"Re-encoded to WhatsApp-friendly MP3 ({MP3_BITRATE}, {MP3_SAMPLE_RATE}Hz stereo)."
+
+
