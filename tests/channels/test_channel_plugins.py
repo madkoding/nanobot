@@ -2389,7 +2389,7 @@ def test_optional_dependency_metadata_for_enable():
         assert not any(dep.startswith(dep_name) for dep in required)
     for dependency in (
         "tzdata>=2025.2; sys_platform == 'win32'",
-        "pypdf>=6.15.0,<7.0.0",
+        "pypdf>=6.16.1,<7.0.0",
         "python-docx>=1.1.0,<2.0.0",
         "openpyxl>=3.1.0,<4.0.0",
         "python-pptx>=1.0.0,<2.0.0",
@@ -2397,12 +2397,12 @@ def test_optional_dependency_metadata_for_enable():
         assert dependency in required
     assert deps["documents"] == [
         "defusedxml>=0.7.1,<1.0.0",
-        "pypdf>=6.15.0,<7.0.0",
+        "pypdf>=6.16.1,<7.0.0",
         "python-docx>=1.1.0,<2.0.0",
         "openpyxl>=3.1.0,<4.0.0",
         "python-pptx>=1.0.0,<2.0.0",
     ]
-    assert deps["pdf"] == ["pypdf>=6.15.0,<7.0.0"]
+    assert deps["pdf"] == ["pypdf>=6.16.1,<7.0.0"]
     assert deps["langfuse"] == ["langfuse>=3.0.0,<4.0.0"]
     channel_names = {
         "dingtalk",
