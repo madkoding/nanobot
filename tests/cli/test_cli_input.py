@@ -96,6 +96,7 @@ def test_raw_lf_enter_still_submits_like_wsl_terminals():
     default \\n-as-\\r handling, so this drives a real PromptSession/parser.
     """
     import asyncio
+
     from prompt_toolkit.application import create_app_session
     from prompt_toolkit.input import create_pipe_input
     from prompt_toolkit.output import DummyOutput
@@ -116,6 +117,7 @@ def test_raw_lf_enter_still_submits_like_wsl_terminals():
 def test_alt_enter_inserts_newline_on_lf_terminals():
     """LF-as-Enter terminals send Alt+Enter as ESC + LF, which needs its own binding."""
     import asyncio
+
     from prompt_toolkit.application import create_app_session
     from prompt_toolkit.input import create_pipe_input
     from prompt_toolkit.output import DummyOutput
@@ -136,6 +138,7 @@ def test_alt_enter_inserts_newline_on_lf_terminals():
 def test_csi_u_shift_enter_inserts_newline_not_raw_escape():
     """CSI-u Shift+Enter inserts a newline instead of raw escape bytes."""
     import asyncio
+
     from prompt_toolkit.application import create_app_session
     from prompt_toolkit.input import create_pipe_input
     from prompt_toolkit.output import DummyOutput
