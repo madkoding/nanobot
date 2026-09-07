@@ -1580,9 +1580,15 @@ class AgentRunner:
                 if tool_timeout_s is None:
                     result = await tool.execute(**params)
                 else:
-                    result = await asyncio.wait_for(
-                        tool.execute(**params), timeout=tool_timeout_s
-                    )
+                    # asyncio.timeout (3.11+) cancels the *current* task on
+                    # expiry instead of wrapping the awaitable in a child
+                    # task like wait_for() does. wait_for() copies the
+                    # contextvars context into that child task, so writes
+                    # made inside the tool (e.g. MessageTool._sent_in_turn)
+                    # are lost on Python 3.11 and the suppression logic in
+                    # _assemble_outbound never sees them.
+                    async with asyncio.timeout(tool_timeout_s):
+                        result = await tool.execute(**params)
             else:
                 result = await spec.tools.execute(tool_call.name, params)
         except asyncio.CancelledError:

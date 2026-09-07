@@ -36,7 +36,6 @@ from nanobot.providers.openai_responses import (
     convert_tools,
     parse_response_output,
 )
-from nanobot.utils.helpers import strip_think
 
 if TYPE_CHECKING:
     from openai import AsyncOpenAI as AsyncOpenAIType
