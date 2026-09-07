@@ -1,5 +1,8 @@
+import subprocess
+import sys
 from contextlib import nullcontext
 from io import StringIO
+from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, call, patch
 
 import pytest
@@ -7,6 +10,47 @@ from prompt_toolkit.formatted_text import HTML
 
 from nanobot.cli import commands
 from nanobot.cli import stream as stream_mod
+
+# The pipe-input tests below drive a real PromptSession. Under coverage the
+# tracing hooks interfere with prompt_toolkit's internal event loop and the
+# run hangs intermittently (suite-wide, ~1 in 3 runs; the CI coverage job
+# timed out at 20 min on it). Running each scenario in a subprocess isolates
+# it from the coverage tracer, and the parent-side timeout turns any residual
+# hang into a fast, explicit failure instead of a 20-minute CI stall.
+_PIPE_INPUT_PROBE = r"""
+import sys
+from prompt_toolkit.application import create_app_session
+from prompt_toolkit.input import create_pipe_input
+from prompt_toolkit.output import DummyOutput
+from nanobot.cli import commands
+
+with create_pipe_input() as pipe_input:
+    with create_app_session(input=pipe_input, output=DummyOutput()):
+        commands._init_prompt_session()
+        session = commands._PROMPT_SESSION
+        pipe_input.send_text(sys.argv[1])
+        sys.stdout.write(session.prompt("> "))
+"""
+
+
+def _run_pipe_input_probe(keys: str) -> str:
+    """Run one real PromptSession scenario in a subprocess with a hard timeout.
+
+    Returns the prompt result. Raises AssertionError on timeout or non-zero
+    exit so a hang surfaces as a fast test failure, not a CI stall.
+    """
+    repo_root = Path(__file__).resolve().parents[2]
+    proc = subprocess.run(
+        [sys.executable, "-c", _PIPE_INPUT_PROBE, keys],
+        cwd=repo_root,
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    assert proc.returncode == 0, (
+        f"pipe-input probe failed (rc={proc.returncode}): {proc.stderr.strip()}"
+    )
+    return proc.stdout
 
 
 @pytest.fixture
@@ -95,63 +139,21 @@ def test_raw_lf_enter_still_submits_like_wsl_terminals():
     a mock buffer can't catch a key binding shadowing prompt_toolkit's own
     default \\n-as-\\r handling, so this drives a real PromptSession/parser.
     """
-    import asyncio
-
-    from prompt_toolkit.application import create_app_session
-    from prompt_toolkit.input import create_pipe_input
-    from prompt_toolkit.output import DummyOutput
-
-    async def _run() -> str:
-        with create_pipe_input() as pipe_input:
-            with create_app_session(input=pipe_input, output=DummyOutput()):
-                commands._init_prompt_session()
-                session = commands._PROMPT_SESSION
-                pipe_input.send_text("hello\x0aworld\r")
-                return await session.prompt_async("> ")
-
-    result = asyncio.run(_run())
+    result = _run_pipe_input_probe("hello\x0aworld\r")
 
     assert result == "hello"
 
 
 def test_alt_enter_inserts_newline_on_lf_terminals():
     """LF-as-Enter terminals send Alt+Enter as ESC + LF, which needs its own binding."""
-    import asyncio
-
-    from prompt_toolkit.application import create_app_session
-    from prompt_toolkit.input import create_pipe_input
-    from prompt_toolkit.output import DummyOutput
-
-    async def _run() -> str:
-        with create_pipe_input() as pipe_input:
-            with create_app_session(input=pipe_input, output=DummyOutput()):
-                commands._init_prompt_session()
-                session = commands._PROMPT_SESSION
-                pipe_input.send_text("foo\x1b\x0abar\r")
-                return await session.prompt_async("> ")
-
-    result = asyncio.run(_run())
+    result = _run_pipe_input_probe("foo\x1b\x0abar\r")
 
     assert result == "foo\nbar"
 
 
 def test_csi_u_shift_enter_inserts_newline_not_raw_escape():
     """CSI-u Shift+Enter inserts a newline instead of raw escape bytes."""
-    import asyncio
-
-    from prompt_toolkit.application import create_app_session
-    from prompt_toolkit.input import create_pipe_input
-    from prompt_toolkit.output import DummyOutput
-
-    async def _run() -> str:
-        with create_pipe_input() as pipe_input:
-            with create_app_session(input=pipe_input, output=DummyOutput()):
-                commands._init_prompt_session()
-                session = commands._PROMPT_SESSION
-                pipe_input.send_text("foo\x1b[13;2ubar\r")
-                return await session.prompt_async("> ")
-
-    result = asyncio.run(_run())
+    result = _run_pipe_input_probe("foo\x1b[13;2ubar\r")
 
     # A newline is inserted and no raw escape bytes leak into the result.
     assert result == "foo\nbar"
