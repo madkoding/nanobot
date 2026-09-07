@@ -89,57 +89,66 @@ def test_cli_key_bindings_enter_submits_and_alt_enter_newlines():
     buf.insert_text.assert_called_once_with("\n")
 
 
-@pytest.mark.asyncio
-async def test_raw_lf_enter_still_submits_like_wsl_terminals():
+def test_raw_lf_enter_still_submits_like_wsl_terminals():
     """A raw LF byte (\\x0a) is what some terminals -- e.g. WSL -- send for a
     plain Enter keypress. It must submit the buffer, not insert a newline;
     a mock buffer can't catch a key binding shadowing prompt_toolkit's own
     default \\n-as-\\r handling, so this drives a real PromptSession/parser.
     """
+    import asyncio
     from prompt_toolkit.application import create_app_session
     from prompt_toolkit.input import create_pipe_input
     from prompt_toolkit.output import DummyOutput
 
-    with create_pipe_input() as pipe_input:
-        with create_app_session(input=pipe_input, output=DummyOutput()):
-            commands._init_prompt_session()
-            session = commands._PROMPT_SESSION
-            pipe_input.send_text("hello\x0aworld\r")
-            result = await session.prompt_async("> ")
+    async def _run() -> str:
+        with create_pipe_input() as pipe_input:
+            with create_app_session(input=pipe_input, output=DummyOutput()):
+                commands._init_prompt_session()
+                session = commands._PROMPT_SESSION
+                pipe_input.send_text("hello\x0aworld\r")
+                return await session.prompt_async("> ")
+
+    result = asyncio.run(_run())
 
     assert result == "hello"
 
 
-@pytest.mark.asyncio
-async def test_alt_enter_inserts_newline_on_lf_terminals():
+def test_alt_enter_inserts_newline_on_lf_terminals():
     """LF-as-Enter terminals send Alt+Enter as ESC + LF, which needs its own binding."""
+    import asyncio
     from prompt_toolkit.application import create_app_session
     from prompt_toolkit.input import create_pipe_input
     from prompt_toolkit.output import DummyOutput
 
-    with create_pipe_input() as pipe_input:
-        with create_app_session(input=pipe_input, output=DummyOutput()):
-            commands._init_prompt_session()
-            session = commands._PROMPT_SESSION
-            pipe_input.send_text("foo\x1b\x0abar\r")
-            result = await session.prompt_async("> ")
+    async def _run() -> str:
+        with create_pipe_input() as pipe_input:
+            with create_app_session(input=pipe_input, output=DummyOutput()):
+                commands._init_prompt_session()
+                session = commands._PROMPT_SESSION
+                pipe_input.send_text("foo\x1b\x0abar\r")
+                return await session.prompt_async("> ")
+
+    result = asyncio.run(_run())
 
     assert result == "foo\nbar"
 
 
-@pytest.mark.asyncio
-async def test_csi_u_shift_enter_inserts_newline_not_raw_escape():
+def test_csi_u_shift_enter_inserts_newline_not_raw_escape():
     """CSI-u Shift+Enter inserts a newline instead of raw escape bytes."""
+    import asyncio
     from prompt_toolkit.application import create_app_session
     from prompt_toolkit.input import create_pipe_input
     from prompt_toolkit.output import DummyOutput
 
-    with create_pipe_input() as pipe_input:
-        with create_app_session(input=pipe_input, output=DummyOutput()):
-            commands._init_prompt_session()
-            session = commands._PROMPT_SESSION
-            pipe_input.send_text("foo\x1b[13;2ubar\r")
-            result = await session.prompt_async("> ")
+    async def _run() -> str:
+        with create_pipe_input() as pipe_input:
+            with create_app_session(input=pipe_input, output=DummyOutput()):
+                commands._init_prompt_session()
+                session = commands._PROMPT_SESSION
+                pipe_input.send_text("foo\x1b[13;2ubar\r")
+                return await session.prompt_async("> ")
+
+    result = asyncio.run(_run())
 
     # A newline is inserted and no raw escape bytes leak into the result.
     assert result == "foo\nbar"
