@@ -89,14 +89,29 @@ class MessageBus:
             await self._durable_outbound.nack(msg)
 
     async def purge_inbound_for_session(self, session_key: str) -> int:
-        """Remove durable inbound messages bound to *session_key* (inbox + processing).
+        """Remove inbound messages bound to *session_key* before consumption.
 
-        Used when a session is deleted so ``recover()`` cannot replay orphaned
-        messages on the next gateway start and recreate the deleted session.
+        With a durable queue this deletes matching inbox + processing files so
+        ``recover()`` cannot replay them on the next gateway start. Without
+        one, the in-memory inbound queue is drained and messages belonging to
+        other sessions are re-queued.
         """
-        if self._durable_inbound is None:
-            return 0
-        return await asyncio.to_thread(self._durable_inbound.purge_for_session, session_key)
+        if self._durable_inbound is not None:
+            return await asyncio.to_thread(self._durable_inbound.purge_for_session, session_key)
+        removed = 0
+        kept: list[InboundMessage] = []
+        while not self.inbound.empty():
+            try:
+                item = self.inbound.get_nowait()
+            except asyncio.QueueEmpty:
+                break
+            if item.session_key == session_key:
+                removed += 1
+            else:
+                kept.append(item)
+        for item in kept:
+            self.inbound.put_nowait(item)
+        return removed
 
     @property
     def inbound_size(self) -> int:

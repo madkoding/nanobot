@@ -256,7 +256,8 @@ class DurableInboundQueue(DurableMessageQueue):
         """Delete durable inbound messages bound to *session_key*.
 
         Messages store ``channel``/``chat_id`` (the session key is derived as
-        ``{channel}:{chat_id}``). This removes matching inbox and processing
+        ``{channel}:{chat_id}``, honoring ``session_key_override`` for
+        thread-scoped sessions). This removes matching inbox and processing
         files so a deleted session is not recreated by ``recover()`` on the
         next gateway start.
         """
@@ -270,7 +271,7 @@ class DurableInboundQueue(DurableMessageQueue):
                     continue
                 if not isinstance(data, dict):
                     continue
-                if data.get("chat_id") != chat_id:
+                if data.get("chat_id") != chat_id and _durable_session_key(data) != session_key:
                     continue
                 try:
                     path.unlink(missing_ok=True)
