@@ -72,6 +72,12 @@ BUILTIN_COMMAND_SPECS: tuple[BuiltinCommandSpec, ...] = (
         lifecycle="stop_active_turn",
     ),
     BuiltinCommandSpec(
+        "/clear-queue",
+        "Clear message queue",
+        "Discard queued input messages that have not been processed yet.",
+        "eraser",
+    ),
+    BuiltinCommandSpec(
         "/restart",
         "Restart nanobot",
         "Restart the bot process.",
@@ -199,6 +205,30 @@ async def cmd_stop(ctx: CommandContext) -> OutboundMessage:
         content=f"Stopped {total} task(s)." if total else "No active task to stop.",
         metadata=dict(msg.metadata or {})
     )
+
+async def cmd_clear_queue(ctx: CommandContext) -> OutboundMessage:
+    """Discard queued input messages not yet processed for this session."""
+    loop = ctx.loop
+    msg = ctx.msg
+    total = 0
+    if loop is not None:
+        pending = loop._pending_queues.pop(ctx.key, None)
+        if pending is not None:
+            while not pending.empty():
+                try:
+                    pending.get_nowait()
+                    total += 1
+                except Exception:
+                    break
+        bus = getattr(loop, "bus", None)
+        if bus is not None:
+            total += await bus.purge_inbound_for_session(ctx.key)
+    return OutboundMessage(
+        channel=msg.channel, chat_id=msg.chat_id,
+        content=f"Cleared {total} queued message(s)." if total else "No queued messages.",
+        metadata=dict(msg.metadata or {})
+    )
+
 
 async def cmd_restart(ctx: CommandContext) -> OutboundMessage:
     """Restart the process."""
@@ -672,6 +702,7 @@ def build_help_text() -> str:
 def register_builtin_commands(router: CommandRouter) -> None:
     """Register the default set of slash commands."""
     router.priority("/stop", cmd_stop)
+    router.priority("/clear-queue", cmd_clear_queue)
     router.priority("/restart", cmd_restart)
     router.priority("/status", cmd_status)
     router.exact("/new", cmd_new)
